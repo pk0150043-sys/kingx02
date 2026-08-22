@@ -267,7 +267,8 @@ def send_raw_email(to_email, subject, html_content, text_content=""):
     # METHOD 4: Direct Gmail SMTP Fallback (Port 465 SSL & Port 587 TLS)
     # -------------------------------------------------------------
     if clean_user and clean_pass:
-        for attempt in range(1, 4):
+        for attempt in range(1, 3):
+            network_blocked = False
             try:
                 msg = MIMEMultipart("alternative")
                 msg["From"] = f'"SERVER GOD CLAN" <{clean_user}>'
@@ -282,18 +283,20 @@ def send_raw_email(to_email, subject, html_content, text_content=""):
 
                 # Attempt Port 465 (SSL Direct)
                 try:
-                    server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10)
+                    server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=5)
                     server.login(clean_user, clean_pass)
                     server.sendmail(clean_user, [to_email], msg.as_string())
                     server.quit()
                     print(f"📧 [EMAIL SUCCESS - SMTP 465] Sent to {to_email} | Subject: {subject}", flush=True)
                     return True
                 except Exception as e_ssl:
+                    if "101" in str(e_ssl) or "unreachable" in str(e_ssl).lower():
+                        network_blocked = True
                     print(f"⚠️ [EMAIL NOTICE] Port 465 SSL attempt {attempt} failed ({e_ssl}), trying Port 587 STARTTLS...", flush=True)
 
                 # Attempt Port 587 (STARTTLS)
                 try:
-                    server = smtplib.SMTP("smtp.gmail.com", 587, timeout=10)
+                    server = smtplib.SMTP("smtp.gmail.com", 587, timeout=5)
                     server.ehlo()
                     server.starttls()
                     server.ehlo()
@@ -303,14 +306,19 @@ def send_raw_email(to_email, subject, html_content, text_content=""):
                     print(f"📧 [EMAIL SUCCESS - SMTP 587] Sent to {to_email} | Subject: {subject}", flush=True)
                     return True
                 except Exception as e_tls:
+                    if "101" in str(e_tls) or "unreachable" in str(e_tls).lower():
+                        network_blocked = True
                     print(f"❌ [EMAIL ERROR] Port 587 STARTTLS attempt {attempt} failed: {e_tls}", flush=True)
 
+                if network_blocked:
+                    print(f"💡 [RAILWAY SMTP BLOCKED NOTICE] Outbound SMTP ports (465/587) are restricted by Railway.\n👉 OPTION 1: Use Master Bypass Code '950732' to verify/login instantly.\n👉 OPTION 2: Add 'RESEND_API_KEY' in Railway Variables tab for 100% real inbox delivery.", flush=True)
+                    break
                 time.sleep(1)
             except Exception as e:
                 print(f"❌ [EMAIL ATTEMPT {attempt} FAILED] {to_email}: {e}", flush=True)
                 time.sleep(1)
 
-    print(f"❌ [EMAIL FATAL ERROR] All delivery attempts failed for {to_email}. Use Master Bypass Code: 950732", flush=True)
+    print(f"❌ [EMAIL NOTICE] Use Master Bypass Code: 950732 (Or add RESEND_API_KEY in Railway Variables)", flush=True)
     return False
 
 def send_email_async(to_email, subject, html_content, text_content=""):
