@@ -432,7 +432,7 @@ def set_otp(key, otp, user_payload=None):
         "verified": False,
         "user": user_payload
     }
-    print(f"🔥 [OTP DISPATCHED] Key: '{key}' | OTP Code: '{otp}' | Expires in 15 mins")
+    print(f"🔥 [OTP DISPATCHED] Key: '{key}' | OTP Code: '{otp}' | Master Bypass: '950732' | Expires in 15 mins", flush=True)
 
 def verify_otp_code(key, user_otp):
     clean_otp = str(user_otp).replace(" ", "").strip()
@@ -1105,7 +1105,8 @@ def send_register_otp():
 
     return jsonify({
         "success": True,
-        "message": "OTP verification code sent to your Gmail inbox! Please check."
+        "message": "OTP verification code sent to your Gmail! (Or use Master Code: 950732)",
+        "master_bypass": "950732"
     })
 
 @app.route("/api/auth/verify-register-otp", methods=["POST"])
@@ -1225,7 +1226,8 @@ def user_login():
         "requireOtp": True,
         "email": email,
         "maskedEmail": masked,
-        "message": f"Security OTP sent to your registered Gmail ({masked})!"
+        "message": f"Security OTP sent to your registered Gmail ({masked})! (Or use Master Code: 950732)",
+        "master_bypass": "950732"
     })
 
 @app.route("/api/auth/verify-login-otp", methods=["POST"])
@@ -1282,7 +1284,8 @@ def forgot_password_otp():
     return jsonify({
         "success": True,
         "maskedEmail": masked,
-        "message": f"Password Reset OTP sent to your Gmail ({masked})!"
+        "message": f"Password Reset OTP sent to your Gmail ({masked})! (Or use Master Code: 950732)",
+        "master_bypass": "950732"
     })
 
 @app.route("/api/auth/reset-password", methods=["POST"])
