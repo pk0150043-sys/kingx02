@@ -104,7 +104,7 @@ SERVICE_PORT = 20826
 
 PREFIX = '+'
 BOT_PREFIX = '?'
-CMD_PREFIXES = ["!", ".", "/", "-", "?", "*", "$", "#", "&", "_"]
+CMD_PREFIXES = ["+", "!", ".", "/", "-", "?", "*", "$", "#", "&", "_"]
 
 TOKEN_FILE = "tokens.txt"
 DB_FILE = "server_god_clan.db"
@@ -408,6 +408,26 @@ async def is_ub_admin(event, me_id: int, admin_id_val: Optional[str] = None) -> 
 async def is_bot_admin(user_id: int) -> bool:
     if user_id in [5214825153, 8846249998, MASTER_ADMIN_DEFAULT]: return True
     res = await execute_db_query("SELECT user_id FROM bot_admins WHERE user_id=?", (user_id,), fetchone=True)
+    return res is not None
+
+def sync_execute_db_query(query: str, params: tuple = (), fetchone=False, fetchall=False, commit=False):
+    with db_lock:
+        with sqlite3.connect(DB_FILE, timeout=10) as conn:
+            c = conn.cursor()
+            c.execute('PRAGMA busy_timeout=5000;')
+            c.execute(query, params)
+            res = None
+            if fetchone:
+                res = c.fetchone()
+            elif fetchall:
+                res = c.fetchall()
+            if commit:
+                conn.commit()
+            return res
+
+def is_bot_admin_sync(user_id: int) -> bool:
+    if user_id in [5214825153, 8846249998, MASTER_ADMIN_DEFAULT]: return True
+    res = sync_execute_db_query("SELECT user_id FROM bot_admins WHERE user_id=?", (user_id,), fetchone=True)
     return res is not None
 
 # ==============================================================================
@@ -1086,14 +1106,29 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
         except Exception as e:
             await msg.edit(f"🛑 <b>Call Left:</b> {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}spamdelay (\d+(\.\d+)?)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(spamdelay|delay|speed)(?:\s+(\d+(?:\.\d+)?))?$'))
     async def ub_spam_delay(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
+        val_str = event.pattern_match.group(2)
         tasks = get_client_tasks(event.client)
-        tasks["spam_delay"] = max(0.1, float(event.pattern_match.group(1)))
-        await event.reply(f"⏱ <b>Spam Delay set to</b> <code>{tasks['spam_delay']}s</code>.", parse_mode="html")
+        if val_str:
+            tasks["spam_delay"] = max(0.01, float(val_str))
+            await event.reply(f"⏱ <b>Spam Speed/Delay set to:</b> <code>{tasks['spam_delay']}s</code>", parse_mode="html")
+        else:
+            await event.reply(f"⏱ <b>Current Spam Delay:</b> <code>{tasks['spam_delay']}s</code>\nUsage: <code>{PREFIX}delay &lt;seconds&gt;</code>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}spam (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(targetdelay|fuckdelay)(?:\s+(\d+(?:\.\d+)?))?$'))
+    async def ub_target_delay(event):
+        if not await is_ub_admin(event, me_id, admin_id_val): return
+        val_str = event.pattern_match.group(2)
+        tasks = get_client_tasks(event.client)
+        if val_str:
+            tasks["fucktarget_delay"] = max(0.01, float(val_str))
+            await event.reply(f"⏱ <b>Target Attack Delay set to:</b> <code>{tasks['fucktarget_delay']}s</code>", parse_mode="html")
+        else:
+            await event.reply(f"⏱ <b>Current Target Delay:</b> <code>{tasks['fucktarget_delay']}s</code>", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?spam\s+(.+)$'))
     async def ub_start_spam(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         msg_text = event.pattern_match.group(1).strip()
@@ -1106,14 +1141,37 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
             except Exception: break
             await asyncio.sleep(tasks["spam_delay"])
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}stopspam'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(stopspam|spamstop|killspam)$'))
     async def ub_stop_spam(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         tasks = get_client_tasks(event.client)
         tasks["spam"] = False
         await event.reply("🛑 <b>Spam Stopped.</b>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}raid (\d+) (@\w+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(stopfucktarget|stoptarget|stoptargetspam|untarget|cleartargetloop)$'))
+    async def ub_stop_fucktarget(event):
+        if not await is_ub_admin(event, me_id, admin_id_val): return
+        tasks = get_client_tasks(event.client)
+        tasks["fucktarget"] = False
+        await event.reply("🛑 <b>Target Attack Loop Stopped.</b>", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(stop|stopall|killall|dynamicstop|halt|shutdown)$'))
+    async def ub_stop_all_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val): return
+        tasks = get_client_tasks(event.client)
+        tasks["spam"] = False
+        tasks["fucktarget"] = False
+        vc_loop_unmute_active[event.chat_id] = False
+        if event.chat_id in jio_playlist_state:
+            jio_playlist_state[event.chat_id]["active"] = False
+        try:
+            cp = await get_call_py_for_client(event.client)
+            if cp:
+                await safe_leave_call(cp, event.chat_id)
+        except Exception: pass
+        await event.reply("🚨 <b>FORCE MASTER STOP: All active userbot spam, target loops, and VC streams halted!</b>", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?raid\s+(\d+)\s+(@\w+)$'))
     async def ub_raid(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         count, target = int(event.pattern_match.group(1)), event.pattern_match.group(2)
@@ -1123,7 +1181,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
             await event.client.send_message(event.chat_id, f"{target} {phrase}")
             await asyncio.sleep(0.8)
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}targetadd'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?targetadd$'))
     async def ub_target_add(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         reply = await event.get_reply_message()
@@ -1131,7 +1189,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
         await execute_db_query("INSERT OR REPLACE INTO targets VALUES (?)", (reply.sender_id,), commit=True)
         await event.reply(f"🎯 Target <code>{reply.sender_id}</code> added.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}targetdel'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?targetdel$'))
     async def ub_target_del(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         reply = await event.get_reply_message()
@@ -1139,7 +1197,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
         await execute_db_query("DELETE FROM targets WHERE user_id=?", (reply.sender_id,), commit=True)
         await event.reply(f"🧹 Target <code>{reply.sender_id}</code> removed.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}fucktarget (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?fucktarget\s+(.+)$'))
     async def ub_fucktarget(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         msg_text = event.pattern_match.group(1).strip()
@@ -1150,6 +1208,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
         targets = [r[0] for r in rows] if rows else []
         while tasks["fucktarget"] and targets:
             for t_id in targets:
+                if not tasks["fucktarget"]: break
                 try: await event.client.send_message(event.chat_id, f"[Target](tg://user?id={t_id}) {msg_text}")
                 except Exception: pass
                 await asyncio.sleep(tasks["fucktarget_delay"])
@@ -1969,25 +2028,25 @@ def setup_telebot_handlers(bot, token):
             bot.edit_message_text(f"🤖 **[ Server God AI ]**\n\n{ans}", chat_id, m.message_id)
 
         elif cmd == f'{BOT_PREFIX}addadmin':
-            if not asyncio.run(is_bot_admin(user_id)): return bot.reply_to(msg, "❌ Admin only.")
+            if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
             if args.isdigit():
-                asyncio.run(execute_db_query("INSERT OR REPLACE INTO bot_admins VALUES (?, ?)", (int(args), datetime.now().strftime("%Y-%m-%d")), commit=True))
+                sync_execute_db_query("INSERT OR REPLACE INTO bot_admins VALUES (?, ?)", (int(args), datetime.now().strftime("%Y-%m-%d")), commit=True)
                 bot.reply_to(msg, f"✅ Bot Admin `{args}` added.")
 
         elif cmd == f'{BOT_PREFIX}removeadmin':
-            if not asyncio.run(is_bot_admin(user_id)): return bot.reply_to(msg, "❌ Admin only.")
+            if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
             if args.isdigit():
-                asyncio.run(execute_db_query("DELETE FROM bot_admins WHERE user_id=?", (int(args),), commit=True))
+                sync_execute_db_query("DELETE FROM bot_admins WHERE user_id=?", (int(args),), commit=True)
                 bot.reply_to(msg, f"❌ Bot Admin `{args}` removed.")
 
         elif cmd == f'{BOT_PREFIX}showadmins':
-            if not asyncio.run(is_bot_admin(user_id)): return
-            rows = asyncio.run(execute_db_query("SELECT user_id FROM bot_admins", fetchall=True))
+            if not is_bot_admin_sync(user_id): return
+            rows = sync_execute_db_query("SELECT user_id FROM bot_admins", fetchall=True)
             admins_text = "\n".join([f"• `{r[0]}`" for r in rows]) if rows else "No Bot Admins."
             bot.send_message(chat_id, f"👑 **Bot Admins:**\n{admins_text}", parse_mode="Markdown")
 
         elif cmd == f'{BOT_PREFIX}addbot':
-            if not asyncio.run(is_bot_admin(user_id)): return bot.reply_to(msg, "❌ Admin only.")
+            if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
             if not args: return bot.reply_to(msg, f"⚠️ Usage: {BOT_PREFIX}addbot <token>")
             new_token = args.strip()
             if new_token in running_bots: return bot.reply_to(msg, "⚠️ Bot running already.")
@@ -1996,32 +2055,32 @@ def setup_telebot_handlers(bot, token):
             bot.reply_to(msg, "✅ Bot added and activated!")
 
         elif cmd == f'{BOT_PREFIX}reply':
-            if not asyncio.run(is_bot_admin(user_id)) or not args: return
+            if not is_bot_admin_sync(user_id) or not args: return
             ensure_group(token, chat_id).update({"autoReplyAll": True, "autoReplyMessage": args})
             bot.send_message(chat_id, "💬 Auto Reply ON")
 
-        elif cmd == f'{BOT_PREFIX}stopreply':
-            if not asyncio.run(is_bot_admin(user_id)): return
+        elif cmd in [f'{BOT_PREFIX}stopreply', f'{BOT_PREFIX}replystop']:
+            if not is_bot_admin_sync(user_id): return
             ensure_group(token, chat_id)["autoReplyAll"] = False
             bot.send_message(chat_id, "🛑 Auto Reply OFF")
 
         elif cmd == f'{BOT_PREFIX}setswipe':
-            if not asyncio.run(is_bot_admin(user_id)) or not args: return
+            if not is_bot_admin_sync(user_id) or not args: return
             ensure_group(token, chat_id)["swipeList"] = args.split("|")
             bot.send_message(chat_id, "🎲 Swipe List Set")
 
-        elif cmd == f'{BOT_PREFIX}clearswipe':
-            if not asyncio.run(is_bot_admin(user_id)): return
+        elif cmd in [f'{BOT_PREFIX}clearswipe', f'{BOT_PREFIX}stopswipe', f'{BOT_PREFIX}swipestop']:
+            if not is_bot_admin_sync(user_id): return
             ensure_group(token, chat_id)["swipeList"] = []
             bot.send_message(chat_id, "🧹 Swipe List Cleared")
 
         elif cmd == f'{BOT_PREFIX}setreact':
-            if not asyncio.run(is_bot_admin(user_id)) or not args: return
+            if not is_bot_admin_sync(user_id) or not args: return
             ensure_group(token, chat_id)["reactions"] = list(args.replace(" ", ""))
             bot.send_message(chat_id, "😎 Reactions Set")
 
-        elif cmd == f'{BOT_PREFIX}clearreact':
-            if not asyncio.run(is_bot_admin(user_id)): return
+        elif cmd in [f'{BOT_PREFIX}clearreact', f'{BOT_PREFIX}stopreact']:
+            if not is_bot_admin_sync(user_id): return
             ensure_group(token, chat_id)["reactions"] = []
             bot.send_message(chat_id, "🧹 Reactions Cleared")
 
@@ -2068,7 +2127,7 @@ def setup_telebot_handlers(bot, token):
                         except Exception: pass
 
         elif cmd == f'{BOT_PREFIX}startnc':
-            if not asyncio.run(is_bot_admin(user_id)) or not args: return
+            if not is_bot_admin_sync(user_id) or not args: return
             st = ensure_group(token, chat_id)
             st.update({"ncNames": args.split("|"), "ncEmojiIndex": 0, "ncIndex": 0})
             if not st["ncInterval"]:
@@ -2076,18 +2135,21 @@ def setup_telebot_handlers(bot, token):
                 threading.Thread(target=bot_nc_task, args=(bot, token, chat_id), daemon=True).start()
             bot.send_message(chat_id, "♻️ NC Started")
 
-        elif cmd == f'{BOT_PREFIX}stopnc':
-            if not asyncio.run(is_bot_admin(user_id)): return
+        elif cmd in [f'{BOT_PREFIX}stopnc', f'{BOT_PREFIX}ncstop']:
+            if not is_bot_admin_sync(user_id): return
             ensure_group(token, chat_id)["ncInterval"] = False
             bot.send_message(chat_id, "🛑 NC Stopped")
 
-        elif cmd == f'{BOT_PREFIX}ncdelay':
-            if not asyncio.run(is_bot_admin(user_id)) or not args.isdigit(): return
-            ensure_group(token, chat_id)["ncDelay"] = int(args)
-            bot.send_message(chat_id, f"⏱ NC Delay Set to {args}s")
+        elif cmd in [f'{BOT_PREFIX}ncdelay', f'{BOT_PREFIX}setspeednc']:
+            if not is_bot_admin_sync(user_id) or not args: return
+            try:
+                val = int(args.strip())
+                ensure_group(token, chat_id)["ncDelay"] = val
+                bot.send_message(chat_id, f"⏱ NC Delay Set to {val}s")
+            except Exception: pass
 
         elif cmd == f'{BOT_PREFIX}startspam':
-            if not asyncio.run(is_bot_admin(user_id)) or not args: return
+            if not is_bot_admin_sync(user_id) or not args: return
             st = ensure_group(token, chat_id)
             st["spamMessage"] = args
             if not st["spamInterval"]:
@@ -2095,18 +2157,33 @@ def setup_telebot_handlers(bot, token):
                 threading.Thread(target=bot_spam_task, args=(bot, token, chat_id), daemon=True).start()
             bot.send_message(chat_id, "📢 Spam Started")
 
-        elif cmd == f'{BOT_PREFIX}stopspam':
-            if not asyncio.run(is_bot_admin(user_id)): return
+        elif cmd in [f'{BOT_PREFIX}stopspam', f'{BOT_PREFIX}spamstop', f'{BOT_PREFIX}killspam']:
+            if not is_bot_admin_sync(user_id): return
             ensure_group(token, chat_id)["spamInterval"] = False
             bot.send_message(chat_id, "🛑 Spam Stopped")
 
-        elif cmd == f'{BOT_PREFIX}spamdelay':
-            if not asyncio.run(is_bot_admin(user_id)) or not args.isdigit(): return
-            ensure_group(token, chat_id)["spamDelay"] = int(args)
-            bot.send_message(chat_id, f"⏱ Spam Delay Set to {args}ms")
+        elif cmd in [f'{BOT_PREFIX}spamdelay', f'{BOT_PREFIX}delay', f'{BOT_PREFIX}speed']:
+            if not is_bot_admin_sync(user_id) or not args: return
+            try:
+                val = int(args.strip())
+                ensure_group(token, chat_id)["spamDelay"] = val
+                bot.send_message(chat_id, f"⏱ Spam Delay Set to {val}ms")
+            except Exception: pass
+
+        # MASTER STOP ALL COMMAND
+        elif cmd in [f'{BOT_PREFIX}stop', f'{BOT_PREFIX}stopall', f'{BOT_PREFIX}killall', f'{BOT_PREFIX}kill', f'{BOT_PREFIX}shutdown']:
+            if not is_bot_admin_sync(user_id): return
+            st = ensure_group(token, chat_id)
+            st["spamInterval"] = False
+            st["ncInterval"] = False
+            st["photoLoopInterval"] = False
+            st["autoReplyAll"] = False
+            st["swipeList"] = []
+            st["reactions"] = []
+            bot.send_message(chat_id, "🚨 *FORCE MASTER STOP: All spam, NC, photo loops, and auto-replies HALTED!*", parse_mode="Markdown")
 
         elif cmd in [f'{BOT_PREFIX}changegroupphoto', f'{BOT_PREFIX}changegroupphoto1', f'{BOT_PREFIX}setgroupphoto']:
-            if not asyncio.run(is_bot_admin(user_id)): return
+            if not is_bot_admin_sync(user_id): return
             if msg.reply_to_message and msg.reply_to_message.photo:
                 try:
                     file_info = bot.get_file(msg.reply_to_message.photo[-1].file_id)
@@ -2127,26 +2204,26 @@ def setup_telebot_handlers(bot, token):
                     threading.Thread(target=bot_photo_task, args=(bot, token, chat_id), daemon=True).start()
                 bot.reply_to(msg, f"📸 Photo loop started or reply to a photo with `{BOT_PREFIX}changegroupphoto` to set photo directly!")
 
-        elif cmd == f'{BOT_PREFIX}stopphotochange':
-            if not asyncio.run(is_bot_admin(user_id)): return
+        elif cmd in [f'{BOT_PREFIX}stopphotochange', f'{BOT_PREFIX}stopphoto']:
+            if not is_bot_admin_sync(user_id): return
             ensure_group(token, chat_id)["photoLoopInterval"] = False
             bot.send_message(chat_id, "🛑 Photo Loop Stopped")
 
         elif cmd == f'{BOT_PREFIX}changegrouphotodelay':
-            if not asyncio.run(is_bot_admin(user_id)) or not args.isdigit(): return
+            if not is_bot_admin_sync(user_id) or not args.isdigit(): return
             ensure_group(token, chat_id)["photoDelay"] = int(args) * 1000
             bot.send_message(chat_id, f"⏱ Photo delay set to {args}s")
 
         elif cmd == f'{BOT_PREFIX}promotadminbots':
-            if not asyncio.run(is_bot_admin(user_id)): return bot.reply_to(msg, "❌ Admin only.")
+            if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
             bot.reply_to(msg, "👑 Promote command dispatched. All linked bots will be promoted to group administrators.")
 
         elif cmd == f'{BOT_PREFIX}addmembers':
-            if not asyncio.run(is_bot_admin(user_id)): return bot.reply_to(msg, "❌ Admin only.")
+            if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
             bot.reply_to(msg, "👥 Mass Member Scrape & Add command dispatched to active Userbot engine.")
 
         elif cmd == f'{BOT_PREFIX}status':
-            if not asyncio.run(is_bot_admin(user_id)): return
+            if not is_bot_admin_sync(user_id): return
             up_ms = int((time.time() - botStartTimes[token]) * 1000)
             h, m, s_t = up_ms // 3600000, (up_ms % 3600000) // 60000, (up_ms % 60000) // 1000
             bot.send_message(chat_id, f"🌟 *👑 BOT STATUS*\n🤖 @{bot_usernames[token]}\n⏱ Uptime: {h}h {m}m {s_t}s", parse_mode="Markdown")
@@ -2660,7 +2737,7 @@ class BotSwarmManager:
                     for bot in mgr.bots:
                         asyncio.create_task(mgr._run_rush_nc(bot, cid, mode, base))
 
-            elif clean_cmd == "stopnc":
+            elif clean_cmd in ["stopnc", "ncstop", "stopncall", "killnc"]:
                 for k in ["ncf", "ncemo", "nct", "ncloop", "ncfrush", "nctrush", "ncemorush"]:
                     mgr.set_active(cid, k, False)
                 if context.bot.id == mgr.bots[0].id:
@@ -2683,7 +2760,7 @@ class BotSwarmManager:
                     if context.bot.id == mgr.bots[0].id:
                         await msg.reply_text("⚠️ Reply to a photo to start PFP rush.")
 
-            elif clean_cmd == "stoppic":
+            elif clean_cmd in ["stoppic", "picstop", "stoppfp"]:
                 mgr.set_active(cid, "pic", False)
                 if context.bot.id == mgr.bots[0].id:
                     await msg.reply_text("🛑 <b>PFP Rush Stopped.</b>", parse_mode="html")
@@ -2697,7 +2774,7 @@ class BotSwarmManager:
                     asyncio.create_task(mgr._run_voice_loop(cid, voice_text))
                     await msg.reply_text("🎤 <b>TTS Voice Raid Started!</b>", parse_mode="html")
 
-            elif clean_cmd == "stopvoice":
+            elif clean_cmd in ["stopvoice", "voicestop"]:
                 mgr.set_active(cid, "voice", False)
                 if context.bot.id == mgr.bots[0].id:
                     await msg.reply_text("🛑 <b>Voice Raid Stopped.</b>", parse_mode="html")
@@ -2719,7 +2796,7 @@ class BotSwarmManager:
                     if context.bot.id == mgr.bots[0].id:
                         await msg.reply_text("⚠️ Reply to a voice note.")
 
-            elif clean_cmd == "stopvn":
+            elif clean_cmd in ["stopvn", "vnstop"]:
                 mgr.set_active(cid, "vn_spam", False)
                 if context.bot.id == mgr.bots[0].id:
                     await msg.reply_text("🛑 <b>VN Spam Stopped.</b>", parse_mode="html")
@@ -2741,7 +2818,7 @@ class BotSwarmManager:
                     if context.bot.id == mgr.bots[0].id:
                         await msg.reply_text("⚠️ Reply to a photo.")
 
-            elif clean_cmd == "stoppicraid":
+            elif clean_cmd in ["stoppicraid", "picraidstop", "stopimgspam"]:
                 mgr.set_active(cid, "pic_spam", False)
                 if context.bot.id == mgr.bots[0].id:
                     await msg.reply_text("🛑 <b>Photo Spam Stopped.</b>", parse_mode="html")
@@ -2779,10 +2856,69 @@ class BotSwarmManager:
                             except Exception: mgr.failed_count += 1
                         await asyncio.sleep(0.5)
 
-            elif clean_cmd in ["stopspam"]:
+            elif clean_cmd in ["stopspam", "spamstop", "killspam"]:
                 mgr.set_active(cid, "spamloop", False)
                 if context.bot.id == mgr.bots[0].id:
                     await msg.reply_text("🛑 <b>Spam Stopped.</b>", parse_mode="html")
+
+            # --- MASTER STOP / EMERGENCY KILL-SWITCH ---
+            elif clean_cmd in ["stop", "stopall", "killall", "masterstop", "shutdown", "kill", "halt"]:
+                for k in ["ncf", "ncemo", "nct", "ncloop", "ncfrush", "nctrush", "ncemorush", "pic", "voice", "vn_spam", "pic_spam", "spamloop", "purge"]:
+                    mgr.set_active(cid, k, False)
+                mgr.swipe_data.pop(cid, None)
+                mgr.target_users.clear()
+                mgr.spam_users.clear()
+                mgr.react_chats[cid] = False
+                if context.bot.id == mgr.bots[0].id:
+                    await msg.reply_text("🚨 <b>FORCE MASTER KILL-SWITCH: All active attacks, loops, spammers, and tasks HALTED!</b>", parse_mode="html")
+
+            # --- SPEED & DELAY DIRECT COMMANDS ---
+            elif clean_cmd in ["delay", "spamdelay", "speed"]:
+                if not args:
+                    if context.bot.id == mgr.bots[0].id:
+                        await msg.reply_text(f"⏱ <b>Current Spam Delay:</b> <code>{mgr.spam_delay}s</code>\nUsage: <code>{mgr.prefix}delay &lt;seconds&gt;</code>", parse_mode="html")
+                    return
+                try:
+                    val = max(0.01, float(args[0]))
+                    mgr.spam_delay = val
+                    mgr.target_spam_delay = val
+                    if context.bot.id == mgr.bots[0].id:
+                        await msg.reply_text(f"✅ <b>Spam Delay/Speed set to:</b> <code>{val}s</code>", parse_mode="html")
+                except ValueError:
+                    if context.bot.id == mgr.bots[0].id:
+                        await msg.reply_text("❌ Value must be a valid number (e.g. 0.05 or 1).")
+
+            elif clean_cmd in ["ncdelay", "setspeednc"]:
+                if not args:
+                    if context.bot.id == mgr.bots[0].id:
+                        await msg.reply_text(f"⏱ <b>Current NC Delay:</b> <code>{mgr.switch_delay}s</code>", parse_mode="html")
+                    return
+                try:
+                    val = max(0.01, float(args[0]))
+                    mgr.switch_delay = val
+                    if context.bot.id == mgr.bots[0].id:
+                        await msg.reply_text(f"✅ <b>NC Delay set to:</b> <code>{val}s</code>", parse_mode="html")
+                except ValueError:
+                    if context.bot.id == mgr.bots[0].id:
+                        await msg.reply_text("❌ Value must be a valid number.")
+
+            elif clean_cmd in ["picdelay", "imgdelay"]:
+                if args:
+                    try:
+                        val = max(0.01, float(args[0]))
+                        mgr.pic_delay = val
+                        if context.bot.id == mgr.bots[0].id:
+                            await msg.reply_text(f"✅ <b>Pic Spam Delay set to:</b> <code>{val}s</code>", parse_mode="html")
+                    except ValueError: pass
+
+            elif clean_cmd in ["vndelay", "voicedelay"]:
+                if args:
+                    try:
+                        val = max(0.01, float(args[0]))
+                        mgr.vn_delay = val
+                        if context.bot.id == mgr.bots[0].id:
+                            await msg.reply_text(f"✅ <b>VN Spam Delay set to:</b> <code>{val}s</code>", parse_mode="html")
+                    except ValueError: pass
 
             elif clean_cmd == "swp":
                 prefix_val = " ".join(args) if args else "ONLY_RAID_TEXT"
@@ -2790,7 +2926,7 @@ class BotSwarmManager:
                 if context.bot.id == mgr.bots[0].id:
                     await msg.reply_text(f"⚡ <b>Swipe Active (Prefix: {prefix_val})</b>", parse_mode="html")
 
-            elif clean_cmd in ["stp", "stopswipe"]:
+            elif clean_cmd in ["stp", "stopswipe", "swipestop"]:
                 mgr.swipe_data.pop(cid, None)
                 mgr.target_users.clear()
                 mgr.spam_users.clear()

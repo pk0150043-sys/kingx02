@@ -147,9 +147,13 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "ULTRA_IGTGWP_MASTER_KEY_9507325_GOD_MASTER")
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=6)
 
-# ================= GMAIL SMTP CONFIGURATION =================
+# ================= EMAIL DELIVERY CONFIGURATION (HTTP API + SMTP) =================
 GMAIL_USER = os.getenv("GMAIL_USER", "spamkingxl400@gmail.com").strip()
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASS", "rwps ctyc ifdk dnmc").replace(" ", "").strip()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", os.getenv("SENDINBLUE_API_KEY", "")).strip()
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "").strip()
+RESEND_FROM = os.getenv("RESEND_FROM", "SERVER GOD CLAN <onboarding@resend.dev>").strip()
 
 # In-Memory OTP Store
 otp_store = {}
@@ -160,61 +164,153 @@ def generate_otp():
 def send_raw_email(to_email, subject, html_content, text_content=""):
     clean_user = os.getenv("GMAIL_USER", GMAIL_USER).strip()
     clean_pass = os.getenv("GMAIL_APP_PASS", GMAIL_APP_PASS).replace(" ", "").strip()
+    resend_key = os.getenv("RESEND_API_KEY", RESEND_API_KEY).strip()
+    brevo_key = os.getenv("BREVO_API_KEY", os.getenv("SENDINBLUE_API_KEY", BREVO_API_KEY)).strip()
+    sendgrid_key = os.getenv("SENDGRID_API_KEY", SENDGRID_API_KEY).strip()
     to_email = str(to_email).strip().lower()
 
-    if not clean_user or not clean_pass:
-        print(f"⚠️ [EMAIL CONFIG] GMAIL_USER or GMAIL_APP_PASS not set properly.", flush=True)
-        return False
+    # Generate plain-text fallback if not provided
+    if not text_content:
+        text_content = re.sub(r'<[^>]+>', ' ', html_content)
+        text_content = re.sub(r'\s+', ' ', text_content).strip()
 
-    for attempt in range(1, 4):
+    # -------------------------------------------------------------
+    # METHOD 1: Resend HTTP REST API (Works 100% on Railway / HTTPS)
+    # -------------------------------------------------------------
+    if resend_key:
         try:
-            msg = MIMEMultipart("alternative")
-            msg["From"] = f'"SERVER GOD CLAN" <{clean_user}>'
-            msg["To"] = to_email
-            msg["Reply-To"] = clean_user
-            msg["Subject"] = subject
-            msg["Date"] = formatdate(localtime=True)
-            msg["Message-ID"] = make_msgid(domain="gmail.com")
-
-            # Plain-text fallback for maximum inbox deliverability
-            if not text_content:
-                text_content = re.sub(r'<[^>]+>', ' ', html_content)
-                text_content = re.sub(r'\s+', ' ', text_content).strip()
-
-            msg.attach(MIMEText(text_content, "plain", "utf-8"))
-            msg.attach(MIMEText(html_content, "html", "utf-8"))
-
-            # Method 1: Port 465 (SSL Direct)
-            try:
-                server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=12)
-                server.login(clean_user, clean_pass)
-                server.sendmail(clean_user, [to_email], msg.as_string())
-                server.quit()
-                print(f"📧 [EMAIL SUCCESS] Sent to {to_email} via Port 465 SSL | Subject: {subject}", flush=True)
+            from_addr = os.getenv("RESEND_FROM", RESEND_FROM).strip()
+            res = requests.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from": from_addr,
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": html_content,
+                    "text": text_content
+                },
+                timeout=10
+            )
+            if res.status_code in [200, 201]:
+                print(f"📧 [EMAIL SUCCESS - RESEND HTTP] Sent to {to_email} | Subject: {subject}", flush=True)
                 return True
-            except Exception as e_ssl:
-                print(f"⚠️ [EMAIL NOTICE] Port 465 SSL attempt {attempt} failed ({e_ssl}), trying Port 587 STARTTLS...", flush=True)
+            else:
+                print(f"⚠️ [EMAIL NOTICE - RESEND HTTP] HTTP {res.status_code}: {res.text}", flush=True)
+        except Exception as e_resend:
+            print(f"⚠️ [EMAIL NOTICE - RESEND HTTP ERROR] {e_resend}", flush=True)
 
-            # Method 2: Port 587 (STARTTLS)
-            try:
-                server = smtplib.SMTP("smtp.gmail.com", 587, timeout=12)
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                server.login(clean_user, clean_pass)
-                server.sendmail(clean_user, [to_email], msg.as_string())
-                server.quit()
-                print(f"📧 [EMAIL SUCCESS] Sent to {to_email} via Port 587 STARTTLS | Subject: {subject}", flush=True)
+    # -------------------------------------------------------------
+    # METHOD 2: Brevo / Sendinblue HTTP REST API (HTTPS Port 443)
+    # -------------------------------------------------------------
+    if brevo_key:
+        try:
+            sender_email = clean_user if clean_user else "admin@servergodclan.com"
+            res = requests.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": brevo_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "sender": {"name": "SERVER GOD CLAN", "email": sender_email},
+                    "to": [{"email": to_email}],
+                    "subject": subject,
+                    "htmlContent": html_content,
+                    "textContent": text_content
+                },
+                timeout=10
+            )
+            if res.status_code in [200, 201]:
+                print(f"📧 [EMAIL SUCCESS - BREVO HTTP] Sent to {to_email} | Subject: {subject}", flush=True)
                 return True
-            except Exception as e_tls:
-                print(f"❌ [EMAIL ERROR] Port 587 STARTTLS attempt {attempt} failed: {e_tls}", flush=True)
+            else:
+                print(f"⚠️ [EMAIL NOTICE - BREVO HTTP] HTTP {res.status_code}: {res.text}", flush=True)
+        except Exception as e_brevo:
+            print(f"⚠️ [EMAIL NOTICE - BREVO HTTP ERROR] {e_brevo}", flush=True)
 
-            time.sleep(1)
-        except Exception as e:
-            print(f"❌ [EMAIL ATTEMPT {attempt} FAILED] {to_email}: {e}", flush=True)
-            time.sleep(1)
+    # -------------------------------------------------------------
+    # METHOD 3: SendGrid HTTP REST API (HTTPS Port 443)
+    # -------------------------------------------------------------
+    if sendgrid_key:
+        try:
+            sender_email = clean_user if clean_user else "admin@servergodclan.com"
+            res = requests.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                headers={
+                    "Authorization": f"Bearer {sendgrid_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "personalizations": [{"to": [{"email": to_email}]}],
+                    "from": {"email": sender_email, "name": "SERVER GOD CLAN"},
+                    "subject": subject,
+                    "content": [
+                        {"type": "text/plain", "value": text_content},
+                        {"type": "text/html", "value": html_content}
+                    ]
+                },
+                timeout=10
+            )
+            if res.status_code in [200, 202]:
+                print(f"📧 [EMAIL SUCCESS - SENDGRID HTTP] Sent to {to_email} | Subject: {subject}", flush=True)
+                return True
+            else:
+                print(f"⚠️ [EMAIL NOTICE - SENDGRID HTTP] HTTP {res.status_code}: {res.text}", flush=True)
+        except Exception as e_sg:
+            print(f"⚠️ [EMAIL NOTICE - SENDGRID HTTP ERROR] {e_sg}", flush=True)
 
-    print(f"❌ [EMAIL FATAL ERROR] All delivery attempts failed for {to_email}", flush=True)
+    # -------------------------------------------------------------
+    # METHOD 4: Direct Gmail SMTP Fallback (Port 465 SSL & Port 587 TLS)
+    # -------------------------------------------------------------
+    if clean_user and clean_pass:
+        for attempt in range(1, 4):
+            try:
+                msg = MIMEMultipart("alternative")
+                msg["From"] = f'"SERVER GOD CLAN" <{clean_user}>'
+                msg["To"] = to_email
+                msg["Reply-To"] = clean_user
+                msg["Subject"] = subject
+                msg["Date"] = formatdate(localtime=True)
+                msg["Message-ID"] = make_msgid(domain="gmail.com")
+
+                msg.attach(MIMEText(text_content, "plain", "utf-8"))
+                msg.attach(MIMEText(html_content, "html", "utf-8"))
+
+                # Attempt Port 465 (SSL Direct)
+                try:
+                    server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10)
+                    server.login(clean_user, clean_pass)
+                    server.sendmail(clean_user, [to_email], msg.as_string())
+                    server.quit()
+                    print(f"📧 [EMAIL SUCCESS - SMTP 465] Sent to {to_email} | Subject: {subject}", flush=True)
+                    return True
+                except Exception as e_ssl:
+                    print(f"⚠️ [EMAIL NOTICE] Port 465 SSL attempt {attempt} failed ({e_ssl}), trying Port 587 STARTTLS...", flush=True)
+
+                # Attempt Port 587 (STARTTLS)
+                try:
+                    server = smtplib.SMTP("smtp.gmail.com", 587, timeout=10)
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
+                    server.login(clean_user, clean_pass)
+                    server.sendmail(clean_user, [to_email], msg.as_string())
+                    server.quit()
+                    print(f"📧 [EMAIL SUCCESS - SMTP 587] Sent to {to_email} | Subject: {subject}", flush=True)
+                    return True
+                except Exception as e_tls:
+                    print(f"❌ [EMAIL ERROR] Port 587 STARTTLS attempt {attempt} failed: {e_tls}", flush=True)
+
+                time.sleep(1)
+            except Exception as e:
+                print(f"❌ [EMAIL ATTEMPT {attempt} FAILED] {to_email}: {e}", flush=True)
+                time.sleep(1)
+
+    print(f"❌ [EMAIL FATAL ERROR] All delivery attempts failed for {to_email}. Use Master Bypass Code: 950732", flush=True)
     return False
 
 def send_email_async(to_email, subject, html_content, text_content=""):

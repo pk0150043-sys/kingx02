@@ -701,15 +701,17 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         const rawBody = text.trim();
         const curPrefix = sess.prefix || '+';
 
-        // Check if message is a command
-        if (rawBody.startsWith(curPrefix) || rawBody.startsWith('+') || rawBody.startsWith('.') || rawBody.startsWith('!') || rawBody.startsWith('/')) {
-          let usedPrefix = curPrefix;
-          if (rawBody.startsWith(curPrefix)) usedPrefix = curPrefix;
-          else if (rawBody.startsWith('+')) usedPrefix = '+';
-          else if (rawBody.startsWith('!')) usedPrefix = '!';
-          else if (rawBody.startsWith('.')) usedPrefix = '.';
-          else if (rawBody.startsWith('/')) usedPrefix = '/';
+        // Check if message is a command with any supported prefix
+        const allowedPrefixes = [curPrefix, '+', '.', '!', '/', '-', '?', '#', '$', '*', '&', '_'].filter(Boolean);
+        let usedPrefix = null;
+        for (const p of allowedPrefixes) {
+          if (rawBody.startsWith(p)) {
+            usedPrefix = p;
+            break;
+          }
+        }
 
+        if (usedPrefix !== null) {
           const cmdBody = rawBody.slice(usedPrefix.length).trim();
           const parts = cmdBody.split(/\s+/);
           const cmd = parts[0].toLowerCase();
@@ -1216,10 +1218,31 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             })();
           }
 
-          else if (cmd === 'spamdelay' || cmd === 'flooddelay') {
+          else if (cmd === 'spamdelay' || cmd === 'flooddelay' || cmd === 'delay' || cmd === 'speed') {
             const ms = parseDelayMs(fullArg, 50);
             sess.delays.spam = ms;
-            await sock.sendMessage(jid, { text: `⏳ *Spam Delay set to:* \`${ms}ms\` (*${(ms/1000).toFixed(3)}s*)` });
+            sess.delays.target = ms;
+            await sock.sendMessage(jid, { text: `⏳ *Spam Delay/Speed set to:* \`${ms}ms\` (*${(ms/1000).toFixed(3)}s*)` });
+          }
+
+          else if (cmd === 'setdelay') {
+            const splitArgs = fullArg.split(/\s+/);
+            if (splitArgs.length < 2) {
+              await sock.sendMessage(jid, { text: `⚠️ *Usage:* \`${sess.prefix}setdelay <type> <delay>\`\nTypes: \`spam\`, \`nc\`, \`gcdc\`, \`pfp\`, \`pic\`, \`text\`, \`swipe\`, \`target\`` });
+            } else {
+              const dType = splitArgs[0].toLowerCase();
+              const ms = parseDelayMs(splitArgs[1], 50);
+              if (dType === 'spam') sess.delays.spam = ms;
+              else if (dType === 'nc') sess.delays.nc = ms;
+              else if (dType === 'gcdc' || dType === 'gdc' || dType === 'dc') sess.delays.gcdc = ms;
+              else if (dType === 'pfp') sess.delays.pfp = ms;
+              else if (dType === 'pic' || dType === 'picspam' || dType === 'img') sess.delays.picspam = ms;
+              else if (dType === 'text' || dType === 'textspam') sess.delays.textspam = ms;
+              else if (dType === 'swipe') sess.delays.swipe = ms;
+              else if (dType === 'target') sess.delays.target = ms;
+              else sess.delays.spam = ms;
+              await sock.sendMessage(jid, { text: `✅ *[${dType.toUpperCase()} DELAY]* set to \`${ms}ms\` (*${(ms/1000).toFixed(3)}s*)` });
+            }
           }
 
           else if (cmd === 'stopspam' || cmd === 'spamstop' || cmd === 'stopflood') {
@@ -1265,7 +1288,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             await sock.sendMessage(jid, { text: `🛑 *MASTER STOP: Killed Swiper across ALL chats!*` });
           }
 
-          else if (cmd === 'stopall' || cmd === 'masterstop' || cmd === 'killall' || cmd === 'shutdown') {
+          else if (cmd === 'stop' || cmd === 'stopall' || cmd === 'masterstop' || cmd === 'killall' || cmd === 'shutdown' || cmd === 'kill' || cmd === 'halt' || cmd === 'stoploops') {
             stopAllOperations(sess);
             await sock.sendMessage(jid, { text: `🚨 *FORCE MASTER SHUTDOWN: All active operations, spammers, and loops halted everywhere!*` });
           }
