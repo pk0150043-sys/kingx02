@@ -127,6 +127,88 @@ const isCallReceiptNode = (node) => {
   return !!(child?.attrs?.['call-id'] || child?.attrs?.call_id);
 };
 
+const EventEmitter = require('events');
+
+/**
+ * 📞 Safe Active Call with complete ringing lifecycle (prevents instant missed-call drop)
+ */
+class SafeActiveCall extends EventEmitter {
+  constructor(callId, engine, durationMs = 180000) {
+    super();
+    this.callId = callId;
+    this.engine = engine;
+    this.state = 0;
+    this.hasStarted = false;
+    this.hasRung = false;
+    this.hasConnected = false;
+    this._ended = false;
+    this._audioSource = 'silence';
+    this._endResolver = null;
+    this.endPromise = new Promise((res) => { this._endResolver = res; });
+    // Default call duration minimum 45s so the phone rings for at least 30-45s
+    const dur = Math.max(Number(durationMs) || 180000, 45000);
+    this._endTimer = setTimeout(() => this.end(), dur);
+  }
+
+  end() {
+    if (this._ended) return;
+    this._ended = true;
+    if (this._endTimer) {
+      clearTimeout(this._endTimer);
+      this._endTimer = null;
+    }
+    try {
+      this.engine?.endCall(0, true);
+    } catch (e) {}
+  }
+
+  mute(muted) {
+    try {
+      this.engine?.setMute(muted);
+    } catch (e) {}
+  }
+
+  _updateState(state) {
+    const prevState = this.state;
+    this.state = state;
+    if (state === 1) { // Calling
+      this.hasStarted = true;
+      this.emit('dialing');
+    } else if (state === 2) { // PreacceptReceived (Phone Ringing)
+      this.hasStarted = true;
+      this.hasRung = true;
+      this.emit('ringing');
+    } else if (state === 6) { // Active Connected
+      this.hasStarted = true;
+      this.hasConnected = true;
+      this.emit('connected');
+    } else if (state === 13) { // Ending
+      if (this.hasStarted || this.hasConnected) {
+        this._forceEnd('ended');
+      }
+    } else if (state === 0) { // Idle
+      if (prevState === 13 || prevState === 6 || this.hasConnected) {
+        this._forceEnd('ended');
+      }
+    }
+  }
+
+  _emitAudio(pcm) {
+    this.emit('audio', pcm);
+  }
+
+  _forceEnd(reason) {
+    if (this._ended) return;
+    this._ended = true;
+    if (this._endTimer) {
+      clearTimeout(this._endTimer);
+      this._endTimer = null;
+    }
+    this.emit('ended', reason);
+    if (this._endResolver) this._endResolver(reason);
+  }
+}
+
 /**
  * 👑 Full-Duplex Official WhatsApp Web VoIP Engine Manager (baileys-caller bridge)
  */
@@ -231,8 +313,6 @@ class SessionVoipManager {
         const update = JSON.parse(eventData);
         this.relay?.updateRelayList(update);
       } catch {}
-    } else if (eventType === 2) {
-      this.activeCall?._forceEnd('remote_end');
     }
   }
 
@@ -332,7 +412,7 @@ class SessionVoipManager {
     const tcToken = await this.signaling.ensureTcToken(peerLid, targetPnJid);
     const callId = ('00' + crypto.randomBytes(16).toString('hex').slice(2)).toUpperCase();
 
-    const call = new ActiveCall(callId, this.engine, durationMs);
+    const call = new SafeActiveCall(callId, this.engine, durationMs);
     call._audioSource = audioSource;
     this.activeCall = call;
 
