@@ -738,22 +738,33 @@
           qrImg.style.display = "none";
           qrSpinner.style.display = "flex";
           qrSpinner.innerHTML = `<span style="color:#25d366;font-weight:800;">🟢 CONNECTED<br>${d.connectedNumber || 'Online'}</span>`;
+          document.getElementById("wa-pairing-code-display").style.display = "none";
           return;
         }
 
         if (d.pairingCode) {
           document.getElementById("wa-pairing-code-val").textContent = d.pairingCode;
           document.getElementById("wa-pairing-code-display").style.display = "flex";
+        } else if (d.session_status !== 'PAIRING') {
+          document.getElementById("wa-pairing-code-display").style.display = "none";
         }
 
         if (d.qr) {
           qrImg.src = d.qr;
           qrImg.style.display = "block";
           qrSpinner.style.display = "none";
-        } else if (d.session_status === 'PAIRING') {
+        } else if (d.pairingCode || d.session_status === 'PAIRING') {
           qrImg.style.display = "none";
           qrSpinner.style.display = "flex";
-          qrSpinner.innerHTML = `<span style="color:#38bdf8;font-weight:700;">🔢 PAIRING CODE ACTIVE</span>`;
+          const activeCode = d.pairingCode || document.getElementById("wa-pairing-code-val").textContent || 'Generating...';
+          qrSpinner.innerHTML = `
+            <div style="text-align:center; padding: 10px;">
+              <div style="font-size:11px; color:#38bdf8; font-weight:800; text-transform:uppercase; margin-bottom:4px;">🔢 8-DIGIT PAIRING CODE</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:1.5rem; font-weight:900; color:#25d366; letter-spacing:3px; margin: 6px 0;">${activeCode}</div>
+              <button type="button" class="btn-primary" onclick="copyPairingCode()" style="padding:4px 12px; font-size:11px; margin-top:4px; cursor:pointer;">📋 Copy Code</button>
+              <div style="font-size:10px; color:#94a3b8; margin-top:6px;">Link via WhatsApp &gt; Linked Devices</div>
+            </div>
+          `;
         } else {
           qrImg.style.display = "none";
           qrSpinner.style.display = "flex";
@@ -782,6 +793,12 @@
       document.getElementById("wa-pairing-code-val").textContent = "GENERATING...";
       document.getElementById("wa-pairing-code-display").style.display = "flex";
 
+      const qrSpinner = document.getElementById("wa-qr-loading-spinner");
+      const qrImg = document.getElementById("wa-live-qr-img");
+      qrImg.style.display = "none";
+      qrSpinner.style.display = "flex";
+      qrSpinner.innerHTML = `⏳ Generating 8-digit pairing code for +${phone}...`;
+
       try {
         const res = await fetch("/wp_pair_code", {
           method: "POST",
@@ -790,26 +807,40 @@
         });
 
         const data = await res.json();
-        if (data.status === "ok") {
+        if (data.status === "ok" && data.pairingCode) {
           document.getElementById("wa-pairing-code-val").textContent = data.pairingCode;
           document.getElementById("wa-pairing-code-display").style.display = "flex";
-          alert(`🔢 Pairing Code: ${data.pairingCode}\n\nEnter this 8-digit code in WhatsApp > Linked Devices > Link with phone number!`);
+
+          qrSpinner.innerHTML = `
+            <div style="text-align:center; padding: 10px;">
+              <div style="font-size:11px; color:#38bdf8; font-weight:800; text-transform:uppercase; margin-bottom:4px;">🔢 8-DIGIT PAIRING CODE</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:1.5rem; font-weight:900; color:#25d366; letter-spacing:3px; margin: 6px 0;">${data.pairingCode}</div>
+              <button type="button" class="btn-primary" onclick="copyPairingCode()" style="padding:4px 12px; font-size:11px; margin-top:4px; cursor:pointer;">📋 Copy Code</button>
+              <div style="font-size:10px; color:#94a3b8; margin-top:6px;">Link via WhatsApp &gt; Linked Devices</div>
+            </div>
+          `;
+
+          alert(`🔢 8-Digit Pairing Code Generated:\n\n👉  ${data.pairingCode}  👈\n\nEnter this code in WhatsApp > Linked Devices > Link with phone number!`);
+          loadWpStatus();
         } else {
           document.getElementById("wa-pairing-code-display").style.display = "none";
+          qrSpinner.textContent = "❌ Failed to generate pairing code";
           alert("Pairing Code Error: " + (data.message || "Failed to generate pairing code"));
         }
       } catch (err) {
         document.getElementById("wa-pairing-code-display").style.display = "none";
+        qrSpinner.textContent = "❌ Network error";
         alert("Network error: " + err.message);
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = origText; }
       }
     }
 
-    function copyPairingCode() {
-      const code = document.getElementById("wa-pairing-code-val").textContent.trim();
+    function copyPairingCode(customCode) {
+      const code = customCode || document.getElementById("wa-pairing-code-val").textContent.trim();
+      if (!code || code === '---- ----' || code === 'GENERATING...') return;
       navigator.clipboard.writeText(code);
-      alert(`Copied Pairing Code: ${code}`);
+      alert(`✅ Copied Pairing Code: ${code}\n\nNow open WhatsApp > Linked Devices > Link with phone number and paste this code.`);
     }
 
     async function saveOwnerJid() {
