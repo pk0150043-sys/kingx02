@@ -947,7 +947,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
     const sess = activeSessions[uid];
 
-    if (!hasAuth && options.onlyRegisterIfUnauthenticated && !options.force) {
+    if (!hasAuth && options.standbyOnly && !options.force) {
       sess.status = 'STANDBY';
       return sess;
     }
@@ -3183,22 +3183,38 @@ app.get('/health', (req, res) => {
 });
 
 app.post('/session/init', async (req, res) => {
-  const { uid, owner_jid, auto_start } = req.body;
+  const { uid, owner_jid } = req.body;
   if (!uid) return res.status(400).json({ success: false, message: 'Missing session uid' });
 
   try {
-    const sess = await initSessionSocket(uid, owner_jid, {
-      onlyRegisterIfUnauthenticated: !auto_start
-    });
-    res.json({ success: true, uid, status: sess ? sess.status : 'FAILED' });
+    const sess = await initSessionSocket(uid, owner_jid, { force: true });
+    res.json({ success: true, uid, status: sess ? sess.status : 'INITIALIZING' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-app.get('/session/:uid/qr', (req, res) => {
+async function handleSessionStatus(req, res) {
   const { uid } = req.params;
-  const sess = activeSessions[uid];
+  let sess = activeSessions[uid];
+
+  // Auto-initialize if session socket does not exist or was in standby
+  if (!sess || !sess.sock || sess.status === 'STANDBY' || req.query.connect === '1') {
+    try {
+      sess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: true });
+    } catch (e) {
+      logMsg(uid, `Auto-connect error: ${e.message}`);
+    }
+  }
+
+  // Wait up to 3 seconds for QR code if not online and not pairing
+  if (sess && sess.status !== 'ONLINE' && !sess.qr && !sess.pairingCode) {
+    for (let i = 0; i < 10; i++) {
+      await sleep(300);
+      if (sess.qr || sess.status === 'ONLINE' || sess.pairingCode) break;
+    }
+  }
+
   if (!sess) return res.status(404).json({ success: false, message: 'Session not found' });
 
   const uptime = sess.connectedAt ? Math.floor((Date.now() - sess.connectedAt) / 1000) : 0;
@@ -3206,17 +3222,22 @@ app.get('/session/:uid/qr', (req, res) => {
     success: true,
     uid,
     status: sess.status,
+    session_status: sess.status,
     isOnline: sess.status === 'ONLINE',
-    connectedNumber: sess.connectedNumber,
-    ownerJid: sess.ownerJid,
-    qr: sess.qr,
-    pairingCode: sess.pairingCode,
-    sentCount: sess.sentCount,
-    failedCount: sess.failedCount,
+    connectedNumber: sess.connectedNumber || '',
+    ownerJid: sess.ownerJid || '',
+    qr: sess.qr || '',
+    pairingCode: sess.pairingCode || '',
+    isWorkerRunning: !!sess.isWorkerRunning,
+    sentCount: sess.sentCount || 0,
+    failedCount: sess.failedCount || 0,
     uptime,
     logs: sess.logs || []
   });
-});
+}
+
+app.get('/session/:uid/status', handleSessionStatus);
+app.get('/session/:uid/qr', handleSessionStatus);
 
 app.post('/session/:uid/refresh_qr', async (req, res) => {
   const { uid } = req.params;
@@ -3226,9 +3247,22 @@ app.post('/session/:uid/refresh_qr', async (req, res) => {
     if (sess) {
       sess.qrAttempts = 0;
       sess.qr = '';
+      sess.pairingCode = '';
     }
     const newSess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: true });
-    res.json({ success: true, uid, status: newSess?.status || 'STANDBY' });
+    if (newSess) {
+      for (let i = 0; i < 10; i++) {
+        await sleep(300);
+        if (newSess.qr || newSess.status === 'ONLINE') break;
+      }
+    }
+    res.json({
+      success: true,
+      uid,
+      status: newSess?.status || 'AWAITING_SCAN',
+      qr: newSess?.qr || '',
+      pairingCode: newSess?.pairingCode || ''
+    });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });
   }
@@ -3248,17 +3282,31 @@ app.post('/session/:uid/pair', async (req, res) => {
     }
   }
 
-  const cleaned = cleanPhone(phone);
+  let cleaned = cleanPhone(phone);
   if (!cleaned || cleaned.length < 10) {
-    return res.status(400).json({ success: false, message: 'Please provide a valid 10-14 digit WhatsApp phone number without +.' });
+    return res.status(400).json({ success: false, message: 'Please provide a valid 10-14 digit WhatsApp phone number.' });
+  }
+  if (cleaned.length === 10) {
+    cleaned = '91' + cleaned;
   }
 
   try {
     logMsg(uid, `Requesting pairing code for number: +${cleaned}...`);
+
+    let attempts = 0;
+    while ((!sess.sock || !sess.sock.requestPairingCode) && attempts < 12) {
+      await sleep(300);
+      attempts++;
+    }
+
     if (!sess.sock) {
       return res.status(500).json({ success: false, message: 'Socket connecting, please retry in 2 seconds.' });
     }
-    const code = await sess.sock.requestPairingCode(cleaned);
+
+    await sleep(800);
+
+    const rawCode = await sess.sock.requestPairingCode(cleaned);
+    const code = rawCode ? (rawCode.match(/.{1,4}/g)?.join('-') || rawCode) : '';
     sess.pairingCode = code;
     sess.status = 'PAIRING';
     sess.qr = '';
@@ -3272,8 +3320,62 @@ app.post('/session/:uid/pair', async (req, res) => {
     });
   } catch (err) {
     logMsg(uid, `Error requesting pairing code: ${err.message}`);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: `Pairing code error: ${err.message}` });
   }
+});
+
+app.post('/session/:uid/start_worker', async (req, res) => {
+  const { uid } = req.params;
+  const { targets, delay, prefix, messages } = req.body;
+  const sess = activeSessions[uid];
+  if (!sess || !sess.sock || sess.status !== 'ONLINE') {
+    return res.status(400).json({ success: false, message: 'WhatsApp session is not online yet!' });
+  }
+
+  sess.isWorkerRunning = true;
+  sess.workerTargets = Array.isArray(targets) ? targets : [];
+  sess.workerDelay = parseDelayMs(delay || 5, 5000);
+  sess.workerPrefix = prefix || sess.prefix || '';
+  sess.workerMessages = Array.isArray(messages) && messages.length > 0 ? messages : ['SERVER GOD CLAN KING ON TOP 🔥'];
+
+  if (!sess.workerLoopRunning) {
+    sess.workerLoopRunning = true;
+    (async () => {
+      let idx = 0;
+      while (sess.isWorkerRunning && sess.status === 'ONLINE') {
+        try {
+          if (sess.workerTargets.length > 0) {
+            const rawTarget = sess.workerTargets[idx % sess.workerTargets.length];
+            const targetJid = normalizeJid(rawTarget);
+            const msgText = sess.workerMessages[idx % sess.workerMessages.length];
+            const fullText = sess.workerPrefix ? `${sess.workerPrefix} ${msgText}` : msgText;
+
+            await sess.sock.sendMessage(targetJid, { text: fullText });
+            sess.sentCount = (sess.sentCount || 0) + 1;
+            logMsg(uid, `🚀 [WORKER] Sent to ${targetJid}: ${msgText.substring(0, 30)}...`);
+          }
+        } catch (sendErr) {
+          sess.failedCount = (sess.failedCount || 0) + 1;
+          logMsg(uid, `⚠️ [WORKER ERROR] Send failed: ${sendErr.message}`);
+        }
+        idx++;
+        await sleep(sess.workerDelay || 5000);
+      }
+      sess.workerLoopRunning = false;
+    })();
+  }
+
+  res.json({ success: true, uid, status: 'started' });
+});
+
+app.post('/session/:uid/stop_worker', (req, res) => {
+  const { uid } = req.params;
+  const sess = activeSessions[uid];
+  if (sess) {
+    sess.isWorkerRunning = false;
+    sess.workerLoopRunning = false;
+  }
+  res.json({ success: true, uid, status: 'stopped' });
 });
 
 app.post('/session/:uid/set_owner', (req, res) => {
@@ -3360,6 +3462,7 @@ app.get('/sessions/all', (req, res) => {
       connectedNumber: sess.connectedNumber,
       ownerJid: sess.ownerJid,
       prefix: sess.prefix,
+      isWorkerRunning: !!sess.isWorkerRunning,
       sentCount: sess.sentCount,
       failedCount: sess.failedCount,
       uptime,

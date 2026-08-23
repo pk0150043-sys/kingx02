@@ -2089,7 +2089,25 @@ def gc_add_account():
         return jsonify({"status": "login_required"}), 401
 
     data = request.json or {}
-    sessionid = data.get("sessionid", "").strip()
+    raw_session = data.get("sessionid", "").strip()
+    sessionid = raw_session
+    csrftoken = data.get("csrftoken", "").strip()
+
+    # Auto-extract sessionid and csrftoken if full cookie string was pasted
+    if ";" in sessionid or "=" in sessionid:
+        for part in sessionid.split(";"):
+            if "=" in part:
+                k, v = part.strip().split("=", 1)
+                if k.strip().lower() == "sessionid":
+                    sessionid = v.strip()
+                elif k.strip().lower() == "csrftoken" and not csrftoken:
+                    csrftoken = v.strip()
+
+    if "%3A" in sessionid or "%3a" in sessionid:
+        sessionid = urllib.parse.unquote(sessionid).strip()
+    if sessionid.lower().startswith("sessionid="):
+        sessionid = sessionid[10:].strip()
+
     url = data.get("url", "").strip()
     opponent = data.get("opponent", "").strip() or data.get("target", "").strip() or ""
     header_text = data.get("header_text", "").strip() or "👑 SPAM BY KING 👑"
@@ -2662,8 +2680,25 @@ def add_account():
         return jsonify({"status": "login_required"}), 401
 
     data = request.json or {}
-    sessionid = data.get("sessionid", "").strip()
+    raw_session = data.get("sessionid", "").strip()
+    sessionid = raw_session
     csrftoken = data.get("csrftoken", "").strip()
+
+    # Auto-extract sessionid and csrftoken if full cookie string was pasted
+    if ";" in sessionid or "=" in sessionid:
+        for part in sessionid.split(";"):
+            if "=" in part:
+                k, v = part.strip().split("=", 1)
+                if k.strip().lower() == "sessionid":
+                    sessionid = v.strip()
+                elif k.strip().lower() == "csrftoken" and not csrftoken:
+                    csrftoken = v.strip()
+
+    if "%3A" in sessionid or "%3a" in sessionid:
+        sessionid = urllib.parse.unquote(sessionid).strip()
+    if sessionid.lower().startswith("sessionid="):
+        sessionid = sessionid[10:].strip()
+
     opponent = data.get("opponent", "").strip() or data.get("target", "").strip() or ""
     header_text = data.get("header_text", "").strip() or "👑 SPAM BY KING 👑"
     footer_text = data.get("footer_text", "").strip() or "👑 SCRIPT BY SERVER GOD CLAN 👑"

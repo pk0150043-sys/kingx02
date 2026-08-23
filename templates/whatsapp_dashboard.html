@@ -772,18 +772,34 @@
         return;
       }
 
-      const res = await fetch("/wp_pair_code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid: currentSelectedUid, phone })
-      });
+      const btn = document.querySelector("#wa-link-phone-input + button");
+      const origText = btn ? btn.textContent : "Get Code";
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ Generating..."; }
 
-      const data = await res.json();
-      if (data.status === "ok") {
-        document.getElementById("wa-pairing-code-val").textContent = data.pairingCode;
-        document.getElementById("wa-pairing-code-display").style.display = "flex";
-      } else {
-        alert("Pairing Code Error: " + (data.message || "Failed to generate pairing code"));
+      document.getElementById("wa-pairing-code-val").textContent = "GENERATING...";
+      document.getElementById("wa-pairing-code-display").style.display = "flex";
+
+      try {
+        const res = await fetch("/wp_pair_code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uid: currentSelectedUid, phone })
+        });
+
+        const data = await res.json();
+        if (data.status === "ok") {
+          document.getElementById("wa-pairing-code-val").textContent = data.pairingCode;
+          document.getElementById("wa-pairing-code-display").style.display = "flex";
+          alert(`🔢 Pairing Code: ${data.pairingCode}\n\nEnter this 8-digit code in WhatsApp > Linked Devices > Link with phone number!`);
+        } else {
+          document.getElementById("wa-pairing-code-display").style.display = "none";
+          alert("Pairing Code Error: " + (data.message || "Failed to generate pairing code"));
+        }
+      } catch (err) {
+        document.getElementById("wa-pairing-code-display").style.display = "none";
+        alert("Network error: " + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = origText; }
       }
     }
 

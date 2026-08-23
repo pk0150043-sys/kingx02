@@ -3440,13 +3440,22 @@ async def api_send_code(request):
 async def api_verify_code(request):
     data = await request.json()
     phone = re.sub(r'[^\d+]', '', data.get("phone", "").strip())
-    if not phone.startswith("+"): phone = "+" + phone
+    if phone and not phone.startswith("+"): phone = "+" + phone
     code = re.sub(r'\D', '', data.get("code", "").strip())
 
-    if phone not in temp_login_sessions:
+    sess = None
+    if phone in temp_login_sessions:
+        sess = temp_login_sessions[phone]
+    elif phone.replace("+", "") in temp_login_sessions:
+        sess = temp_login_sessions[phone.replace("+", "")]
+    elif ("+" + phone.lstrip("+")) in temp_login_sessions:
+        sess = temp_login_sessions["+" + phone.lstrip("+")]
+    elif len(temp_login_sessions) == 1:
+        sess = list(temp_login_sessions.values())[0]
+
+    if not sess:
         return web.json_response({"status": "error", "message": "No active session for this phone. Request OTP first."}, status=400, headers=make_cors_headers())
 
-    sess = temp_login_sessions[phone]
     client = sess["client"]
 
     try:
@@ -3524,6 +3533,10 @@ async def api_verify_2fa(request):
     key = None
     if phone and phone in temp_login_sessions:
         key = phone
+    elif phone and phone.replace("+", "") in temp_login_sessions:
+        key = phone.replace("+", "")
+    elif phone and ("+" + phone.lstrip("+")) in temp_login_sessions:
+        key = "+" + phone.lstrip("+")
     elif uid and uid in temp_login_sessions:
         key = uid
     elif len(temp_login_sessions) == 1:
