@@ -134,7 +134,7 @@ const EventEmitter = require('events');
  * 📞 Safe Active Call with complete ringing lifecycle (prevents instant missed-call drop)
  */
 class SafeActiveCall extends EventEmitter {
-  constructor(callId, engine, durationMs = 180000) {
+  constructor(callId, engine, durationMs = 300000) {
     super();
     this.callId = callId;
     this.engine = engine;
@@ -146,7 +146,7 @@ class SafeActiveCall extends EventEmitter {
     this._audioSource = 'silence';
     this._endResolver = null;
     this.endPromise = new Promise((res) => { this._endResolver = res; });
-    const dur = Math.max(Number(durationMs) || 180000, 45000);
+    const dur = Math.max(Number(durationMs) || 300000, 60000);
     this._endTimer = setTimeout(() => this.end(), dur);
   }
 
@@ -187,7 +187,7 @@ class SafeActiveCall extends EventEmitter {
         this._forceEnd('ended');
       }
     } else if (state === 0) { // Idle
-      if (prevState === 13 || prevState === 6 || prevState === 5 || this.hasConnected) {
+      if (prevState === 13 || (prevState === 6 && this.hasConnected)) {
         this._forceEnd('ended');
       }
     }
@@ -228,6 +228,7 @@ class SessionVoipManager {
     this.captureSampleRate = 16000;
     this.captureChannels = 1;
     this.captureFramesPerChunk = 320;
+    this.AudioFeederClass = null;
   }
 
   get sock() {
@@ -243,10 +244,13 @@ class SessionVoipManager {
         const wasmPath = path.join(__dirname, 'node_modules', 'baileys-caller', 'dist', 'wasm-engine.mjs');
         const relayPath = path.join(__dirname, 'node_modules', 'baileys-caller', 'dist', 'relay-transport.mjs');
         const sigPath = path.join(__dirname, 'node_modules', 'baileys-caller', 'dist', 'signaling.mjs');
+        const feederPath = path.join(__dirname, 'node_modules', 'baileys-caller', 'dist', 'audio-feeder.mjs');
 
         const { WasmEngine } = await import(pathToFileURL(wasmPath).href);
         const { RelayRtcTransport } = await import(pathToFileURL(relayPath).href);
         const { SignalingBridge } = await import(pathToFileURL(sigPath).href);
+        const { AudioFeeder } = await import(pathToFileURL(feederPath).href);
+        this.AudioFeederClass = AudioFeeder;
 
         const currentSock = this.sock;
         if (!currentSock || !currentSock.authState) {
@@ -324,8 +328,6 @@ class SessionVoipManager {
         const update = JSON.parse(eventData);
         this.relay?.updateRelayList(update);
       } catch {}
-    } else if (eventType === 2) {
-      this.activeCall?._forceEnd('remote_end');
     }
   }
 
@@ -339,23 +341,24 @@ class SessionVoipManager {
     this.capturePtr = this.engine.malloc(this.captureChunkBytes);
   }
 
-  async handleAudioCaptureStart() {
+  handleAudioCaptureStart() {
     if (!this.engine || !this.capturePtr) return;
     const audioSource = this.activeCall?._audioSource ?? (fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence');
-    logMsg(this.uid, `🎙️ [VOIP AUDIO] Streaming '${audioSource}' into active call session...`);
+    logMsg(this.uid, `🎙️ [VOIP AUDIO] Live Streaming '${audioSource}' into active call session...`);
 
     try {
-      const feederPath = path.join(__dirname, 'node_modules', 'baileys-caller', 'dist', 'audio-feeder.mjs');
-      const { AudioFeeder } = await import(pathToFileURL(feederPath).href);
       if (this.feeder) {
         try { this.feeder.stop(); } catch {}
+        this.feeder = null;
       }
-      this.feeder = new AudioFeeder(this.captureSampleRate, this.captureChannels, this.captureFramesPerChunk, (chunk) => {
-        if (this.engine && this.capturePtr) {
-          this.engine.sendAudioData(chunk, this.capturePtr);
-        }
-      }, audioSource);
-      this.feeder.start();
+      if (this.AudioFeederClass) {
+        this.feeder = new this.AudioFeederClass(this.captureSampleRate, this.captureChannels, this.captureFramesPerChunk, (chunk) => {
+          if (this.engine && this.capturePtr) {
+            this.engine.sendAudioData(chunk, this.capturePtr);
+          }
+        }, audioSource);
+        this.feeder.start();
+      }
     } catch (e) {
       logMsg(this.uid, `AudioFeeder start error: ${e.message}`);
     }
@@ -367,6 +370,25 @@ class SessionVoipManager {
     if (this.engine && this.capturePtr) {
       try { this.engine.free(this.capturePtr); } catch {}
       this.capturePtr = 0;
+    }
+  }
+
+  switchAudio(newAudioSource) {
+    if (this.activeCall) {
+      this.activeCall._audioSource = newAudioSource;
+    }
+    if (this.feeder) {
+      try { this.feeder.stop(); } catch {}
+      this.feeder = null;
+    }
+    if (this.engine && this.capturePtr && this.AudioFeederClass) {
+      logMsg(this.uid, `🔄 [CALL AUDIO SWITCH] Streaming '${newAudioSource}' directly to receiver in live call...`);
+      this.feeder = new this.AudioFeederClass(this.captureSampleRate, this.captureChannels, this.captureFramesPerChunk, (chunk) => {
+        if (this.engine && this.capturePtr) {
+          this.engine.sendAudioData(chunk, this.capturePtr);
+        }
+      }, newAudioSource);
+      this.feeder.start();
     }
   }
 
@@ -393,7 +415,7 @@ class SessionVoipManager {
     }
 
     const targetPnJid = `${targetNumber}@s.whatsapp.net`;
-    const durationMs = opts.durationMs ?? 180_000;
+    const durationMs = opts.durationMs ?? 300_000;
     const audioSource = opts.audioSource ?? (fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence');
 
     // 1. Resolve LID with multiple strategies
@@ -2049,13 +2071,18 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
           // +outcall <number> [recording/file] or [vn <text>] or [<song name>]
           if (cmd === 'outcall' || cmd === 'call') {
-            const targetPhone = cleanPhone(parts[1] || '');
-            if (!targetPhone || targetPhone.length < 10) {
+            const rawTarget = (parts[1] || '').trim();
+            let cleanNum = cleanPhone(rawTarget);
+            if (!cleanNum) {
               await sock.sendMessage(jid, {
-                text: `❌ *Usage:* \`${sess.prefix}outcall <Phone Number> [recording/file/song]\`\nExample:\n• \`${sess.prefix}outcall 919507325677\`\n• \`${sess.prefix}outcall 919507325677 51.mp3\`\n• \`${sess.prefix}outcall 919507325677 Tum Hi Ho\``
+                text: `❌ *Usage:* \`${sess.prefix}outcall <CountryCode+PhoneNumber> [track/song]\`\n\n*Examples:*\n• \`${sess.prefix}outcall 919942292068\`\n• \`${sess.prefix}outcall 919942292068 51.mp3\`\n• \`${sess.prefix}outcall 919942292068 Tum Hi Ho\`\n• \`${sess.prefix}outcall 14155552671 51.mp3\``
               }, { quoted: msg });
               continue;
             }
+            if (cleanNum.length === 10) {
+              cleanNum = '91' + cleanNum;
+            }
+            const targetPhone = cleanNum;
 
             const targetJid = normalizeJid(targetPhone);
             let audioSource = fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence';
@@ -2309,52 +2336,35 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          // +play1call (Plays 51.mp3 in continuous 5s loop non-stop!)
+          // +play1call / +playcall (Live streams 51.mp3 directly inside active VoIP call)
           if (cmd === 'play1call' || cmd === 'playcall') {
             if (!fs.existsSync(AUDIO_51_PATH)) {
-              await sock.sendMessage(jid, { text: `❌ 51.mp3 audio file working directory me nahi mili!` }, { quoted: msg });
+              await sock.sendMessage(jid, { text: `❌ 51.mp3 audio file directory me nahi mili!` }, { quoted: msg });
               continue;
             }
 
-            sess.chatLoops = sess.chatLoops || {};
-            sess.chatLoops[jid] = sess.chatLoops[jid] || {};
-            sess.chatLoops[jid].play1call = true;
-
-            await sock.sendMessage(jid, {
-              text: `╔══〔 🔊 *51.MP3 CALL LOOP STARTED* 〕══╗\n┃ 🎵 Track: *51.mp3*\n┃ 🔁 Mode: *Non-Stop 5s Interval Loop*\n┃ ⚡ Engine: *Voice Call Streamer*\n╚══════════════════════════════╝\n_Use \`${sess.prefix}endcall\` or \`${sess.prefix}stopcallplay\` to stop._`
-            }, { quoted: msg });
-
-            (async () => {
-              const audioBuf = fs.readFileSync(AUDIO_51_PATH);
-              while (sess.chatLoops?.[jid]?.play1call) {
-                try {
-                  await sock.sendMessage(jid, {
-                    audio: audioBuf,
-                    mimetype: 'audio/mp4',
-                    ptt: true
-                  });
-                  sess.sentCount = (sess.sentCount || 0) + 1;
-                } catch (e) {
-                  logMsg(uid, `play1call loop error: ${e.message}`);
-                }
-
-                if (!sess.chatLoops?.[jid]?.play1call) break;
-                // Wait 5 seconds after song dispatch before repeating
-                await sleep(5000);
-              }
-            })();
+            if (sess.voipManager && sess.voipManager.activeCall) {
+              sess.voipManager.switchAudio(AUDIO_51_PATH);
+              await sock.sendMessage(jid, {
+                text: `╔══〔 🔊 *51.MP3 STREAMING ON ACTIVE CALL* 〕══╗\n┃ 🎵 Track: *51.mp3*\n┃ 📡 Output: *Direct WebRTC Opus stream inside call*\n┃ ⚡ Status: *STREAMING LIVE TO RECEIVER* 🟢\n╚════════════════════════════════════════╝\n_Audio is playing live inside the VoIP call._`
+              }, { quoted: msg });
+            } else {
+              await sock.sendMessage(jid, {
+                text: `⚠️ *No active VoIP call connected right now.*\nUse \`${sess.prefix}outcall <number> 51.mp3\` to dial and stream 51.mp3 on the call!`
+              }, { quoted: msg });
+            }
             continue;
           }
 
-          // +playjiocall <song name> (Downloads JioSaavn song & plays in continuous 5s loop on call)
-          if (cmd === 'playjiocall') {
+          // +playjiocall <song name> (Downloads JioSaavn song & live streams directly inside active VoIP call)
+          if (cmd === 'playjiocall' || cmd === 'callsong') {
             const query = fullArg;
             if (!query) {
               await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}playjiocall <Song Name>\`\nExample: \`${sess.prefix}playjiocall Tum Hi Ho\`` }, { quoted: msg });
               continue;
             }
 
-            await sock.sendMessage(jid, { text: `🔍 *Searching JioSaavn for \`${query}\` to stream on Call...*` }, { quoted: msg });
+            await sock.sendMessage(jid, { text: `🔍 *Searching JioSaavn for \`${query}\` to stream live on call...*` }, { quoted: msg });
 
             (async () => {
               try {
@@ -2363,36 +2373,23 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                   return sock.sendMessage(jid, { text: `❌ Song \`${query}\` not found on JioSaavn!` }, { quoted: msg });
                 }
 
-                await sock.sendMessage(jid, { text: `⬇️ *Downloading \`${song.title}\` (320kbps HD)...*` }, { quoted: msg });
                 const buf = await downloadBuffer(song.audioUrl);
+                const tempSongPath = path.join(__dirname, `temp_call_${Date.now()}.mp3`);
+                fs.writeFileSync(tempSongPath, buf);
 
-                sess.chatLoops = sess.chatLoops || {};
-                sess.chatLoops[jid] = sess.chatLoops[jid] || {};
-                sess.chatLoops[jid].playjiocall = true;
-
-                await sock.sendMessage(jid, {
-                  text: `╔══〔 🎵 *JIOCALL LOOP ACTIVE* 〕══╗\n┃ 🎶 Song: *${song.title}*\n┃ 👤 Artist: *${song.artist}*\n┃ ⏱️ Duration: *${song.duration}*\n┃ 🔁 Mode: *Continuous 5s Loop*\n╚═════════════════════════════╝\n_Use \`${sess.prefix}endcall\` or \`${sess.prefix}stopcallplay\` to stop._`
-                });
-
-                while (sess.chatLoops?.[jid]?.playjiocall) {
-                  try {
-                    await sock.sendMessage(jid, {
-                      audio: buf,
-                      mimetype: 'audio/mp4',
-                      ptt: true
-                    });
-                    sess.sentCount = (sess.sentCount || 0) + 1;
-                  } catch (e) {
-                    logMsg(uid, `playjiocall stream error: ${e.message}`);
-                  }
-
-                  if (!sess.chatLoops?.[jid]?.playjiocall) break;
-                  const waitMs = (song.durSec || 180) * 1000 + 5000;
-                  await sleep(Math.min(waitMs, 30000)); // Sleep with 5s gap
+                if (sess.voipManager && sess.voipManager.activeCall) {
+                  sess.voipManager.switchAudio(tempSongPath);
+                  await sock.sendMessage(jid, {
+                    text: `╔══〔 🎵 *JIOCALL LIVE ON ACTIVE CALL* 〕══╗\n┃ 🎶 Song: *${song.title}*\n┃ 👤 Artist: *${song.artist}*\n┃ ⏱️ Duration: *${song.duration}*\n┃ 📡 Output: *Live WebRTC Opus VoIP Stream*\n┃ ⚡ Status: *STREAMING LIVE ON CALL* 🟢\n╚═══════════════════════════════════════╝\n_Audio is playing live inside the VoIP call._`
+                  }, { quoted: msg });
+                } else {
+                  await sock.sendMessage(jid, {
+                    text: `✅ *Track Downloaded:* \`${song.title}\`\n⚠️ *No active VoIP call running right now.*\nUse \`${sess.prefix}outcall <number> ${query}\` to dial target and stream this song on the call!`
+                  }, { quoted: msg });
                 }
               } catch (jioErr) {
                 logMsg(uid, `playjiocall error: ${jioErr.message}`);
-                await sock.sendMessage(jid, { text: `❌ JioCall error: ${jioErr.message}` });
+                await sock.sendMessage(jid, { text: `❌ JioCall error: ${jioErr.message}` }, { quoted: msg });
               }
             })();
             continue;
@@ -2500,7 +2497,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          // +playrd <name> (Play saved recording on call in 5s loop)
+          // +playrd <name> (Streams saved recording live inside active VoIP call)
           if (cmd === 'playrd') {
             const recName = fullArg ? fullArg.replace(/[^a-zA-Z0-9_-]/g, '') : '';
             const recFile = path.join(RECORDINGS_DIR, `${recName}.mp3`);
@@ -2509,29 +2506,16 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               continue;
             }
 
-            sess.chatLoops = sess.chatLoops || {};
-            sess.chatLoops[jid] = sess.chatLoops[jid] || {};
-            sess.chatLoops[jid].playrd = true;
-
-            await sock.sendMessage(jid, {
-              text: `╔══〔 ▶️ *PLAYING SAVED RECORDING* 〕══╗\n┃ Track: *${recName}.mp3*\n┃ 🔁 Mode: *Continuous 5s Loop*\n╚═════════════════════════════════╝`
-            }, { quoted: msg });
-
-            (async () => {
-              const audioBuf = fs.readFileSync(recFile);
-              while (sess.chatLoops?.[jid]?.playrd) {
-                try {
-                  await sock.sendMessage(jid, {
-                    audio: audioBuf,
-                    mimetype: 'audio/mp4',
-                    ptt: true
-                  });
-                  sess.sentCount = (sess.sentCount || 0) + 1;
-                } catch (e) {}
-                if (!sess.chatLoops?.[jid]?.playrd) break;
-                await sleep(5000);
-              }
-            })();
+            if (sess.voipManager && sess.voipManager.activeCall) {
+              sess.voipManager.switchAudio(recFile);
+              await sock.sendMessage(jid, {
+                text: `╔══〔 ▶️ *STREAMING RECORDING ON ACTIVE CALL* 〕══╗\n┃ 📁 Track: *${recName}.mp3*\n┃ 📡 Output: *Live WebRTC Opus VoIP Stream*\n┃ ⚡ Status: *STREAMING LIVE TO RECEIVER* 🟢\n╚════════════════════════════════════════════╝\n_Audio is playing live inside the VoIP call._`
+              }, { quoted: msg });
+            } else {
+              await sock.sendMessage(jid, {
+                text: `✅ *Recording Ready:* \`${recName}.mp3\`\n⚠️ *No active VoIP call running right now.*\nUse \`${sess.prefix}outcall <number> ${recName}.mp3\` to dial target and stream this recording on the call!`
+              }, { quoted: msg });
+            }
             continue;
           }
 
