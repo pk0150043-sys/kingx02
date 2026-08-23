@@ -709,8 +709,11 @@
       }
     }
 
+    let currentSelectedUid = localStorage.getItem('wp_selected_uid') || null;
+
     function selectSessionNode(uid) {
       currentSelectedUid = uid;
+      try { localStorage.setItem('wp_selected_uid', uid); } catch(e) {}
       loadWpStatus();
     }
 
@@ -857,7 +860,10 @@
         body: JSON.stringify({ uid })
       });
 
-      if (currentSelectedUid === uid) currentSelectedUid = null;
+      if (currentSelectedUid === uid) {
+        currentSelectedUid = null;
+        try { localStorage.removeItem('wp_selected_uid'); } catch(e) {}
+      }
       loadWpStatus();
     }
 
@@ -871,8 +877,12 @@
         let onlineCount = 0;
         let totalSent = 0;
 
-        if (!currentSelectedUid && accEntries.length > 0) {
+        const savedUid = localStorage.getItem('wp_selected_uid');
+        if (savedUid && d.accounts && d.accounts[savedUid]) {
+          currentSelectedUid = savedUid;
+        } else if ((!currentSelectedUid || !d.accounts || !d.accounts[currentSelectedUid]) && accEntries.length > 0) {
           currentSelectedUid = accEntries[0][0];
+          try { localStorage.setItem('wp_selected_uid', currentSelectedUid); } catch(e) {}
         }
 
         let nodesHtml = "";
@@ -976,7 +986,9 @@
         document.getElementById("mTotalSent").textContent = totalSent;
 
         const logs = d.globalLogs || [];
-        document.getElementById("telemetryBox").textContent = logs.length ? logs.join("\n") : "Waiting for WhatsApp Baileys events...";
+        if (logs.length > 0) {
+          document.getElementById("telemetryBox").textContent = logs.join("\n");
+        }
 
       } catch (e) {
         console.error("Status load error:", e);

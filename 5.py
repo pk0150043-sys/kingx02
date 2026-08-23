@@ -3534,6 +3534,7 @@ def wp_delete_account():
     return jsonify({"status": "ok"})
 
 @app.route("/wp_status")
+@app.route("/wp_accounts")
 def wp_status():
     if not is_authenticated():
         return jsonify({"status": "login_required"}), 401
@@ -3556,20 +3557,34 @@ def wp_status():
         pass
 
     is_adm = is_owner()
-    curr_user = get_current_user()
+    curr_user = str(get_current_user()).strip().lower()
+    curr_name = str(session.get("name", "")).strip().lower()
 
     for uid, acc in wp_accounts.items():
-        if is_adm or acc.get("owner") == curr_user:
+        acc_owner = str(acc.get("owner", "")).strip().lower()
+        acc_admin = str(acc.get("admin_name", "")).strip().lower()
+        acc_n = str(acc.get("name", "")).strip().lower()
+
+        is_my_acc = (
+            is_adm or
+            acc_owner == curr_user or
+            (curr_user and acc_owner and (curr_user in acc_owner or acc_owner in curr_user)) or
+            (curr_name and acc_admin and (curr_name in acc_admin or acc_admin in curr_name)) or
+            (curr_name and acc_n and (curr_name in acc_n or acc_n in curr_name)) or
+            (not acc_owner)
+        )
+
+        if is_my_acc:
             acc_copy = dict(acc)
             acc_copy["admin_name"] = get_user_display_name(acc.get("owner", ""))
             acc_copy["system_owner"] = "SERVER GOD CLAN KING"
             accounts[uid] = acc_copy
             b_sess = baileys_live.get(uid, {})
             visible_stats[uid] = {
-                "user": acc.get("owner", ""),
+                "user": acc.get("owner", curr_user),
                 "admin_name": acc_copy["admin_name"],
                 "account": uid,
-                "status": b_sess.get("status") or "READY_TO_CONNECT",
+                "status": b_sess.get("status") or ("ONLINE" if b_sess.get("isOnline") else "READY_TO_CONNECT"),
                 "isOnline": b_sess.get("isOnline", False),
                 "connectedNumber": b_sess.get("connectedNumber", ""),
                 "ownerJid": b_sess.get("ownerJid", acc.get("owner_jid", "")),
@@ -3584,22 +3599,34 @@ def wp_status():
     # Also auto-include any active sessions reported by Baileys service that might not yet be in MongoDB
     for uid, b_sess in baileys_live.items():
         if uid not in accounts:
-            if is_adm or not wp_accounts.get(uid) or wp_accounts.get(uid, {}).get("owner") == curr_user:
+            acc_info = wp_accounts.get(uid, {})
+            acc_owner = str(acc_info.get("owner", "")).strip().lower()
+            acc_admin = str(acc_info.get("admin_name", "")).strip().lower()
+            is_my_acc = (
+                is_adm or
+                not acc_owner or
+                acc_owner == curr_user or
+                (curr_user and acc_owner and (curr_user in acc_owner or acc_owner in curr_user)) or
+                (curr_name and acc_admin and (curr_name in acc_admin or acc_admin in curr_name))
+            )
+            if is_my_acc:
                 accounts[uid] = {
-                    "owner": curr_user,
-                    "admin_name": get_user_display_name(curr_user),
+                    "uid": uid,
+                    "name": acc_info.get("name") or uid.replace("wp_", ""),
+                    "owner": acc_info.get("owner", curr_user),
+                    "admin_name": acc_info.get("admin_name", get_user_display_name(curr_user)),
                     "system_owner": "SERVER GOD CLAN KING",
-                    "owner_jid": b_sess.get("ownerJid", "")
+                    "owner_jid": b_sess.get("ownerJid", acc_info.get("owner_jid", ""))
                 }
                 visible_stats[uid] = {
-                    "user": curr_user,
-                    "admin_name": get_user_display_name(curr_user),
+                    "user": acc_info.get("owner", curr_user),
+                    "admin_name": acc_info.get("admin_name", get_user_display_name(curr_user)),
                     "account": uid,
                     "status": b_sess.get("status") or ("ONLINE" if b_sess.get("isOnline") else "READY_TO_CONNECT"),
                     "isOnline": b_sess.get("isOnline", False),
                     "connectedNumber": b_sess.get("connectedNumber", ""),
                     "ownerJid": b_sess.get("ownerJid", ""),
-                    "running": b_sess.get("isOnline", False),
+                    "running": b_sess.get("isOnline", False) or b_sess.get("isWorkerRunning", False),
                     "sent": b_sess.get("sentCount", 0),
                     "failed": b_sess.get("failedCount", 0),
                     "uptime": b_sess.get("uptime", 0),
@@ -3607,14 +3634,14 @@ def wp_status():
                     "hasPairingCode": b_sess.get("hasPairingCode", False)
                 }
 
-    # Filter logs so each user only sees their own bot events, or show all for admin/owner
-    if is_adm:
-        filtered_logs = global_logs[:120]
-    else:
-        user_uids = {str(u) for u in accounts.keys() if u}
-        filtered_logs = []
-        for log_line in global_logs:
-            if any(f"[{u}]" in log_line for u in user_uids if u):
+    # Filter logs: Admin gets all, user gets logs for their account UIDs or generic system events
+    user_uids = {str(u) for u in accounts.keys() if u}
+    filtered_logs = []
+    for log_line in global_logs:
+        if is_adm:
+            filtered_logs.append(log_line)
+        else:
+            if any(f"[{u}]" in log_line for u in user_uids if u) or (user_uids and "[SYSTEM]" in log_line):
                 filtered_logs.append(log_line)
 
     return jsonify({
