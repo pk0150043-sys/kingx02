@@ -840,119 +840,234 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
                     try: await event.reply(row[0])
                     except Exception: pass
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}start'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(start|alive|hello|hi|king)$'))
     async def ub_start_cmd(event):
         if hasattr(event, 'date') and event.date and event.date.timestamp() < (START_TIME - 15): return
         if not await is_ub_admin(event, me_id, admin_id_val): return
         if not should_process_tg_command(event.chat_id, event.id, "start"): return
-        uptime = get_readable_time(time.time() - START_TIME)
-        await event.reply(f"⚡ <b>𝕊𝔼ℝ𝕍𝔼ℝ 𝔾𝕆𝔻 ℂ𝕃𝔸ℕ 𝕌𝕊𝔼ℝ𝔹𝕆𝕋 𝕀𝕊 𝔸𝕃𝕀𝕍𝔼</b> ⚡\n⏱ <b>Uptime:</b> <code>{uptime}</code>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}alive'))
-    async def ub_alive(event):
-        if hasattr(event, 'date') and event.date and event.date.timestamp() < (START_TIME - 15): return
-        if not await is_ub_admin(event, me_id, admin_id_val): return
-        if not should_process_tg_command(event.chat_id, event.id, "alive"): return
         uptime = get_readable_time(time.time() - START_TIME)
-        alive_txt = (
-            f"🪐 <b>𝕊𝔼ℝ𝕍𝔼ℝ 𝔾𝕆𝔻 ℂ𝕃𝔸ℕ - 𝕊𝕐𝕊𝕋𝔼𝕄 𝔸𝕃𝕀𝕍𝔼</b> 🪐\n\n"
-            f"👑 <b>Master ID:</b> <code>{admin_id_val or MASTER_ADMIN_DEFAULT}</code>\n"
-            f"⏱ <b>System Uptime:</b> <code>{uptime}</code>\n"
-            f"⚡ <b>Userbot Status:</b> <code>Online & Multi-Threaded</code>\n"
-            f"🐍 <b>Python Version:</b> <code>{sys.version.split()[0]}</code>"
-        )
-        await event.reply(alive_txt, parse_mode="html")
+        me = await event.client.get_me()
+        user_name = me.first_name or "King Userbot"
+        user_phone = f"+{me.phone}" if me.phone else "Linked Account"
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(menu|help)'))
+        start_caption = f"""╔══════════════════════════════════════════╗
+║  👑 ⚡ <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽18.0 ⚡ 👑</b>  ║
+║  🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 • 𝑴𝑨𝑺𝑻𝑬𝑹 𝑴𝑨𝑻𝑹𝑰𝑿</b> 🛡️  ║
+╚══════════════════════════════════════════╝
+  ✨ <b>PREFIX</b> : [  <code>{PREFIX}</code>  ]  •  🚀 <b>SPEED</b> : <code>0.01s+ (10ms)</code>
+
+🤖 <b>Userbot Node:</b> <code>{user_name}</code>
+📱 <b>Linked Account:</b> <code>{user_phone}</code>
+👑 <b>Master ID:</b> <code>{admin_id_val or MASTER_ADMIN_DEFAULT}</code>
+⏱️ <b>Uptime:</b> <code>{uptime}</code>
+🔥 <b>Engine:</b> <code>Telethon + PyTgCalls Ultra Turbo</code>
+
+╭──────────────────────────────╮
+│ 💡 <b>QUICK ACTIONS & NAVIGATION</b>
+│ • Type <code>{PREFIX}menu</code> for Interactive Selector
+│ • Type <code>{PREFIX}menu 1</code> for 👑 Ultra Raid Dashboard
+│ • Type <code>{PREFIX}menu 2</code> for 📞 VoIP Caller Engine
+│ • Type <code>{PREFIX}menu 3</code> for 🎵 Music & Song Engine
+│ • Type <code>{PREFIX}ping</code> to test latency
+╰──────────────────────────────╯"""
+
+        main_pic = "main.png"
+        if os.path.exists(main_pic):
+            try:
+                await event.reply(start_caption, file=main_pic, parse_mode="html")
+                return
+            except Exception: pass
+
+        await event.reply(start_caption, parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(menu|help|dashboard)(?:\s+(.+))?$'))
     async def ub_menu_cmd(event):
         if hasattr(event, 'date') and event.date and event.date.timestamp() < (START_TIME - 15): return
         if not await is_ub_admin(event, me_id, admin_id_val): return
         if not should_process_tg_command(event.chat_id, event.id, "menu"): return
-        bot_count_row = await execute_db_query("SELECT COUNT(*) FROM managed_bots", fetchone=True)
-        bot_count = bot_count_row[0] if bot_count_row else 0
 
-        menu = f"""
-✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
-👑 <b>𝕊𝔼ℝ𝕍𝔼ℝ 𝔾𝕆𝔻 ℂ𝕃𝔸ℕ 𝕌𝕊𝔼ℝ𝔹𝕆𝕋 V18.0 MASTER MATRIX</b> 👑
-🟢 <b>STATUS</b>: Active | 🤖 <b>BOTS</b>: <code>{bot_count}</code> | ⚡ <b>USERBOT PREFIX</b>: <code>{PREFIX}</code> | 🤖 <b>BOT PREFIX</b>: <code>{BOT_PREFIX}</code>
-✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
+        sub = (event.pattern_match.group(2) or "").strip().lower()
 
-📞 <b>[ VOICE & VIDEO STREAM ENGINE (PyTgCalls + DM Support) ]</b>
-├── <code>{PREFIX}play1call</code> / <code>{PREFIX}playcall</code> ➪ Stream 51.mp3 Audio in VC/DM
-├── <code>{PREFIX}play2call</code> ➪ Stream 52.mp4 Screen Share Video & Audio (720p HD)
-├── <code>{PREFIX}play3jio &lt;song&gt;</code> ➪ Stream Live Full Audio on Call (Auto-Loop)
-├── <code>{PREFIX}play4jiocallchangeall &lt;genre&gt;</code> ➪ Fast Auto Playlist Loop (Full Song Duration + 5s Gap)
-├── <code>{PREFIX}stopjioplaylist</code> ➪ Stop Category Playlist Loop
-├── <code>{PREFIX}stopcallplay</code> ➪ Pause / Stop Stream Playback
-├── <code>{PREFIX}loopunmute</code> ➪ Auto Unmute Guard Loop
-└── <code>{PREFIX}cutcall</code> / <code>{PREFIX}leavecall</code> ➪ Leave Voice/Video Call
+        if sub in ["1", "ultra", "raid"]:
+            menu_text = f"""╭──────────────────────────────╮
+│ 👑 <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽18.0 ⚡</b> │
+│ 🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b>     │
+╰──────────────────────────────╯
+      ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
+      🚀 <b>SPEED</b>   : <code>0.01s+</code>
 
-🔮 <b>[ USERBOT AUTH, SYSTEM & BOT MANAGER ]</b>
-├── <code>{PREFIX}removeuserbot</code> ➪ Delete & Disconnect Current Userbot
-├── <code>{PREFIX}promotadminbots</code> ➪ Promote All Linked Multi-Bots to Admins
-├── <code>{PREFIX}addmembers &lt;@source&gt; [&lt;@target&gt;]</code> ➪ Mass Scrape & Add Members
-├── <code>{PREFIX}adduserbot &lt;+phone&gt;</code> ➪ Connect New Userbot via Pairing Code
-├── <code>{PREFIX}adduserbotqr</code> ➪ Connect New Userbot via Instant QR Code
-├── <code>{PREFIX}login &lt;5-digit-code&gt;</code> ➪ Complete Login with Telegram Code
-├── <code>{PREFIX}2fa &lt;password&gt;</code> ➪ Submit 2-Step Verification Password
-├── <code>{PREFIX}userbots</code> ➪ View All Active & Registered Userbots
-├── <code>{PREFIX}join &lt;link|@group&gt;</code> ➪ Join Any Private/Public Group or Channel
-├── <code>{PREFIX}start</code> | <code>{PREFIX}alive</code> | <code>{PREFIX}showadmins</code>
-├── <code>{PREFIX}addadmin &lt;id&gt;</code> | <code>{PREFIX}removeadmin &lt;id&gt;</code>
-└── <code>{PREFIX}addbot &lt;token&gt;</code> | <code>{PREFIX}viewbots</code> | <code>{PREFIX}removebot &lt;@user&gt;</code>
+╭─ 🎯 <b>𝑻𝑨𝑹𝑮𝑬𝑻 & 𝑹𝑨𝑰𝑫</b>
+│ 🎯 <code>{PREFIX}target @user &lt;msg&gt;</code>
+│ 🛑 <code>{PREFIX}stoptarget @user</code>
+│ 🧹 <code>{PREFIX}cleartargets</code>
+│ 📋 <code>{PREFIX}targets</code>
+│ ⏱️ <code>{PREFIX}targetdelay &lt;0.01-20&gt;</code>
+│ 💀 <code>{PREFIX}raid &lt;count&gt; @user</code>
+╰──────────────────────
 
-⚔️ <b>[ ATTACK, BOMBARDMENT & TARGET CONTROL ]</b>
-├── <code>{PREFIX}spam &lt;msg&gt;</code> | <code>{PREFIX}stopspam</code> | <code>{PREFIX}spamdelay &lt;sec&gt;</code>
-├── <code>{PREFIX}raid &lt;count&gt; &lt;@user&gt;</code> | <code>{PREFIX}fucktarget &lt;msg&gt;</code>
-├── <code>{PREFIX}targetadd</code> | <code>{PREFIX}targetdel</code>
-├── <code>{PREFIX}promote &lt;@user&gt;</code> | <code>{PREFIX}ban &lt;@user&gt;</code> | <code>{PREFIX}kick &lt;@user&gt;</code>
-├── <code>{PREFIX}addmember &lt;@user&gt;</code> | <code>{PREFIX}invite &lt;user&gt;</code>
-├── <code>{PREFIX}warn</code> | <code>{PREFIX}purge &lt;count&gt;</code> | <code>{PREFIX}del</code>
-└── <code>{PREFIX}tagall &lt;msg&gt;</code> | <code>{PREFIX}mute</code> | <code>{PREFIX}unmute</code> | <code>{PREFIX}lock &lt;media|links|stickers&gt;</code>
+╭─ 📌 <b>𝑷𝑰𝑵 𝑺𝑷𝑨𝑴</b>
+│ 📌 <code>{PREFIX}pin</code>
+│ 📌 <code>{PREFIX}unpin</code>
+│ ⚡ <code>{PREFIX}pinspam &lt;count&gt; &lt;delay&gt;</code>
+│ 🛑 <code>{PREFIX}pinspam off</code>
+╰──────────────────────
 
-📡 <b>[ GROUP CREATION & MASS BLASTER ]</b>
-├── <code>{PREFIX}creategcqty &lt;qty&gt;</code> | <code>{PREFIX}creategc &lt;user1&gt; &lt;user2&gt;</code>
-├── <code>{PREFIX}fetchallgc</code> | <code>{PREFIX}targetgc &lt;id&gt;</code> | <code>{PREFIX}cleartargets</code>
-├── <code>{PREFIX}sendmessage &lt;msg&gt;</code> | <code>{PREFIX}welcome &lt;text&gt;</code> | <code>{PREFIX}setgoodbye &lt;text&gt;</code>
-└── <code>{PREFIX}filter &lt;key&gt; &lt;msg&gt;</code> | <code>{PREFIX}stopfilter &lt;key&gt;</code> (Auto-Response Active)
+╭─ 🚀 𝑭𝑳𝑶𝑶𝑫 & 𝑺𝑷𝑨𝑴
+│ 🚀 <code>{PREFIX}spam &lt;Text&gt;</code>
+│ ⏱️ <code>{PREFIX}spamdelay &lt;0.01-20&gt;</code>
+│ 🛑 <code>{PREFIX}stopspam</code>
+│ 🚨 <code>{PREFIX}dynamicstop</code>
+╰──────────────────────
 
-🎨 <b>[ CREATIVE LAB & FAST MEDIA ]</b>
-├── <code>{PREFIX}song &lt;title&gt;</code> ➪ Stream & Send Full JioSaavn Audio (5-10 Mins)
-├── <code>{PREFIX}ai &lt;prompt&gt;</code> | <code>{PREFIX}q</code> (Quote Card)
-├── <code>{PREFIX}font &lt;text&gt;</code> ➪ High-Gloss Stylish Neon Banner
-├── <code>{PREFIX}3dpic &lt;prompt&gt;</code> | <code>{PREFIX}pdf</code> | <code>{PREFIX}tts &lt;text&gt;</code>
-└── <code>{PREFIX}tr &lt;lang&gt; &lt;text&gt;</code> | <code>{PREFIX}remind &lt;time&gt; &lt;msg&gt;</code> | <code>{PREFIX}calc</code> | <code>{PREFIX}weather</code>
+╭─ 🛡️ 𝑴𝑶𝑫𝑬𝑹𝑨𝑻𝑰𝑶𝑵
+│ ⚠️ <code>{PREFIX}warn</code> | <code>{PREFIX}purge &lt;count&gt;</code>
+│ 🧹 <code>{PREFIX}kick @user</code> | <code>{PREFIX}ban @user</code>
+│ 👑 <code>{PREFIX}promote @user</code> | <code>{PREFIX}demote @user</code>
+│ 📢 <code>{PREFIX}tagall &lt;Text&gt;</code>
+│ 🔇 <code>{PREFIX}mute</code> | <code>{PREFIX}unmute</code>
+╰──────────────────────
 
-🛡️ <b>[ AUTOMATION & SYSTEM CONTROL ]</b>
-├── <code>{PREFIX}info</code> | <code>{PREFIX}chatstats</code> | <code>{PREFIX}id</code> | <code>{PREFIX}afk &lt;reason&gt;</code>
-├── <code>{PREFIX}status</code> | <code>{PREFIX}ping</code> | <code>{PREFIX}dbstats</code> | <code>{PREFIX}sysinfo</code>
-└── <code>{PREFIX}dynamicstop</code> ➪ Emergency Kill-Switch | <code>{PREFIX}restart</code>
-✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
-"""
-        await event.reply(menu, parse_mode="html")
+╭─ ⚙️ 𝑮𝑹𝑶𝑼𝑷 𝑼𝑻𝑰𝑳𝑰𝑻𝒀
+│ ➕ <code>{PREFIX}addmember &lt;@user&gt;</code>
+│ 🚪 <code>{PREFIX}join &lt;link&gt;</code> | <code>{PREFIX}leave</code>
+│ 🤖 <code>{PREFIX}creategc &lt;user1&gt; &lt;user2&gt;</code>
+│ ⚡ <code>{PREFIX}ping</code> | <code>{PREFIX}status</code>
+╰──────────────────────
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(play1call|playcall|startcall|joincall)'))
+╭──────────────────────────────╮
+│ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
+╰──────────────────────────────╯"""
+            return await event.reply(menu_text, parse_mode="html")
+
+        if sub in ["2", "call", "voip"]:
+            call_menu = f"""╭─────────────────────────╮
+📞 <b>𝙑𝙊𝙄𝙋 𝘾𝘼𝙇𝙇𝙄𝙉𝙂 𝙀𝙉𝙂𝙄𝙉𝙀</b> 📞
+╰─────────────────────────╯
+⚡ <b>𝙊𝙐𝙏𝘽𝙊𝙐𝙉𝘿 𝙏𝙀𝙇𝙀𝙂𝙍𝘼𝙈 𝘾𝘼𝙇𝙇𝙀𝙍</b>
+
+│
+├─► 🔊 <code>{PREFIX}play1call</code> / <code>{PREFIX}playcall</code>
+│    ▸ <i>Stream 51.mp3 in continuous 5s loop in VC/DM</i>
+│
+├─► 🎶 <code>{PREFIX}playjiocall &lt;song name&gt;</code>
+│    ▸ <i>Search JioSaavn & stream live in Call (5s loop)</i>
+│
+├─► 📺 <code>{PREFIX}play2call</code>
+│    ▸ <i>Stream 52.mp4 screen share video (720p HD)</i>
+│
+├─► 📻 <code>{PREFIX}play4jiocallchangeall &lt;genre&gt;</code>
+│    ▸ <i>Category playlist auto-player loop</i>
+│
+├─► 🔓 <code>{PREFIX}autounmute</code> / <code>{PREFIX}loopunmute</code>
+│    ▸ <i>Auto unmute sentinel (never stay muted)</i>
+│
+├─► ⏹️ <code>{PREFIX}stopcallplay</code>
+│    ▸ <i>Pause / Stop active voice stream</i>
+│
+└─► 🔌 <code>{PREFIX}cutcall</code> / <code>{PREFIX}leavecall</code>
+     ▸ <i>Leave voice chat / call immediately</i>
+
+╭─────────────────────────╮
+भिड़ मत, तेरी माँ चोदूँगा।
+╰─────────────────────────╯"""
+            return await event.reply(call_menu, parse_mode="html")
+
+        if sub in ["3", "song", "music"]:
+            song_menu = f"""╭──────────────────────────────╮
+│ 🎵 <b>𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬</b> 🎶   │
+│ 🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b>     │
+╰──────────────────────────────╯
+      ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
+      🎧 <b>ENGINES</b> : JioSaavn • Spotify • PyTgCalls
+
+╭─ 🎵 <b>𝑱𝑰𝑶𝑺𝑨𝑨𝑽𝑵 𝑴𝑼𝑺𝑰𝑪</b>
+│ 🎵 <code>{PREFIX}song &lt;Song Name&gt;</code>
+│    ▸ Full 320kbps HD audio track
+│ 🔊 <code>{PREFIX}playjiocall &lt;Song Name&gt;</code>
+│    ▸ Stream song live in Voice Call Loop (5s gap)
+│ 📻 <code>{PREFIX}play4jiocallchangeall &lt;genre&gt;</code>
+│    ▸ Continuous genre auto-playlist
+╰──────────────────────
+
+╭─ 📻 <b>𝑪𝑨𝑳𝑳 𝑨𝑼𝑫𝑰𝑶 𝑺𝑻𝑹𝑬𝑨𝑴𝑬𝑹</b>
+│ 🔊 <code>{PREFIX}play1call</code>
+│    ▸ Play 51.mp3 in continuous 5s loop on call
+│ ⏹️ <code>{PREFIX}stopcallplay</code>
+│    ▸ Stop stream playback
+╰──────────────────────
+
+╭──────────────────────────────╮
+│ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
+╰──────────────────────────────╯"""
+            return await event.reply(song_menu, parse_mode="html")
+
+        portal_text = f"""╭──────────────────────────────╮
+│ 👑 <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑴𝑬𝑵𝑼 𝑷𝑶𝑹𝑻𝑨𝑳</b> ⚡ │
+│ 🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b>     │
+╰──────────────────────────────╯
+      ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
+      🚀 <b>SPEED</b>   : <code>0.01s+</code>
+
+<b>Please select a Dashboard by sending shortcut:</b>
+
+1️⃣ <code>{PREFIX}menu 1</code> ➔ 👑 <b>𝑼𝑳𝑻𝑹𝑨 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫</b>
+   <i>(Target • Pin Spam • Raid • Flood • Moderation • Utility)</i>
+
+2️⃣ <code>{PREFIX}menu 2</code> ➔ 📞 <b>𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬</b>
+   <i>(51.mp3 Loop • JioCall • 52.mp4 Video • Autounmute • VC Stream)</i>
+
+3️⃣ <code>{PREFIX}menu 3</code> ➔ 🎵 <b>𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫</b>
+   <i>(JioSaavn 320kbps • PyTgCalls Stream • Category Playlists)</i>
+
+╭──────────────────────────────╮
+│ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
+╰──────────────────────────────╯
+👉 <i>Use <code>{PREFIX}menu 1</code>, <code>{PREFIX}menu 2</code>, or <code>{PREFIX}menu 3</code></i>"""
+        await event.reply(portal_text, parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play1call|playcall|startcall|joincall)$'))
     async def ub_playcall_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
-        msg = await event.reply("🔄 <b>Connecting to Call & Streaming 51.mp3 Audio...</b>", parse_mode="html")
-        success, resp_text = await join_vc_and_play(event.chat_id, event, video=False)
-        await msg.edit(resp_text, parse_mode="html")
+        chat_id = event.chat_id
+        msg = await event.reply("🔄 <b>Connecting to Call & Launching 51.mp3 Continuous Loop (5s gap)...</b>", parse_mode="html")
+        
+        jio_playlist_state[chat_id] = {
+            "active": True,
+            "mode": "play1call"
+        }
+        
+        media_file = get_audio_file(video=False)
+        dur = get_file_duration(media_file) if media_file and os.path.exists(media_file) else 180
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}play2call'))
+        async def play1call_loop():
+            while jio_playlist_state.get(chat_id, {}).get("active") and jio_playlist_state.get(chat_id, {}).get("mode") == "play1call":
+                try:
+                    await join_vc_and_play(chat_id, event, video=False)
+                    await asyncio.sleep(dur + 5)
+                except Exception as e:
+                    logger.error(f"play1call error: {e}")
+                    await asyncio.sleep(5)
+
+        asyncio.create_task(play1call_loop())
+        await msg.edit(f"🔊 <b>51.mp3 Live in Continuous Loop!</b>\n⏱ Song Duration: <code>{int(dur)}s</code> + 5s gap\n_Use <code>{PREFIX}stopcallplay</code> or <code>{PREFIX}cutcall</code> to stop._", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?play2call$'))
     async def ub_play2call_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         msg = await event.reply("📺 <b>Connecting to Call & Injecting 52.mp4 Screen Share Video...</b>", parse_mode="html")
         success, resp_text = await join_vc_and_play(event.chat_id, event, video=True)
         await msg.edit(resp_text, parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}play3jio (.+)'))
-    async def ub_play3jio(event):
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(playjiocall|play3jio)\s+(.+)'))
+    async def ub_playjiocall_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
-        query = event.pattern_match.group(1).strip()
-        msg = await event.reply(f"🔍 <b>Downloading full 5-10 min JioSaavn audio for <code>{query}</code> to stream on Call...</b>", parse_mode="html")
+        query = event.pattern_match.group(2).strip()
+        chat_id = event.chat_id
+        msg = await event.reply(f"🔍 <b>Searching JioSaavn for <code>{query}</code> to stream on Call...</b>", parse_mode="html")
 
         me = await event.client.get_me()
-        temp_filename = f"jio_call_{event.chat_id}_{me.id}_{int(time.time())}.mp3"
+        temp_filename = f"jio_call_{chat_id}_{me.id}_{int(time.time())}.mp3"
 
         try:
             dl_res = await asyncio.to_thread(download_full_audio, query, temp_filename)
@@ -961,15 +1076,35 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
             actual_file = dl_res.get("file_path", temp_filename)
             title = dl_res.get("title", query)
+            artist = dl_res.get("artist", "")
+            duration = dl_res.get("duration") or get_file_duration(actual_file) or 180
 
-            await msg.edit(f"🔊 <b>Streaming full track <code>{title}</code> live on Call!</b>", parse_mode="html")
-            success, resp = await join_vc_and_play(event.chat_id, event, video=False, custom_file=actual_file)
-            if not success:
-                await msg.edit(resp, parse_mode="html")
-        finally:
-            pass
+            jio_playlist_state[chat_id] = {
+                "active": True,
+                "mode": "playjiocall",
+                "file": actual_file
+            }
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}play4jiocallchangeall (.+)'))
+            await msg.edit(f"🔊 <b>Now Streaming on Call:</b> <code>{title}</code> by {artist}\n⏱ Duration: <code>{int(duration)}s</code> (Continuous 5s Loop)", parse_mode="html")
+
+            async def jiocall_loop():
+                while jio_playlist_state.get(chat_id, {}).get("active") and jio_playlist_state.get(chat_id, {}).get("mode") == "playjiocall":
+                    try:
+                        await join_vc_and_play(chat_id, event, video=False, custom_file=actual_file)
+                        await asyncio.sleep(duration + 5)
+                    except Exception as e:
+                        logger.error(f"jiocall loop error: {e}")
+                        await asyncio.sleep(5)
+                if os.path.exists(actual_file):
+                    try: os.remove(actual_file)
+                    except Exception: pass
+
+            asyncio.create_task(jiocall_loop())
+
+        except Exception as e:
+            await msg.edit(f"❌ Error: {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?play4jiocallchangeall\s+(.+)'))
     async def ub_play4jio_playlist(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         genre = event.pattern_match.group(1).strip()
@@ -1038,7 +1173,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
         asyncio.create_task(play_next_in_playlist())
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}stopjioplaylist'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?stopjioplaylist$'))
     async def ub_stopjioplaylist(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         chat_id = event.chat_id
@@ -1046,7 +1181,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
             jio_playlist_state[chat_id]["active"] = False
         await event.reply("🛑 <b>Category Playlist Auto-Player Stopped.</b>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}stopcallplay'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(stopcallplay|stopcall)$'))
     async def ub_stopcallplay(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         msg = await event.reply("⏸ <b>Stopping Voice/Video Stream...</b>", parse_mode="html")
@@ -1060,30 +1195,32 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
         except Exception as e:
             await msg.edit(f"❌ Error: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}loopunmute'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(autounmute|loopunmute)$'))
     async def ub_loop_unmute_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         chat_id = event.chat_id
-        vc_loop_unmute_active[chat_id] = True
-        await event.reply("🔊 <b>Auto Unmute Guard Loop Activated for this Chat!</b>", parse_mode="html")
+        vc_loop_unmute_active[chat_id] = not vc_loop_unmute_active.get(chat_id, False)
+        status_text = "ENABLED (Auto-Unmutes if muted) 🟢" if vc_loop_unmute_active[chat_id] else "DISABLED 🔴"
+        await event.reply(f"🔊 <b>Auto Unmute Sentinel:</b> <code>{status_text}</code>", parse_mode="html")
         
-        async def unmute_loop():
-            cli = event.client
-            while vc_loop_unmute_active.get(chat_id, False):
-                try:
-                    chat = await cli.get_entity(chat_id)
-                    full_chat = await cli(functions.channels.GetFullChannelRequest(chat))
-                    call = full_chat.full_chat.call
-                    if call:
-                        await cli(EditGroupCallParticipantRequest(
-                            call=call,
-                            participant=await cli.get_me(),
-                            muted=False
-                        ))
-                except Exception: pass
-                await asyncio.sleep(3)
+        if vc_loop_unmute_active[chat_id]:
+            async def unmute_loop():
+                cli = event.client
+                while vc_loop_unmute_active.get(chat_id, False):
+                    try:
+                        chat = await cli.get_entity(chat_id)
+                        full_chat = await cli(functions.channels.GetFullChannelRequest(chat))
+                        call = full_chat.full_chat.call
+                        if call:
+                            await cli(EditGroupCallParticipantRequest(
+                                call=call,
+                                participant=await cli.get_me(),
+                                muted=False
+                            ))
+                    except Exception: pass
+                    await asyncio.sleep(2.5)
 
-        asyncio.create_task(unmute_loop())
+            asyncio.create_task(unmute_loop())
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}(cutcall|leavecall)'))
     async def ub_cutcall(event):

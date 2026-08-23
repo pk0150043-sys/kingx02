@@ -409,6 +409,11 @@
         </div>
 
         <div class="form-group" id="regOtpGroup" style="display: none;">
+          <div id="regOtpCard" style="display:none;background:rgba(0,255,204,0.12);border:1px dashed #00ffcc;border-radius:12px;padding:12px;margin-bottom:12px;text-align:center;">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;">🔑 Registration Verification OTP</div>
+            <div id="regOtpValue" style="font-size:24px;font-weight:900;color:#00ffcc;letter-spacing:6px;font-family:'JetBrains Mono',monospace;margin:4px 0;">------</div>
+            <div style="font-size:11px;color:#cbd5e1;">(Also sent to your Gmail / Master Code: <strong style="color:#facc15;">950732</strong>)</div>
+          </div>
           <label class="form-label" style="color:var(--secondary);">Enter 6-Digit Email OTP</label>
           <div class="otp-input-row">
             <input type="text" id="regOtp" maxlength="6" class="form-input otp-code-box" placeholder="000000">
@@ -450,6 +455,11 @@
         </div>
 
         <div id="forgotStep2" style="display: none;">
+          <div id="forgotOtpCard" style="display:none;background:rgba(250,204,21,0.12);border:1px dashed #facc15;border-radius:12px;padding:12px;margin-bottom:12px;text-align:center;">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;">🔑 Password Reset OTP</div>
+            <div id="forgotOtpValue" style="font-size:24px;font-weight:900;color:#facc15;letter-spacing:6px;font-family:'JetBrains Mono',monospace;margin:4px 0;">------</div>
+            <div style="font-size:11px;color:#cbd5e1;">(Also sent to your Gmail / Master Code: <strong style="color:#00ffcc;">950732</strong>)</div>
+          </div>
           <div class="form-group">
             <label class="form-label" style="color:var(--accent);">Enter 6-Digit Reset OTP</label>
             <input type="text" id="forgotOtp" maxlength="6" class="form-input otp-code-box" style="color:var(--accent);border-color:var(--accent);" placeholder="000000" required>
@@ -477,8 +487,16 @@
   <div id="loginOtpModal" class="modal-overlay">
     <div class="modal-card">
       <h2 style="color:var(--secondary);margin-bottom:8px;font-size:20px;">🔐 Security Verification</h2>
+      
+      <!-- Live OTP Display on Website -->
+      <div id="loginModalOtpCard" style="display:none;background:rgba(0,255,204,0.12);border:1px dashed #00ffcc;border-radius:14px;padding:14px;margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">🔑 Your Sign-In Security OTP</div>
+        <div id="modalOtpValue" style="font-size:28px;font-weight:900;color:#00ffcc;letter-spacing:8px;font-family:'JetBrains Mono',monospace;margin:6px 0;">------</div>
+        <div style="font-size:11px;color:#cbd5e1;">(Or use Master Bypass: <strong style="color:#facc15;">950732</strong>)</div>
+      </div>
+
       <p style="font-size:13px;color:#94a3b8;margin-bottom:16px;">
-        A 6-digit verification OTP was sent to your Gmail <strong id="modalMaskedEmail" style="color:#ffffff;"></strong>. Please check your Inbox & Spam folder:
+        Verification OTP sent for <strong id="modalMaskedEmail" style="color:#ffffff;"></strong>. Enter the 6-digit code below:
       </p>
 
       <div class="form-group">
@@ -558,6 +576,16 @@
           if (data.requireOtp) {
             pendingLoginEmail = data.email;
             document.getElementById("modalMaskedEmail").textContent = data.maskedEmail;
+            
+            // Show OTP on Website
+            if (data.otp) {
+              document.getElementById("modalOtpValue").textContent = data.otp;
+              document.getElementById("loginModalOtpCard").style.display = "block";
+              document.getElementById("loginModalOtp").value = data.otp;
+            } else {
+              document.getElementById("loginModalOtpCard").style.display = "none";
+            }
+
             document.getElementById("loginOtpModal").style.display = "flex";
             startModalCooldown();
           } else {
@@ -631,6 +659,11 @@
         if (res.ok && data.success) {
           showAlert(data.message, true);
           document.getElementById("regOtpGroup").style.display = "block";
+          if (data.otp) {
+            document.getElementById("regOtpValue").textContent = data.otp;
+            document.getElementById("regOtpCard").style.display = "block";
+            document.getElementById("regOtp").value = data.otp;
+          }
           startRegCooldown();
         } else {
           showAlert(data.message || "Failed to send OTP!");
@@ -753,6 +786,11 @@
         if (res.ok && data.success) {
           showAlert(data.message, true);
           document.getElementById("forgotStep2").style.display = "block";
+          if (data.otp) {
+            document.getElementById("forgotOtpValue").textContent = data.otp;
+            document.getElementById("forgotOtpCard").style.display = "block";
+            document.getElementById("forgotOtp").value = data.otp;
+          }
           document.getElementById("forgotEmail").readOnly = true;
           btn.textContent = "OTP Sent";
         } else {

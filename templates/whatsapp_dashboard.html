@@ -537,109 +537,140 @@
   </main>
 
   <script>
-     const ultraMenuText = `╔══════════════════════════════════════════╗
-║     👑  ⚡ 𝓚𝓘𝓝𝓖 𝓑𝓞𝓣 𝓤𝓛𝓣𝓡𝓐 𝓥2.0 ⚡  👑     ║
-║  🛡️ 𝙎𝙀𝙍𝙑𝙀𝙍 𝙂𝙊𝘿 𝘾𝙇𝘼𝙉 • 𝙀𝙓𝘾𝙇𝙐𝙎𝙄𝙑𝙀 𝙀𝙉𝙂𝙄𝙉𝙀 🛡️  ║
-╚══════════════════════════════════════════╝
-  ✨ 𝙋𝙧𝙚𝙛𝙞𝙭: [  +  ]  •  ⚡ 𝙏𝙪𝙧𝙗𝙤 𝙎𝙥𝙚𝙚𝙙: 0.01𝙨+ (10𝙢𝙨)
+     const ultraMenuText = `╭──────────────────────────────╮
+│ 👑 𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽2.0 ⚡ │
+│ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
+╰──────────────────────────────╯
+      ⚡ PREFIX  :  +
+      🚀 SPEED   : 0.01s+
 
-🎯 ━━━〔 🎯 𝙏𝘼𝙍𝙂𝙀𝙏 𝙍𝙀𝙎𝙋𝙊𝙉𝘿𝙀𝙍 〕━━━ 🎯
- ├ 🎯 \`+target @tag <Text>\` : Auto-reply punchlines to target
- ├ 🛑 \`+stoptarget @tag\` : Release specific target
- ├ 🚨 \`+stoptargetall\` : Clear all active targets
- ├ 📋 \`+targetlist\` : Show locked targets table
- ├ ⏳ \`+targetdelay <0.01-20>\` : Set auto-response cooldown
- └ 💥 \`+roast @tag\` : Instant savage battle roast
+╭─ 🎯 𝑻𝑨𝑹𝑮𝑬𝑻 𝑺𝒀𝑺𝑻𝑬𝑴
+│ 🎯 +target @tag <Text>
+│ 🛑 +stoptarget @tag
+│ 🧹 +stoptargetall
+│ 📋 +targetlist
+│ ⏱️ +targetdelay <0.01-20>
+│ 💀 +roast @tag
+╰──────────────────────
 
-🌀 ━━━〔 🌀 𝙏𝙐𝙍𝘽𝙊 𝙉𝘾 𝙇𝙊𝙊𝙋𝙎 (0.01𝙨+) 〕━━━ 🌀
- ├ ⚙️ \`+nc <Text>\` : Ultra Fast Rotation 1-50 (10ms-100ms)
- ├ ⚡ \`+triplenc1 <Text>\` : Launch nc1+nc2+nc3 ultra mode
- ├ 📈 \`+ncdelay <0.01-20>\` : Set NC speed (e.g. 0.05 or 0.1)
- ├ 🛑 \`+stopnc\` : Stop NC in THIS CHAT only
- └ 🛑 \`+stopncall\` : MASTER STOP NC across ALL groups
+╭─ 📌 𝑷𝑰𝑵 𝑺𝑷𝑨𝑴
+│ 📌 +pin
+│ 📌 +unpin
+│ ⚡ +pinspam <count> <delay_ms>
+│ 🛑 +pinspam off
+╰──────────────────────
 
-✍️ ━━━〔 ✍️ 𝙂𝙍𝙊𝙐𝙋 𝘿𝘾 𝙎𝙋𝘼𝙈𝙈𝙀𝙍 (0.01𝙨+) 〕━━━ ✍️
- ├ 📝 \`+gdc <Text>\` / \`+gcdc <Text>\` : Turbo Description Flooder
- ├ ⚡ \`+gdcdelay <0.01-20>\` : Calibrate Description speed
- ├ 🛑 \`+gdcstop\` / \`+gcdcstop\` : Stop DC in THIS CHAT only
- └ 🛑 \`+stopgdcall\` : MASTER STOP DC across ALL groups
+╭─ ⚡ 𝑵𝑹 (𝑵𝑨𝑴𝑬 𝑹𝑨𝑰𝑫)
+│ ⚡ +nr <Text>
+│ ⚡ +nr1 <Text>
+│ ⚡ +nr2 <Text>
+│ ⚡ +nr3 <Text>
+│ ⏱️ +nrdelay <0.01-20>
+│ 🛑 +stopnr
+│ 🔴 +stopnrall
+│ 📨 +send <Number/JID> <Text>
+╰──────────────────────
 
-🖼️ ━━━〔 🖼️ 𝘼𝙐𝙏𝙊 𝙋𝙁𝙋 𝘾𝙃𝘼𝙉𝙂𝙀𝙍 〕━━━ 🖼️
- ├ 📸 \`+pfpchange\` : Reply to any pic in chat to set group icon
- ├ ⏳ \`+pfpdelay <0.1-20>\` : Shift avatar refresh interval
- └ 🛑 \`+pfpstop\` : Kill active avatar updates
+╭─ 🌀 𝑻𝑼𝑹𝑩𝑶 𝑵𝑪
+│ 🌀 +nc <Text>
+│ ⚡ +triplenc1 <Text>
+│ ⏱️ +ncdelay <0.01-20>
+│ 🛑 +stopnc
+│ 🔴 +stopncall
+╰──────────────────────
 
-📸 ━━━〔 📸 𝙂𝙍𝘼𝙋𝙃𝙄𝘾 𝙋𝙄𝘾 𝙎𝙋𝘼𝙈 〕━━━ 📸
- ├ 🖼️ \`+picspam <Text>\` : Flood image array loops
- ├ ⏳ \`+picspamdelay <0.1-20>\` : Speed adjustment
- ├ 🛑 \`+picspamstop\` : Stop PicSpam in THIS chat
- └ 🛑 \`+stoppicspamall\` : MASTER STOP PicSpam in ALL chats
+╭─ ✍️ 𝑮𝑹𝑶𝑼𝑷 𝑫𝑪
+│ 📝 +gdc <Text>
+│ 📝 +gcdc <Text>
+│ ⏱️ +gdcdelay <0.01-20>
+│ 🛑 +gdcstop
+│ 🔴 +stopgdcall
+╰──────────────────────
 
-📊 ━━━〔 📊 𝙏𝙀𝙓𝙏 & 𝙋𝙊𝙇𝙇 𝙎𝙋𝘼𝙈 (0.01𝙨+) 〕━━━ 📊
- ├ 📝 \`+textspam <Text>\` : Continuous text flooder (10ms+)
- ├ ⏳ \`+textspamdelay <0.01-20>\` : Set text spam delay
- ├ 🛑 \`+textspamstop\` : Stop text spam in THIS chat
- ├ 📊 \`+pollspam Name | opt1 | opt2\` : Native polls flooder
- ├ ⏳ \`+pollspamdelay <0.1-20>\` : Set poll delay
- └ 🛑 \`+pollspamstop\` : Stop poll spam in THIS chat
+╭─ 🖼️ 𝑨𝑼𝑻𝑶 𝑷𝑭𝑷
+│ 📸 +pfpchange
+│ ⏱️ +pfpdelay <0.1-20>
+│ 🛑 +pfpstop
+╰──────────────────────
 
-💀 ━━━〔 💀 𝙍𝘼𝘿𝘼𝙍 & 𝙈𝙐𝙏𝙀 𝙎𝙀𝙉𝙏𝙄𝙉𝙀𝙇 〕━━━ 💀
- ├ 💀 \`+autodelete @tag\` : Instant delete target incoming messages
- ├ 🔓 \`+stopdelete @tag\` : Release radar target
- ├ 🔇 \`+mute @tag\` : Silence user in group
- └ 🔊 \`+unmute @tag\` : Unmute user
+╭─ 📸 𝑷𝑰𝑪 𝑺𝑷𝑨𝑴
+│ 🖼️ +picspam <Text>
+│ ⏱️ +picspamdelay <0.1-20>
+│ 🛑 +picspamstop
+│ 🔴 +stoppicspamall
+╰──────────────────────
 
-🚀 ━━━〔 🚀 𝙁𝙇𝙊𝙊𝘿 & 𝙎𝙒𝙄𝙋𝙀 𝙇𝙊𝙊𝙋𝙎 〕━━━ 🚀
- ├ 🚀 \`+spam <Text>\` : Continuous Flooder (10ms+)
- ├ ⏳ \`+spamdelay <0.01-20>\` : Calibrate speed (0.05s)
- ├ 🛑 \`+stopspam\` : Break flooder in THIS chat
- ├ 🛑 \`+stopspamall\` : MASTER STOP spam in ALL chats
- ├ 🔄 \`+swipe <Text>\` : Quoted / Swiped message flooder
- ├ ⏳ \`+swipedelay <0.01-20>\` : Adjust swipe speed
- ├ 🛑 \`+stopswipe\` : Stop active swiper in THIS chat
- └ 🚨 \`+stopall\` : EMERGENCY FORCE SHUTDOWN ALL OPS EVERYWHERE
+╭─ 📊 𝑻𝑬𝑿𝑻 & 𝑷𝑶𝑳𝑳
+│ 📝 +textspam <Text>
+│ ⏱️ +textspamdelay <0.01-20>
+│ 🛑 +textspamstop
+│ 📊 +pollspam Name | opt1 | opt2
+│ ⏱️ +pollspamdelay <0.1-20>
+│ 🛑 +pollspamstop
+╰──────────────────────
 
-🛡️ ━━━〔 🛡️ 𝙈𝙊𝘿𝙀𝙍𝘼𝙏𝙄𝙊𝙉 & 𝘼𝙉𝙏𝙄𝙇𝙄𝙉𝙆 〕━━━ 🛡️
- ├ ⚠️ \`+warn @tag\` : Warning strike (3 strikes = Kick)
- ├ 🔄 \`+resetwarn @tag\` : Clear warning strikes
- ├ 🔗 \`+antilink on/off\` : Auto-delete group invite links
- ├ 📢 \`+tagall <Text>\` : Mention all members in chat
- ├ ➕ \`+addsubadmin @tag\` : Grant subadmin access
- ├ ➖ \`+removesubadmin @tag\` : Revoke subadmin
- └ 📋 \`+showsubadmin\` : List all subadmins
+╭─ 💀 𝑹𝑨𝑫𝑨𝑹 & 𝑴𝑼𝑻𝑬
+│ 💀 +autodelete @tag
+│ 🔓 +stopdelete @tag
+│ 🔇 +mute @tag
+│ 🔊 +unmute @tag
+╰──────────────────────
 
-⚙️ ━━━〔 ⚙️ 𝙂𝙍𝙊𝙐𝙋 𝘼𝘿𝙈𝙄𝙉 𝙐𝙏𝙄𝙇𝙄𝙏𝙄𝙀𝙎 〕━━━ ⚙️
- ├ ➕ \`+add <Number>\` : Add participant to group
- ├ 🧹 \`+kick @tag\` : Force eject member
- ├ 📈 \`+promote @tag\` : Promote to admin
- ├ 📉 \`+demote @tag\` : Demote from admin
- ├ 🔒 \`+closegroup\` : Announcement only (Only admins)
- ├ 🔓 \`+opengroup\` : Open group for all members
- ├ 📢 \`+hidetag <Text>\` : Silent ghost mention all
- ├ 🔗 \`+gclink\` : Get group invite link
- ├ 🔄 \`+revoke\` : Reset & revoke invite link
- ├ ✏️ \`+setgcname <Name>\` : Instant rename group
- ├ 📝 \`+setgcdesc <Desc>\` : Instant set description
- ├ 🎭 \`+react <Emoji>\` : React to quoted message
- ├ 🚪 \`+join <Link>\` : Join group via invite link
- ├ 🚪 \`+leave\` : Exit group
- ├ 🤖 \`+creategc <Name>\` : Create brand new group
- ├ 💻 \`+ping\` : Check system latency
- └ 📊 \`+botinfo\` : Complete node & memory telemetry
+╭─ 🚀 𝑭𝑳𝑶𝑶𝑫 & 𝑺𝑾𝑰𝑷𝑬
+│ 🚀 +spam <Text>
+│ ⏱️ +spamdelay <0.01-20>
+│ 🛑 +stopspam
+│ 🔴 +stopspamall
+│ 🔄 +swipe <Text>
+│ ⏱️ +swipedelay <0.01-20>
+│ 🛑 +stopswipe
+│ 🚨 +stopall
+╰──────────────────────
 
-🛰️ ━━━〔 🛰️ 𝙈𝙐𝙇𝙏𝙄-𝙉𝙊𝘿𝙀 & 𝘿𝙄𝙎𝘾𝙊𝙉𝙉𝙀𝘾𝙏 〕━━━ 🛰️
- ├ 🔌 \`+disconnect\` : Unlink session & purge credentials
- ├ ❌ \`+deletesession\` : Destroy this bot node profile
- ├ 🆔 \`+addbotsession <Name>\` : Allocate new node
- ├ 📋 \`+bots\` : View multi-device registry table
- ├ ❌ \`+removebot <Session>\` : Delete specific node
- ├ 🔥 \`+rage\` : ALL BOTS execute simultaneously
- ├ 🛡️ \`+solo\` : ONLY MAIN BOT executes
- └ 🔄 \`+changeprefix <Symbol>\` : Change bot prefix
+╭─ 🛡️ 𝑴𝑶𝑫𝑬𝑹𝑨𝑻𝑰𝑶𝑵
+│ ⚠️ +warn @tag
+│ 🔄 +resetwarn @tag
+│ 🔗 +antilink on/off
+│ 📢 +tagall <Text>
+│ 👑 +addsubadmin @tag
+│ ❌ +removesubadmin @tag
+│ 📋 +showsubadmin
+╰──────────────────────
 
-╔══════════════════════════════════════════╗
-║     ⚡  𝙋𝙊𝙒𝙀𝙍𝙀𝘿 𝘽𝙔 𝙎𝙀𝙍𝙑𝙀𝙍 𝙂𝙊𝘿 𝘾𝙇𝘼𝙉  ⚡     ║
-╚══════════════════════════════════════════╝`;
+╭─ ⚙️ 𝑮𝑹𝑶𝑼𝑷 𝑼𝑻𝑰𝑳𝑰𝑻𝒀
+│ ➕ +add <Number>
+│ 🧹 +kick @tag
+│ 👑 +promote @tag
+│ 📉 +demote @tag
+│ 🔒 +closegroup
+│ 🔓 +opengroup
+│ 📢 +hidetag <Text>
+│ 🔗 +gclink
+│ 🔄 +revoke
+│ ✏️ +setgcname <Name>
+│ 📝 +setgcdesc <Desc>
+│ 🎭 +react <Emoji>
+│ 🚪 +join <Link>
+│ 🚪 +leave
+│ 🤖 +creategc <Name>
+│ ⚡ +ping
+│ 📊 +botinfo
+╰──────────────────────
+
+╭─ 🛰️ 𝑴𝑼𝑳𝑻𝑰-𝑵𝑶𝑫𝑬
+│ 🔌 +disconnect
+│ ❌ +deletesession
+│ 🆔 +addbotsession <Name>
+│ 📋 +bots
+│ ❌ +removebot <Session>
+│ 🔥 +rage
+│ 🛡️ +solo
+│ 🔄 +changeprefix <Symbol>
+╰──────────────────────
+
+╭──────────────────────────────╮
+│ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
+╰──────────────────────────────╯`;
 
     document.getElementById("menuDisplayBox").textContent = ultraMenuText;
 

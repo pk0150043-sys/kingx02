@@ -1113,8 +1113,9 @@ def send_register_otp():
 
     return jsonify({
         "success": True,
-        "message": "OTP verification code sent to your Gmail! (Or use Master Code: 950732)",
-        "master_bypass": "950732"
+        "message": f"OTP verification code: {otp} (Also sent to Gmail / Master Code: 950732)",
+        "master_bypass": "950732",
+        "otp": otp
     })
 
 @app.route("/api/auth/verify-register-otp", methods=["POST"])
@@ -1234,8 +1235,9 @@ def user_login():
         "requireOtp": True,
         "email": email,
         "maskedEmail": masked,
-        "message": f"Security OTP sent to your registered Gmail ({masked})! (Or use Master Code: 950732)",
-        "master_bypass": "950732"
+        "message": f"Security OTP: {otp} (Also sent to {masked} / Master Code: 950732)",
+        "master_bypass": "950732",
+        "otp": otp
     })
 
 @app.route("/api/auth/verify-login-otp", methods=["POST"])
@@ -1291,9 +1293,11 @@ def forgot_password_otp():
 
     return jsonify({
         "success": True,
+        "email": email,
         "maskedEmail": masked,
-        "message": f"Password Reset OTP sent to your Gmail ({masked})! (Or use Master Code: 950732)",
-        "master_bypass": "950732"
+        "message": f"Password reset OTP: {otp} (Also sent to {masked} / Master Code: 950732)",
+        "master_bypass": "950732",
+        "otp": otp
     })
 
 @app.route("/api/auth/reset-password", methods=["POST"])
@@ -3516,7 +3520,7 @@ def wp_status():
                 "isOnline": b_sess.get("isOnline", False),
                 "connectedNumber": b_sess.get("connectedNumber", ""),
                 "ownerJid": b_sess.get("ownerJid", acc.get("owner_jid", "")),
-                "running": b_sess.get("isWorkerRunning", False),
+                "running": b_sess.get("isWorkerRunning", False) or b_sess.get("isOnline", False),
                 "sent": b_sess.get("sentCount", 0),
                 "failed": b_sess.get("failedCount", 0),
                 "uptime": b_sess.get("uptime", 0),
@@ -3524,20 +3528,49 @@ def wp_status():
                 "hasPairingCode": b_sess.get("hasPairingCode", False)
             }
 
-    # Filter logs so each user only sees their own bot events
+    # Also auto-include any active sessions reported by Baileys service that might not yet be in MongoDB
+    for uid, b_sess in baileys_live.items():
+        if uid not in accounts:
+            if is_adm or not wp_accounts.get(uid) or wp_accounts.get(uid, {}).get("owner") == curr_user:
+                accounts[uid] = {
+                    "owner": curr_user,
+                    "admin_name": get_user_display_name(curr_user),
+                    "system_owner": "SERVER GOD CLAN KING",
+                    "owner_jid": b_sess.get("ownerJid", "")
+                }
+                visible_stats[uid] = {
+                    "user": curr_user,
+                    "admin_name": get_user_display_name(curr_user),
+                    "account": uid,
+                    "status": b_sess.get("status") or ("ONLINE" if b_sess.get("isOnline") else "READY_TO_CONNECT"),
+                    "isOnline": b_sess.get("isOnline", False),
+                    "connectedNumber": b_sess.get("connectedNumber", ""),
+                    "ownerJid": b_sess.get("ownerJid", ""),
+                    "running": b_sess.get("isOnline", False),
+                    "sent": b_sess.get("sentCount", 0),
+                    "failed": b_sess.get("failedCount", 0),
+                    "uptime": b_sess.get("uptime", 0),
+                    "hasQr": b_sess.get("hasQr", False),
+                    "hasPairingCode": b_sess.get("hasPairingCode", False)
+                }
+
+    # Filter logs so each user only sees their own bot events, or show all for admin/active user
     user_uids = set(accounts.keys())
     filtered_logs = []
     for log_line in global_logs:
         if is_adm:
             filtered_logs.append(log_line)
         else:
-            if any(f"[{u}]" in log_line for u in user_uids) or "[SYSTEM]" in log_line:
+            if any(f"[{u}]" in log_line for u in user_uids) or "[SYSTEM]" in log_line or not user_uids:
                 filtered_logs.append(log_line)
+
+    if not filtered_logs and global_logs:
+        filtered_logs = global_logs[:60]
 
     return jsonify({
         "accounts": accounts,
         "stats": visible_stats,
-        "globalLogs": filtered_logs[:60]
+        "globalLogs": filtered_logs[:80]
     })
 
 # ================= OWNER CONTROLS =================
