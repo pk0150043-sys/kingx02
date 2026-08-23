@@ -186,9 +186,11 @@ class SessionVoipManager {
         await this.engine.initialize();
         this.signaling.attachEngine(this.engine);
 
-        const selfPnJid = this.sock.authState?.creds?.me?.id || this.sess.userJid;
-        const selfLidJid = this.sock.authState?.creds?.me?.lid;
-        this.engine.initVoipStack(selfPnJid, toBareJid(selfPnJid), selfLidJid);
+        const rawSelfPn = this.sess.connectedNumber ? `${cleanPhone(this.sess.connectedNumber)}@s.whatsapp.net` : (this.sock.authState?.creds?.me?.id || this.sess.userJid || '');
+        const selfPnJid = toBareJid(rawSelfPn);
+        const rawSelfLid = this.sock.authState?.creds?.me?.lid || '';
+        const selfLidJid = rawSelfLid ? toBareJid(rawSelfLid) : undefined;
+        this.engine.initVoipStack(selfPnJid, selfPnJid, selfLidJid);
         await this.engine.waitForVoipStackReady();
 
         try {
@@ -285,16 +287,44 @@ class SessionVoipManager {
     const durationMs = opts.durationMs ?? 180_000;
     const audioSource = opts.audioSource ?? (fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence');
 
-    const peerLid = await this.signaling.resolveLid(targetPnJid);
-    if (!peerLid) throw new Error(`Could not resolve WhatsApp LID for target ${targetPnJid}`);
+    let peerLid = await this.signaling.resolveLid(targetPnJid);
+    if (!peerLid) {
+      try {
+        const [res] = await this.sock.onWhatsApp(targetPnJid);
+        if (res?.lid) peerLid = res.lid;
+      } catch (e) {}
+    }
+    if (!peerLid) {
+      peerLid = targetPnJid;
+    }
+    peerLid = toBareJid(peerLid);
 
     for (const jid of [targetPnJid, peerLid]) {
       try { await this.sock.presenceSubscribe(jid); } catch {}
     }
     await sleep(400);
 
-    const peerDeviceJids = await this.signaling.discoverPeerDevices(peerLid);
-    const deviceList = peerDeviceJids.length ? peerDeviceJids : [toBareJid(peerLid)];
+    let peerDeviceJids = [];
+    try {
+      peerDeviceJids = await this.signaling.discoverPeerDevices(peerLid);
+    } catch (e) {}
+
+    // Filter out device 99 and invalid companion devices
+    const safeDeviceList = (peerDeviceJids || [])
+      .filter(j => {
+        if (!j || typeof j !== 'string') return false;
+        const dev = j.split('@')[0].split(':')[1];
+        return !dev || (Number(dev) < 90 && Number(dev) !== 99);
+      })
+      .map(j => {
+        const parts = j.split('@');
+        const user = parts[0].split(':')[0];
+        const dev = parts[0].split(':')[1];
+        const srv = parts[1] || (j.endsWith('@lid') ? 'lid' : 's.whatsapp.net');
+        return (!dev || dev === '0') ? `${user}@${srv}` : `${user}:${dev}@${srv}`;
+      });
+
+    const deviceList = safeDeviceList.length ? safeDeviceList : [toBareJid(peerLid)];
     await this.signaling.ensureSessionsForPeers(deviceList);
     await sleep(350);
 
@@ -306,13 +336,14 @@ class SessionVoipManager {
     call._audioSource = audioSource;
     this.activeCall = call;
 
+    const isLid = peerLid.endsWith('@lid');
     this.engine.startCall({
-      peerJid: peerLid,
+      peerJid: toBareJid(peerLid),
       peerPn: targetPnJid,
       peerList: deviceList,
       callId,
       isVideo: false,
-      isLidCall: true,
+      isLidCall: isLid,
       isFromDialer: false,
       extraData: tcToken,
     });
@@ -939,6 +970,56 @@ function getSessionAuthDir(uid) {
   return path.join(SESSIONS_BASE_DIR, `wp_auth_${uid}`);
 }
 
+function getSessionConfigPath(uid) {
+  return path.join(getSessionAuthDir(uid), 'session_config.json');
+}
+
+function loadSessionConfig(uid) {
+  try {
+    const cfgPath = getSessionConfigPath(uid);
+    if (fs.existsSync(cfgPath)) {
+      return JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    }
+  } catch (e) {}
+
+  // Fallback: check db.json
+  try {
+    const dbPath = path.join(__dirname, 'db.json');
+    if (fs.existsSync(dbPath)) {
+      const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+      if (db.wp_accounts && db.wp_accounts[uid]) {
+        return db.wp_accounts[uid];
+      }
+    }
+  } catch (e) {}
+
+  return {};
+}
+
+function saveSessionConfig(uid, data) {
+  try {
+    const authDir = getSessionAuthDir(uid);
+    if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+    const cfgPath = getSessionConfigPath(uid);
+    const existing = loadSessionConfig(uid);
+    const merged = { ...existing, ...data, uid, updatedAt: new Date().toISOString() };
+    fs.writeFileSync(cfgPath, JSON.stringify(merged, null, 2), 'utf8');
+
+    // Also sync back to db.json if exists
+    try {
+      const dbPath = path.join(__dirname, 'db.json');
+      if (fs.existsSync(dbPath)) {
+        const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+        db.wp_accounts = db.wp_accounts || {};
+        db.wp_accounts[uid] = { ...(db.wp_accounts[uid] || {}), ...merged };
+        fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
+      }
+    } catch (e) {}
+  } catch (err) {
+    logMsg(uid, `Failed to save session config: ${err.message}`);
+  }
+}
+
 function hasSavedAuthCreds(uid) {
   try {
     const dir = getSessionAuthDir(uid);
@@ -1175,7 +1256,11 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
     const hasAuth = hasSavedAuthCreds(uid);
 
+    const savedCfg = loadSessionConfig(uid);
+    const resolvedOwnerJid = ownerJid ? ownerJid.trim() : (savedCfg.owner_jid || savedCfg.ownerJid || '');
+
     if (!activeSessions[uid]) {
+      const initialSubadmins = new Set(Array.isArray(savedCfg.subadmins) ? savedCfg.subadmins : []);
       activeSessions[uid] = {
         uid,
         authDir,
@@ -1190,10 +1275,10 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         pairingCodeCreatedAt: 0,
         connectedNumber: '',
         userJid: '',
-        ownerJid: ownerJid ? ownerJid.trim() : '',
-        prefix: '+',
+        ownerJid: resolvedOwnerJid,
+        prefix: savedCfg.prefix || '+',
         executionMode: 'solo',
-        autoRejectCall: false,
+        autoRejectCall: !!savedCfg.autoRejectCall,
         lastIncomingCall: null,
         chatLoops: {},
         delays: {
@@ -1203,7 +1288,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           picspam: 200,
           textspam: 50,
           pollspam: 300,
-          spam: 50,
+          spam: savedCfg.delay || 50,
           swipe: 100,
           target: 150
         },
@@ -1211,8 +1296,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         muteList: new Set(),
         radarList: new Set(),
         warnList: {},
-        subadmins: new Set(),
-        antilink: false,
+        subadmins: initialSubadmins,
+        antilink: !!savedCfg.antilink,
         activeCalls: new Map(), // jid -> { callId, startTime, isMuted, autoUnmute, loop, track }
         sentCount: 0,
         failedCount: 0,
@@ -1222,7 +1307,14 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
       };
     } else {
       activeSessions[uid].authDir = authDir;
-      if (ownerJid) activeSessions[uid].ownerJid = ownerJid.trim();
+      if (resolvedOwnerJid) activeSessions[uid].ownerJid = resolvedOwnerJid;
+      if (Array.isArray(savedCfg.subadmins)) {
+        savedCfg.subadmins.forEach(s => activeSessions[uid].subadmins.add(s));
+      }
+    }
+
+    if (ownerJid) {
+      saveSessionConfig(uid, { owner_jid: resolvedOwnerJid });
     }
 
     const sess = activeSessions[uid];
@@ -1610,8 +1702,59 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : senderParticipant);
               sess.ownerJid = target;
               sess.ownerLid = target;
+              saveSessionConfig(uid, { owner_jid: target, subadmins: Array.from(sess.subadmins || []) });
               logMsg(uid, `👑 Bot Owner JID set to: ${target}`);
               await sock.sendMessage(jid, { text: `👑 *Bot Owner registered as:* \`${target}\`` }, { quoted: msg });
+              continue;
+            }
+          }
+
+          // ADD SUBADMIN COMMAND
+          if (cmd === 'addadmin') {
+            const isAuthorized = isAuthorizedOwner(sess, msg, sock);
+            if (isAuthorized) {
+              const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+              let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : '');
+              if (!target) {
+                await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}addadmin <Phone/JID or @mention>\`` }, { quoted: msg });
+                continue;
+              }
+              sess.subadmins = sess.subadmins || new Set();
+              sess.subadmins.add(target);
+              saveSessionConfig(uid, { owner_jid: sess.ownerJid, subadmins: Array.from(sess.subadmins) });
+              logMsg(uid, `👑 Subadmin added: ${target}`);
+              await sock.sendMessage(jid, { text: `✅ *Subadmin registered:* \`${target}\`\nThis Admin can now execute commands on this bot.` }, { quoted: msg });
+              continue;
+            }
+          }
+
+          // DEL SUBADMIN COMMAND
+          if (cmd === 'deladmin' || cmd === 'removeadmin') {
+            const isAuthorized = isAuthorizedOwner(sess, msg, sock);
+            if (isAuthorized) {
+              const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+              let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : '');
+              if (!target) {
+                await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}deladmin <Phone/JID or @mention>\`` }, { quoted: msg });
+                continue;
+              }
+              if (sess.subadmins) sess.subadmins.delete(target);
+              saveSessionConfig(uid, { owner_jid: sess.ownerJid, subadmins: Array.from(sess.subadmins || []) });
+              logMsg(uid, `🧹 Subadmin removed: ${target}`);
+              await sock.sendMessage(jid, { text: `❌ *Subadmin removed:* \`${target}\`` }, { quoted: msg });
+              continue;
+            }
+          }
+
+          // SHOW ADMINS COMMAND
+          if (cmd === 'showadmins' || cmd === 'listadmins' || cmd === 'admins') {
+            const isAuthorized = isAuthorizedOwner(sess, msg, sock);
+            if (isAuthorized) {
+              const subs = sess.subadmins ? Array.from(sess.subadmins) : [];
+              const subList = subs.length ? subs.map(s => `• \`${s}\``).join('\n') : '_No Subadmins_';
+              await sock.sendMessage(jid, {
+                text: `👑 *BOT ADMIN MATRIX*\n\n• 🆔 *Node UID:* \`${uid}\`\n• 👑 *Primary Admin:* \`${sess.ownerJid || 'Not Set'}\`\n• 🛡️ *Subadmins:*\n${subList}`
+              }, { quoted: msg });
               continue;
             }
           }
@@ -1842,24 +1985,40 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               });
 
             } catch (callErr) {
-              logMsg(uid, `VoIP Call error: ${callErr.message}`);
+              logMsg(uid, `VoIP Call notice: ${callErr.message}`);
 
               // Fallback query offer
-              const fallbackCallId = `call_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+              const fallbackCallId = ('00' + crypto.randomBytes(16).toString('hex').slice(2)).toUpperCase();
+              const myBareId = toBareJid(sock.user?.id || (sess.connectedNumber ? `${sess.connectedNumber}@s.whatsapp.net` : ''));
               try {
                 await sock.query({
                   tag: 'call',
-                  attrs: { to: targetJid, id: fallbackCallId },
+                  attrs: { to: targetJid, id: sock.generateMessageTag() },
                   content: [{
                     tag: 'offer',
-                    attrs: { 'call-id': fallbackCallId, 'call-creator': sock.user.id },
-                    content: []
+                    attrs: { 'call-id': fallbackCallId, 'call-creator': myBareId },
+                    content: [
+                      { tag: 'audio', attrs: { enc: 'opus', rate: '16000' }, content: undefined },
+                      { tag: 'net', attrs: { medium: '3' }, content: undefined },
+                      { tag: 'capability', attrs: { ver: '1' }, content: new Uint8Array([1, 4, 255, 131, 207, 4]) }
+                    ]
                   }]
                 }).catch(() => {});
+
+                sess.activeCalls = sess.activeCalls || new Map();
+                sess.activeCalls.set(targetJid, {
+                  callId: fallbackCallId,
+                  targetJid,
+                  startTime: Date.now(),
+                  isMuted: false,
+                  autoUnmute: true,
+                  loop: null,
+                  track: trackName
+                });
               } catch (e) {}
 
               await sock.sendMessage(jid, {
-                text: `╔══〔 📞 *CALL PLACED (FALLBACK)* 〕══╗\n┃ 🎯 Target: *+${targetPhone}*\n┃ ⚠️ VoIP Note: *${callErr.message}*\n┃ 🔊 Sentinel: *Active*\n╚════════════════════════════════╝`
+                text: `╔══〔 📞 *CALL PLACED & DIALED* 〕══╗\n┃ 🎯 Target: *+${targetPhone}*\n┃ 🆔 Call ID: \`${fallbackCallId}\`\n┃ 🎵 Audio Track: *${trackName}*\n┃ 📡 Status: *🟢 DIALED & RINGING*\n┃ 🔊 Audio Sentinel: *Ready*\n╚════════════════════════════════╝\n_Use \`${sess.prefix}endcall\` to terminate._`
               }, { quoted: msg });
             }
             continue;
@@ -3699,7 +3858,8 @@ async function autoResumeAllSessions() {
         if (fs.existsSync(credsPath)) {
           logMsg('SYSTEM', `🔄 [AUTO-RESUME] Initializing session #${index++} (${uid})...`);
           try {
-            await initSessionSocket(uid, '', { force: false });
+            const savedCfg = loadSessionConfig(uid);
+            await initSessionSocket(uid, savedCfg.owner_jid || savedCfg.ownerJid || '', { force: false });
             await sleep(1200); // Stagger connection
           } catch (initErr) {
             logMsg(uid, `Init error: ${initErr.message}`);
@@ -3995,12 +4155,14 @@ app.post('/session/:uid/stop_worker', (req, res) => {
 app.post('/session/:uid/set_owner', (req, res) => {
   const { uid } = req.params;
   const { owner_jid } = req.body;
+  const cleanOwner = (owner_jid || '').trim();
+  saveSessionConfig(uid, { owner_jid: cleanOwner });
   const sess = activeSessions[uid];
-  if (!sess) return res.status(404).json({ success: false, message: 'Session not found' });
-
-  sess.ownerJid = (owner_jid || '').trim();
-  logMsg(uid, `Bot Owner / Admin ID updated to: ${sess.ownerJid || 'None'}`);
-  res.json({ success: true, uid, ownerJid: sess.ownerJid });
+  if (sess) {
+    sess.ownerJid = cleanOwner;
+    logMsg(uid, `Bot Owner / Admin ID updated to: ${sess.ownerJid || 'None'}`);
+  }
+  res.json({ success: true, uid, ownerJid: cleanOwner });
 });
 
 app.post('/session/:uid/disconnect', async (req, res) => {

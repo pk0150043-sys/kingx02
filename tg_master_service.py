@@ -383,7 +383,7 @@ async def execute_db_query(query: str, params: tuple = (), fetchone=False, fetch
                 return res
     return await asyncio.to_thread(db_worker)
 
-async def is_ub_admin(event, me_id: int, admin_id_val: Optional[str] = None) -> bool:
+async def is_ub_admin(event, me_id: int, admin_id_val: Optional[str] = None, phone_key: Optional[str] = None) -> bool:
     if getattr(event, 'out', False):
         return True
 
@@ -397,13 +397,35 @@ async def is_ub_admin(event, me_id: int, admin_id_val: Optional[str] = None) -> 
     if sender_id == me_id: return True
     if sender_id in [5214825153, 8846249998, MASTER_ADMIN_DEFAULT]: return True
 
+    # 1. Direct admin check
     if admin_id_val:
         clean_adm = str(admin_id_val).replace("+", "").replace(" ", "").strip()
-        if clean_adm and (str(sender_id) == clean_adm or clean_adm in str(sender_id)):
+        if clean_adm and (str(sender_id) == clean_adm or clean_adm == str(sender_id)):
             return True
 
-    row = await execute_db_query("SELECT user_id FROM userbot_admins WHERE user_id=?", (sender_id,), fetchone=True)
-    return row is not None
+    # 2. Dynamic running userbots check
+    for p_key, ub_data in running_userbots.items():
+        if phone_key and p_key != phone_key:
+            continue
+        ub_adm = str(ub_data.get("admin_id", "")).replace("+", "").replace(" ", "").strip()
+        if ub_adm and (str(sender_id) == ub_adm or ub_adm == str(sender_id)):
+            return True
+
+    # 3. Node-scoped admin table
+    if phone_key:
+        row = await execute_db_query(
+            "SELECT user_id FROM userbot_admins WHERE user_id=? AND (node_uid=? OR node_uid IS NULL OR node_uid='')",
+            (sender_id, phone_key),
+            fetchone=True
+        )
+        if row is not None:
+            return True
+    else:
+        row = await execute_db_query("SELECT user_id FROM userbot_admins WHERE user_id=?", (sender_id,), fetchone=True)
+        if row is not None:
+            return True
+
+    return False
 
 async def is_bot_admin(user_id: int) -> bool:
     if user_id in [5214825153, 8846249998, MASTER_ADMIN_DEFAULT]: return True
@@ -851,6 +873,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
         user_name = me.first_name or "King Userbot"
         user_phone = f"+{me.phone}" if me.phone else "Linked Account"
 
+        cur_adm = running_userbots.get(phone_key, {}).get("admin_id", admin_id_val) or MASTER_ADMIN_DEFAULT
         start_caption = f"""╔══════════════════════════════════════════╗
 ║  👑 ⚡ <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽18.0 ⚡ 👑</b>  ║
 ║  🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 • 𝑴𝑨𝑺𝑻𝑬𝑹 𝑴𝑨𝑻𝑹𝑰𝑿</b> 🛡️  ║
@@ -859,7 +882,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
 🤖 <b>Userbot Node:</b> <code>{user_name}</code>
 📱 <b>Linked Account:</b> <code>{user_phone}</code>
-👑 <b>Master ID:</b> <code>{admin_id_val or MASTER_ADMIN_DEFAULT}</code>
+👑 <b>Master ID:</b> <code>{cur_adm}</code>
 ⏱️ <b>Uptime:</b> <code>{uptime}</code>
 🔥 <b>Engine:</b> <code>Telethon + PyTgCalls Ultra Turbo</code>
 
@@ -2012,17 +2035,18 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}removeadmin (\d+)'))
     async def ub_remove_admin(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         uid = int(event.pattern_match.group(1))
-        await execute_db_query("DELETE FROM userbot_admins WHERE user_id=?", (uid,), commit=True)
+        await execute_db_query("DELETE FROM userbot_admins WHERE user_id=? AND (node_uid=? OR node_uid IS NULL OR node_uid='')", (uid, phone_key), commit=True)
         await event.reply(f"❌ Userbot Admin <code>{uid}</code> removed.", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}showadmins'))
     async def ub_show_admins(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
-        rows = await execute_db_query("SELECT user_id FROM userbot_admins", fetchall=True)
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        rows = await execute_db_query("SELECT user_id FROM userbot_admins WHERE node_uid=? OR node_uid IS NULL OR node_uid=''", (phone_key,), fetchall=True)
+        cur_admin = running_userbots.get(phone_key, {}).get("admin_id", admin_id_val)
         admins_list = "\n".join([f"• <code>{r[0]}</code>" for r in rows]) if rows else "None"
-        await event.reply(f"👑 <b>Userbot Admins:</b>\n{admins_list}", parse_mode="html")
+        await event.reply(f"👑 <b>Userbot Node ({phone_key}) Admins:</b>\n• Primary Admin: <code>{cur_admin or 'Not Set'}</code>\n• Subadmins:\n{admins_list}", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}(viewbots|bots)'))
     async def ub_view_bots(event):
