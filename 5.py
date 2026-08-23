@@ -2929,6 +2929,57 @@ def ig_scrape_links():
 
     return jsonify({"status": "ok", "links": links, "count": len(links)})
 
+@app.route("/api/ig/chatinfo", methods=["POST"])
+def ig_chatinfo_api():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+    
+    uid = str(request.json.get("uid", "")).strip()
+    target_link = str(request.json.get("link", "")).strip()
+    full_db = get_full_db()
+    acc = full_db.get("accounts", {}).get(uid, {}) if uid else {}
+    
+    sessionid = acc.get("sessionid", "")
+    csrftoken = acc.get("csrftoken", "")
+    if not sessionid:
+        return jsonify({"status": "error", "message": "Valid Instagram sessionid required"}), 400
+
+    client = InstaUnifiedClient(sessionid=sessionid, csrftoken=csrftoken)
+    thread_id = None
+    if "direct/t/" in target_link:
+        thread_id = target_link.split("direct/t/")[1].split("/")[0].split("?")[0].strip()
+    elif target_link.isdigit():
+        thread_id = target_link
+
+    if not thread_id:
+        return jsonify({"status": "error", "message": "Invalid thread ID or link"}), 400
+
+    info = client.get_thread_info(thread_id)
+    if info:
+        return jsonify({"status": "ok", "thread_id": thread_id, "title": info.get("title", "Instagram Group"), "users_count": len(info.get("users", []))})
+    return jsonify({"status": "ok", "thread_id": thread_id, "title": "Instagram Direct Thread", "users_count": 0})
+
+@app.route("/api/ig/join", methods=["POST"])
+def ig_join_api():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+    
+    uid = str(request.json.get("uid", "")).strip()
+    invite_link = str(request.json.get("link", "")).strip()
+    full_db = get_full_db()
+    acc = full_db.get("accounts", {}).get(uid, {}) if uid else {}
+    
+    if not acc:
+        return jsonify({"status": "error", "message": "Account not found"}), 404
+
+    current_links = acc.get("gc_links", [])
+    if invite_link and invite_link not in current_links:
+        current_links.append(invite_link)
+        acc["gc_links"] = current_links
+        save_ig_account_db(uid, acc)
+        return jsonify({"status": "ok", "message": "Instagram group link added successfully!", "total_links": len(current_links)})
+    return jsonify({"status": "ok", "message": "Link already present", "total_links": len(current_links)})
+
 @app.route("/status")
 def status():
     if not is_authenticated():

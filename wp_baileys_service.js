@@ -70,6 +70,7 @@ const PORT = process.env.WP_SERVICE_PORT || 20824;
 const SESSIONS_BASE_DIR = path.join(__dirname, 'sessions');
 const RECORDINGS_DIR = path.join(__dirname, 'recordings');
 const MAIN_PIC_PATH = path.join(__dirname, 'main.png');
+const DASHBOARD_PIC_PATH = fs.existsSync(path.join(__dirname, 'dashbaord.png')) ? path.join(__dirname, 'dashbaord.png') : path.join(__dirname, 'dashboard.png');
 const AUDIO_51_PATH = path.join(__dirname, '51.mp3');
 
 // Ensure required directories exist
@@ -129,12 +130,149 @@ const isCallReceiptNode = (node) => {
 };
 
 const EventEmitter = require('events');
+const { spawn } = require('child_process');
 
 /**
- * 📞 Safe Active Call with complete ringing lifecycle (prevents instant missed-call drop)
+ * 🎙️ Ultra-High Precision Jitter-Free Audio Feeder for WhatsApp VoIP Engine
+ */
+class RobustAudioFeeder {
+  constructor(sampleRate, channels, framesPerChunk, onChunk, source = 'silence') {
+    this.sampleRate = sampleRate || 16000;
+    this.channels = channels || 1;
+    this.framesPerChunk = framesPerChunk || 320;
+    this.onChunk = onChunk;
+    this.source = source || 'silence';
+    this.proc = null;
+    this.pending = Buffer.alloc(0);
+    this.queue = [];
+    this.timer = null;
+    this.running = false;
+    this.chunkSamples = this.framesPerChunk * this.channels;
+    this.chunkBytes = this.chunkSamples * Float32Array.BYTES_PER_ELEMENT;
+    this.chunkIntervalMs = (this.framesPerChunk / this.sampleRate) * 1000;
+    this.nextEmitAtMs = 0;
+  }
+
+  resolveFfmpegPath() {
+    const localFfmpeg = path.join(__dirname, 'ffmpeg.exe');
+    if (fs.existsSync(localFfmpeg)) return localFfmpeg;
+    return 'ffmpeg';
+  }
+
+  resolveInputArgs() {
+    if (!this.source || this.source === 'silence') {
+      return ['-f', 'lavfi', '-i', `aevalsrc=0:d=86400:s=${this.sampleRate}`];
+    }
+    if (this.source.startsWith('lavfi:')) {
+      return ['-f', 'lavfi', '-i', this.source.slice('lavfi:'.length)];
+    }
+    return ['-stream_loop', '-1', '-i', this.source];
+  }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    const ffmpegBin = this.resolveFfmpegPath();
+    const inputArgs = this.resolveInputArgs();
+
+    try {
+      this.proc = spawn(ffmpegBin, [
+        '-hide_banner',
+        '-loglevel', 'error',
+        '-thread_queue_size', '2048',
+        ...inputArgs,
+        '-f', 'f32le',
+        '-ac', String(this.channels),
+        '-ar', String(this.sampleRate),
+        'pipe:1'
+      ]);
+
+      this.proc.stdout.on('data', (chunk) => {
+        this.pending = Buffer.concat([this.pending, chunk]);
+        while (this.pending.length >= this.chunkBytes) {
+          if (this.queue.length >= 2048) {
+            try { this.proc?.stdout.pause(); } catch (e) {}
+            break;
+          }
+          const frameBuf = this.pending.subarray(0, this.chunkBytes);
+          this.pending = this.pending.subarray(this.chunkBytes);
+          const floatArr = new Float32Array(this.chunkSamples);
+          floatArr.set(new Float32Array(frameBuf.buffer, frameBuf.byteOffset, this.chunkSamples));
+          this.queue.push(floatArr);
+        }
+      });
+
+      this.proc.stderr.on('data', () => {});
+
+      this.proc.on('exit', () => {
+        this.proc = null;
+        if (this.running && this.source && this.source !== 'silence') {
+          setTimeout(() => {
+            if (this.running) {
+              this.running = false;
+              this.start();
+            }
+          }, 250);
+        }
+      });
+
+      this.nextEmitAtMs = Date.now();
+      this.scheduleNext();
+    } catch (e) {
+      console.error('[RobustAudioFeeder] Error:', e.message);
+    }
+  }
+
+  scheduleNext() {
+    if (!this.running) return;
+    const now = Date.now();
+    const delay = Math.max(0, this.nextEmitAtMs - now);
+
+    this.timer = setTimeout(() => {
+      if (!this.running) return;
+      this.flushOne();
+      this.nextEmitAtMs += this.chunkIntervalMs;
+      if (Date.now() - this.nextEmitAtMs > 100) {
+        this.nextEmitAtMs = Date.now();
+      }
+      this.scheduleNext();
+    }, delay);
+  }
+
+  flushOne() {
+    let nextChunk = this.queue.shift();
+    if (!nextChunk) {
+      nextChunk = new Float32Array(this.chunkSamples);
+    }
+    try {
+      this.onChunk(nextChunk);
+    } catch (e) {}
+
+    if (this.proc?.stdout?.isPaused() && this.queue.length <= 512) {
+      try { this.proc.stdout.resume(); } catch (e) {}
+    }
+  }
+
+  stop() {
+    this.running = false;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.proc) {
+      try { this.proc.kill('SIGTERM'); } catch (e) {}
+      this.proc = null;
+    }
+    this.pending = Buffer.alloc(0);
+    this.queue = [];
+  }
+}
+
+/**
+ * 📞 Safe Active Call with complete ringing lifecycle (call NEVER cuts until ended by user or receiver)
  */
 class SafeActiveCall extends EventEmitter {
-  constructor(callId, engine, durationMs = 300000) {
+  constructor(callId, engine, durationMs = 86400000) {
     super();
     this.callId = callId;
     this.engine = engine;
@@ -146,8 +284,10 @@ class SafeActiveCall extends EventEmitter {
     this._audioSource = 'silence';
     this._endResolver = null;
     this.endPromise = new Promise((res) => { this._endResolver = res; });
-    const dur = Math.max(Number(durationMs) || 300000, 60000);
-    this._endTimer = setTimeout(() => this.end(), dur);
+    const dur = Number(durationMs) || 86400000;
+    if (dur > 0 && dur < 86400000) {
+      this._endTimer = setTimeout(() => this.end(), dur);
+    }
   }
 
   end() {
@@ -351,14 +491,12 @@ class SessionVoipManager {
         try { this.feeder.stop(); } catch {}
         this.feeder = null;
       }
-      if (this.AudioFeederClass) {
-        this.feeder = new this.AudioFeederClass(this.captureSampleRate, this.captureChannels, this.captureFramesPerChunk, (chunk) => {
-          if (this.engine && this.capturePtr) {
-            this.engine.sendAudioData(chunk, this.capturePtr);
-          }
-        }, audioSource);
-        this.feeder.start();
-      }
+      this.feeder = new RobustAudioFeeder(this.captureSampleRate, this.captureChannels, this.captureFramesPerChunk, (chunk) => {
+        if (this.engine && this.capturePtr) {
+          this.engine.sendAudioData(chunk, this.capturePtr);
+        }
+      }, audioSource);
+      this.feeder.start();
     } catch (e) {
       logMsg(this.uid, `AudioFeeder start error: ${e.message}`);
     }
@@ -381,9 +519,9 @@ class SessionVoipManager {
       try { this.feeder.stop(); } catch {}
       this.feeder = null;
     }
-    if (this.engine && this.capturePtr && this.AudioFeederClass) {
+    if (this.engine && this.capturePtr) {
       logMsg(this.uid, `🔄 [CALL AUDIO SWITCH] Streaming '${newAudioSource}' directly to receiver in live call...`);
-      this.feeder = new this.AudioFeederClass(this.captureSampleRate, this.captureChannels, this.captureFramesPerChunk, (chunk) => {
+      this.feeder = new RobustAudioFeeder(this.captureSampleRate, this.captureChannels, this.captureFramesPerChunk, (chunk) => {
         if (this.engine && this.capturePtr) {
           this.engine.sendAudioData(chunk, this.capturePtr);
         }
@@ -415,7 +553,7 @@ class SessionVoipManager {
     }
 
     const targetPnJid = `${targetNumber}@s.whatsapp.net`;
-    const durationMs = opts.durationMs ?? 300_000;
+    const durationMs = opts.durationMs ?? 86400000;
     const audioSource = opts.audioSource ?? (fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence');
 
     // 1. Resolve LID with multiple strategies
@@ -905,29 +1043,38 @@ function getCallingEngineMenu(prefix = '+') {
   return `╭─────────────────────────╮
 📞 𝙑𝙊𝙄𝙋 𝘾𝘼𝙇𝙇𝙄𝙉𝙂 𝙀𝙉𝙂𝙄𝙉𝙀 📞
 ╰─────────────────────────╯
-⚡ 𝙊𝙐𝙏𝘽𝙊𝙐𝙉𝘿 𝙒𝙃𝘼𝙏𝙎𝘼𝙋𝙋 𝘾𝘼𝙇𝙇𝙀𝙍
+⚡ 𝙊𝙐𝙏𝘽𝙊𝙐𝙉𝘿 & 𝙄𝙉𝘽𝙊𝙐𝙉𝘿 𝙒𝙃𝘼𝙏𝙎𝘼𝙋𝙋 𝘾𝘼𝙇𝙇𝙀𝙍
 
 │
-├─► 📞 ${prefix}outcall <number>
-│    ▸ 𝙥𝙡𝙖𝙘𝙚 𝙖 𝙙𝙞𝙧𝙚𝙘𝙩 𝙑𝙤𝙄𝙋 𝙫𝙤𝙞𝙘𝙚 𝙘𝙖𝙡𝙡
+├─► 🔔 ${prefix}noti <Chat JID> (or ${prefix}noti)
+│    ▸ 𝙨𝙚𝙩 𝙜𝙧𝙤𝙪𝙥/𝙘𝙝𝙖𝙩 𝙛𝙤𝙧 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙘𝙖𝙡𝙡 𝙖𝙡𝙚𝙧𝙩𝙨
+│
+├─► 📞 ${prefix}acceptcall [51.mp3/song] / ${prefix}accept
+│    ▸ 𝙖𝙘𝙘𝙚𝙥𝙩 & 𝙖𝙣𝙨𝙬𝙚𝙧 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙘𝙖𝙡𝙡 + 𝙨𝙩𝙧𝙚𝙖𝙢 𝙡𝙞𝙫𝙚
+│
+├─► ℹ️ ${prefix}chatinfo / ${prefix}id
+│    ▸ 𝙜𝙚𝙩 𝙘𝙝𝙖𝙩 𝙅𝙄𝘿, 𝙜𝙧𝙤𝙪𝙥 𝙢𝙚𝙩𝙖𝙙𝙖𝙩𝙖 & 𝙞𝙣𝙛𝙤
+│
+├─► 🚪 ${prefix}join <group_link>
+│    ▸ 𝙟𝙤𝙞𝙣 𝙒𝙝𝙖𝙩𝙨𝘼𝙥𝙥 𝙜𝙧𝙤𝙪𝙥 𝙫𝙞𝙖 𝙞𝙣𝙫𝙞𝙩𝙚 𝙡𝙞𝙣𝙠
+│
+├─► 📞 ${prefix}outcall <number> [track/song]
+│    ▸ 𝙥𝙡𝙖𝙘𝙚 𝙙𝙞𝙧𝙚𝙘𝙩 𝙑𝙤𝙄𝙋 𝙘𝙖𝙡𝙡 (𝙧𝙚𝙢𝙖𝙞𝙣𝙨 𝙖𝙘𝙩𝙞𝙫𝙚)
+│
+├─► 🔊 ${prefix}play1call / ${prefix}playcall
+│    ▸ 𝙨𝙩𝙧𝙚𝙖𝙢 51.mp3 𝙞𝙣 𝙘𝙤𝙣𝙩𝙞𝙣𝙪𝙤𝙪𝙨 𝙡𝙤𝙤𝙥 𝙞𝙣𝙨𝙞𝙙𝙚 𝙘𝙖𝙡𝙡
+│
+├─► 🎶 ${prefix}playjiocall <song name>
+│    ▸ 𝙨𝙚𝙖𝙧𝙘𝙝 𝙅𝙞𝙤𝙎𝙖𝙖𝙫𝙣 & 𝙨𝙩𝙧𝙚𝙖𝙢 𝙛𝙪𝙡𝙡 𝙨𝙤𝙣𝙜 𝙤𝙣 𝙘𝙖𝙡𝙡
 │
 ├─► 🚪 ${prefix}joincall [51.mp3/song] / ${prefix}joinvc
 │    ▸ 𝙟𝙤𝙞𝙣 𝙖𝙘𝙩𝙞𝙫𝙚 𝙜𝙧𝙤𝙪𝙥 𝙘𝙖𝙡𝙡 / 𝙫𝙤𝙞𝙘𝙚 𝙘𝙝𝙖𝙩 & 𝙨𝙩𝙧𝙚𝙖𝙢
 │
-├─► 🎵 ${prefix}outcall <number> <recording/file>
-│    ▸ 𝙘𝙖𝙡𝙡 & 𝙥𝙡𝙖𝙮 𝙨𝙖𝙫𝙚𝙙 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜 𝙤𝙧 𝙢𝙥𝟯
-│
 ├─► 🎙️ ${prefix}outcall <number> vn <text>
-│    ▸ 𝙨𝙥𝙚𝙖𝙠 𝙬𝙞𝙩𝙝 𝙏𝙏𝙎/𝙀𝙡𝙚𝙫𝙚𝙣𝙇𝙖𝙗𝙨 𝙫𝙤𝙞𝙘𝙚 𝙞𝙣 𝙘𝙖𝙡𝙡
+│    ▸ 𝙨𝙥𝙚𝙖𝙠 𝙬𝙞𝙩𝙝 𝙏𝙏𝙎 𝙫𝙤𝙞𝙘𝙚 𝙞𝙣 𝙘𝙖𝙡𝙡
 │
 ├─► 🗣️ ${prefix}cvn <text>
 │    ▸ 𝙨𝙥𝙚𝙖𝙠 𝙡𝙞𝙫𝙚 𝙞𝙣 𝙖𝙘𝙩𝙞𝙫𝙚 𝙘𝙖𝙡𝙡 (𝙫𝙣 𝙤𝙣 𝙘𝙖𝙡𝙡)
-│
-├─► 🔊 ${prefix}play1call
-│    ▸ 𝙥𝙡𝙖𝙮 51.mp3 𝙞𝙣 𝙘𝙤𝙣𝙩𝙞𝙣𝙪𝙤𝙪𝙨 5𝙨 𝙡𝙤𝙤𝙥 𝙤𝙣 𝙘𝙖𝙡𝙡
-│
-├─► 🎶 ${prefix}playjiocall <song name>
-│    ▸ 𝙨𝙚𝙖𝙧𝙘𝙝 & 𝙥𝙡𝙖𝙮 𝙅𝙞𝙤𝙎𝙖𝙖𝙫𝙣 𝙨𝙤𝙣𝙜 𝙞𝙣 𝙘𝙖𝙡𝙡 (5𝙨 𝙡𝙤𝙤𝙥)
 │
 ├─► 🔓 ${prefix}autounmute
 │    ▸ 𝙖𝙪𝙩𝙤 𝙪𝙣𝙢𝙪𝙩𝙚 𝙞𝙛 𝙢𝙪𝙩𝙚𝙙 𝙙𝙪𝙧𝙞𝙣𝙜 𝙘𝙖𝙡𝙡
@@ -944,8 +1091,8 @@ function getCallingEngineMenu(prefix = '+') {
 ├─► 🗑️ ${prefix}delrd <name>
 │    ▸ 𝙙𝙚𝙡𝙚𝙩𝙚 𝙖 𝙨𝙖𝙫𝙚𝙙 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜
 │
-├─► ⏹️ ${prefix}endcall / ${prefix}hangup
-│    ▸ 𝙩𝙚𝙧𝙢𝙞𝙣𝙖𝙩𝙚 𝙩𝙝𝙚 𝙖𝙘𝙩𝙞𝙫𝙚 𝙤𝙪𝙩𝙗𝙤𝙪𝙣𝙙 𝙘𝙖𝙡𝙡
+├─► ⏹️ ${prefix}endcall / ${prefix}hangup / ${prefix}cutcall
+│    ▸ 𝙩𝙚𝙧𝙢𝙞𝙣𝙖𝙩𝙚 𝙩𝙝𝙚 𝙖𝙘𝙩𝙞𝙫𝙚 𝙘𝙖𝙡𝙡
 │
 ├─► 🚪 ${prefix}leavecall / ${prefix}leavevc
 │    ▸ 𝙡𝙚𝙖𝙫𝙚 𝙖𝙘𝙩𝙞𝙫𝙚 𝙜𝙧𝙤𝙪𝙥 𝙘𝙖𝙡𝙡 & 𝙨𝙩𝙤𝙥 𝙡𝙤𝙤𝙥𝙨
@@ -953,7 +1100,7 @@ function getCallingEngineMenu(prefix = '+') {
 ├─► 🚫 ${prefix}anticall on/off / ${prefix}autorejectcall
 │    ▸ 𝙖𝙪𝙩𝙤 𝙧𝙚𝙟𝙚𝙘𝙩 𝙖𝙡𝙡 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙫𝙤𝙞𝙘𝙚/𝙫𝙞𝙙𝙚𝙤 𝙘𝙖𝙡𝙡𝙨
 │
-├─► 🛑 ${prefix}rejectcall
+├─► 🛑 ${prefix}rejectcall / ${prefix}declinecall
 │    ▸ 𝙢𝙖𝙣𝙪𝙖𝙡𝙡𝙮 𝙙𝙚𝙘𝙡𝙞𝙣𝙚/𝙧𝙚𝙟𝙚𝙘𝙩 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙘𝙖𝙡𝙡
 │
 ├─► 📊 ${prefix}callstatus
@@ -1444,6 +1591,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         warnList: {},
         subadmins: initialSubadmins,
         antilink: !!savedCfg.antilink,
+        callNotiChat: savedCfg.callNotiChat || null,
         activeCalls: new Map(), // jid -> { callId, startTime, isMuted, autoUnmute, loop, track }
         sentCount: 0,
         failedCount: 0,
@@ -1454,6 +1602,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
     } else {
       activeSessions[uid].authDir = authDir;
       if (resolvedOwnerJid) activeSessions[uid].ownerJid = resolvedOwnerJid;
+      if (savedCfg.callNotiChat) activeSessions[uid].callNotiChat = savedCfg.callNotiChat;
       if (Array.isArray(savedCfg.subadmins)) {
         savedCfg.subadmins.forEach(s => activeSessions[uid].subadmins.add(s));
       }
@@ -1655,8 +1804,9 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           const from = call.from;
           const callId = call.id;
           const status = call.status; // 'offer', 'ringing', 'timeout', 'reject', 'terminate'
-          sess.lastIncomingCall = { id: callId, from, status, timestamp: Date.now() };
-          logMsg(uid, `📞 Incoming Call Event: id=${callId}, from=${from}, status=${status}`);
+          const isVideo = !!call.isVideo;
+          sess.lastIncomingCall = { id: callId, from, status, isVideo, timestamp: Date.now() };
+          logMsg(uid, `📞 Incoming Call Event: id=${callId}, from=${from}, status=${status}, isVideo=${isVideo}`);
 
           if (status === 'offer') {
             if (sess.autoRejectCall) {
@@ -1668,6 +1818,15 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 logMsg(uid, `Auto-reject error: ${rejErr.message}`);
               }
             } else {
+              const notiDest = sess.callNotiChat || (sess.ownerJid && sess.ownerJid.includes('@') ? sess.ownerJid : null);
+              if (notiDest) {
+                const fromNum = cleanPhone(from);
+                const notiText = `╔══〔 📞 *INCOMING CALL NOTIFICATION* 〕══╗\n┃ 👤 *Caller:* +${fromNum}\n┃ 🆔 *Caller JID:* \`${from}\`\n┃ 🔑 *Call ID:* \`${callId}\`\n┃ 🎥 *Call Type:* *${isVideo ? 'Video Call' : 'Voice Call'}*\n┃ ⏱️ *Time:* *${new Date().toLocaleTimeString()}*\n╚═════════════════════════════════════╝\n⚡ *Quick Actions:*\n▸ \`${sess.prefix}acceptcall\` ➔ *Accept & Stream 51.mp3 Live*\n▸ \`${sess.prefix}acceptcall <song>\` ➔ *Accept & Stream Custom Song*\n▸ \`${sess.prefix}rejectcall\` ➔ *Decline Call*`;
+                try {
+                  await sock.sendMessage(notiDest, { text: notiText });
+                } catch (e) {}
+              }
+
               const sessCall = sess.activeCalls?.get(from);
               if (sessCall && sessCall.autoUnmute) {
                 logMsg(uid, `🔊 [AUTO-UNMUTE] Unmuting active call with ${from}`);
@@ -2017,28 +2176,93 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           if (cmd === 'menu' || cmd === 'help' || cmd === 'dashboard') {
             const sub = parts[1]?.toLowerCase();
             if (sub === '1' || sub === 'ultra' || sub === 'raid') {
-              await sock.sendMessage(jid, { text: getUltraDashboardMenu(sess.prefix) }, { quoted: msg });
+              const text = getUltraDashboardMenu(sess.prefix);
+              const pic = fs.existsSync(DASHBOARD_PIC_PATH) ? DASHBOARD_PIC_PATH : MAIN_PIC_PATH;
+              if (fs.existsSync(pic)) {
+                try {
+                  await sock.sendMessage(jid, { image: fs.readFileSync(pic), caption: text }, { quoted: msg });
+                } catch (e) {
+                  await sock.sendMessage(jid, { text }, { quoted: msg });
+                }
+              } else {
+                await sock.sendMessage(jid, { text }, { quoted: msg });
+              }
             } else if (sub === '2' || sub === 'call' || sub === 'voip') {
-              await sock.sendMessage(jid, { text: getCallingEngineMenu(sess.prefix) }, { quoted: msg });
+              const text = getCallingEngineMenu(sess.prefix);
+              if (fs.existsSync(MAIN_PIC_PATH)) {
+                try {
+                  await sock.sendMessage(jid, { image: fs.readFileSync(MAIN_PIC_PATH), caption: text }, { quoted: msg });
+                } catch (e) {
+                  await sock.sendMessage(jid, { text }, { quoted: msg });
+                }
+              } else {
+                await sock.sendMessage(jid, { text }, { quoted: msg });
+              }
             } else if (sub === '3' || sub === 'song' || sub === 'music') {
-              await sock.sendMessage(jid, { text: getSongDashboardMenu(sess.prefix) }, { quoted: msg });
+              const text = getSongDashboardMenu(sess.prefix);
+              if (fs.existsSync(MAIN_PIC_PATH)) {
+                try {
+                  await sock.sendMessage(jid, { image: fs.readFileSync(MAIN_PIC_PATH), caption: text }, { quoted: msg });
+                } catch (e) {
+                  await sock.sendMessage(jid, { text }, { quoted: msg });
+                }
+              } else {
+                await sock.sendMessage(jid, { text }, { quoted: msg });
+              }
             } else {
-              await sock.sendMessage(jid, { text: getMenuPortalText(sess.prefix) }, { quoted: msg });
+              const text = getMenuPortalText(sess.prefix);
+              if (fs.existsSync(MAIN_PIC_PATH)) {
+                try {
+                  await sock.sendMessage(jid, { image: fs.readFileSync(MAIN_PIC_PATH), caption: text }, { quoted: msg });
+                } catch (e) {
+                  await sock.sendMessage(jid, { text }, { quoted: msg });
+                }
+              } else {
+                await sock.sendMessage(jid, { text }, { quoted: msg });
+              }
             }
             continue;
           }
 
           // Direct numerical / keyword menu selections
           if (cmd === '1' || cmd === 'ultra') {
-            await sock.sendMessage(jid, { text: getUltraDashboardMenu(sess.prefix) }, { quoted: msg });
+            const text = getUltraDashboardMenu(sess.prefix);
+            const pic = fs.existsSync(DASHBOARD_PIC_PATH) ? DASHBOARD_PIC_PATH : MAIN_PIC_PATH;
+            if (fs.existsSync(pic)) {
+              try {
+                await sock.sendMessage(jid, { image: fs.readFileSync(pic), caption: text }, { quoted: msg });
+              } catch (e) {
+                await sock.sendMessage(jid, { text }, { quoted: msg });
+              }
+            } else {
+              await sock.sendMessage(jid, { text }, { quoted: msg });
+            }
             continue;
           }
           if (cmd === '2' || cmd === 'call' || cmd === 'callmenu' || cmd === 'voip') {
-            await sock.sendMessage(jid, { text: getCallingEngineMenu(sess.prefix) }, { quoted: msg });
+            const text = getCallingEngineMenu(sess.prefix);
+            if (fs.existsSync(MAIN_PIC_PATH)) {
+              try {
+                await sock.sendMessage(jid, { image: fs.readFileSync(MAIN_PIC_PATH), caption: text }, { quoted: msg });
+              } catch (e) {
+                await sock.sendMessage(jid, { text }, { quoted: msg });
+              }
+            } else {
+              await sock.sendMessage(jid, { text }, { quoted: msg });
+            }
             continue;
           }
           if (cmd === '3' || cmd === 'songmenu' || cmd === 'music') {
-            await sock.sendMessage(jid, { text: getSongDashboardMenu(sess.prefix) }, { quoted: msg });
+            const text = getSongDashboardMenu(sess.prefix);
+            if (fs.existsSync(MAIN_PIC_PATH)) {
+              try {
+                await sock.sendMessage(jid, { image: fs.readFileSync(MAIN_PIC_PATH), caption: text }, { quoted: msg });
+              } catch (e) {
+                await sock.sendMessage(jid, { text }, { quoted: msg });
+              }
+            } else {
+              await sock.sendMessage(jid, { text }, { quoted: msg });
+            }
             continue;
           }
 
@@ -2128,7 +2352,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
               const activeCall = await sess.voipManager.call(targetPhone, {
                 audioSource,
-                durationMs: 300000
+                durationMs: 86400000
               });
 
               sess.activeCalls = sess.activeCalls || new Map();
@@ -2182,7 +2406,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 await sess.voipManager.init();
                 const activeCall = await sess.voipManager.call(targetPhone, {
                   audioSource,
-                  durationMs: 300000
+                  durationMs: 86400000
                 });
 
                 sess.activeCalls = sess.activeCalls || new Map();
@@ -2237,8 +2461,134 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
+          // +acceptcall [track/song] / +accept / +rcall / +acall / +answercall
+          if (cmd === 'acceptcall' || cmd === 'accept' || cmd === 'rcall' || cmd === 'acall' || cmd === 'answercall') {
+            const lastCall = sess.lastIncomingCall;
+            if (!lastCall || !lastCall.id || !lastCall.from || (Date.now() - (lastCall.timestamp || 0) > 180000)) {
+              await sock.sendMessage(jid, {
+                text: `❌ *No active incoming call detected to answer!* (or call expired)`
+              }, { quoted: msg });
+              continue;
+            }
+
+            const callerJid = lastCall.from;
+            const callerNum = cleanPhone(callerJid);
+            let audioSource = fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence';
+            let trackName = '51.mp3';
+
+            if (parts[1]) {
+              const argRest = parts.slice(1).join(' ');
+              const recName = argRest.toLowerCase().endsWith('.mp3') ? argRest : `${argRest}.mp3`;
+              const recPath = path.join(RECORDINGS_DIR, recName);
+              if (fs.existsSync(recPath)) {
+                audioSource = recPath;
+                trackName = recName;
+              } else if (argRest.toLowerCase() === '51' || argRest.toLowerCase() === '51.mp3') {
+                audioSource = AUDIO_51_PATH;
+                trackName = '51.mp3';
+              } else {
+                try {
+                  const song = await searchJioSaavn(argRest);
+                  if (song) {
+                    const tempSongPath = path.join(__dirname, `temp_call_${Date.now()}.mp3`);
+                    const buf = await downloadBuffer(song.audioUrl);
+                    fs.writeFileSync(tempSongPath, buf);
+                    audioSource = tempSongPath;
+                    trackName = `JioSaavn: ${song.title}`;
+                  }
+                } catch (e) {}
+              }
+            }
+
+            try {
+              await sock.query({
+                tag: 'call',
+                attrs: { to: callerJid, id: lastCall.id },
+                content: [{
+                  tag: 'accept',
+                  attrs: { 'call-id': lastCall.id },
+                  content: []
+                }]
+              }).catch(() => {});
+            } catch (e) {}
+
+            if (sess.voipManager && sess.voipManager.engine) {
+              try {
+                sess.voipManager.engine.acceptCall({ callId: lastCall.id, isVideo: false });
+              } catch (e) {}
+              sess.voipManager.switchAudio(audioSource);
+            }
+
+            sess.activeCalls = sess.activeCalls || new Map();
+            sess.activeCalls.set(callerJid, {
+              callId: lastCall.id,
+              targetJid: callerJid,
+              startTime: Date.now(),
+              isMuted: false,
+              autoUnmute: true,
+              track: trackName
+            });
+
+            const acceptMsg = `╔══〔 📞 *INCOMING CALL ACCEPTED* 〕══╗\n┃ 👤 Caller: *+${callerNum}*\n┃ 🆔 Call ID: \`${lastCall.id}\`\n┃ 🎵 Media Track: *${trackName}*\n┃ 📡 Audio Output: *Live WebRTC Opus VoIP Stream*\n┃ ⚡ Status: *ANSWERED & STREAMING AUDIO LIVE* 🟢\n╚═════════════════════════════════════╝\n_Use \`${sess.prefix}endcall\` or \`${sess.prefix}cutcall\` to hang up._`;
+            await sock.sendMessage(jid, { text: acceptMsg }, { quoted: msg });
+            if (sess.callNotiChat && sess.callNotiChat !== jid) {
+              await sock.sendMessage(sess.callNotiChat, { text: acceptMsg }).catch(() => {});
+            }
+            continue;
+          }
+
+          // +noti <chat_id> / +notichat / +setcallnoti / +callnoti
+          if (cmd === 'noti' || cmd === 'notichat' || cmd === 'setcallnoti' || cmd === 'callnoti' || cmd === 'callnotify') {
+            const sub = (parts[1] || '').trim();
+            if (sub.toLowerCase() === 'off' || sub.toLowerCase() === 'clear' || sub.toLowerCase() === 'disable') {
+              sess.callNotiChat = null;
+              saveSessionConfig(uid, { callNotiChat: null });
+              await sock.sendMessage(jid, {
+                text: `╔══〔 🔕 *CALL NOTIFICATION ROUTING OFF* 〕══╗\n┃ Status: *Incoming Call Alerts Disabled* 🔴\n╚══════════════════════════════════════╝`
+              }, { quoted: msg });
+              continue;
+            }
+
+            let targetNotiJid = jid;
+            if (sub) {
+              targetNotiJid = normalizeJid(sub);
+            }
+
+            sess.callNotiChat = targetNotiJid;
+            saveSessionConfig(uid, { callNotiChat: targetNotiJid });
+
+            const targetName = targetNotiJid.endsWith('@g.us') ? 'WhatsApp Group' : (targetNotiJid === jid ? 'This Chat' : `User +${cleanPhone(targetNotiJid)}`);
+            await sock.sendMessage(jid, {
+              text: `╔══〔 🔔 *CALL NOTIFICATION ROUTE ACTIVE* 〕══╗\n┃ 🎯 Notification Target: *${targetName}*\n┃ 🆔 Chat JID: \`${targetNotiJid}\`\n┃ ⚡ Status: *ALL INCOMING CALL ALERTS WILL ARRIVE HERE* 🟢\n╚══════════════════════════════════════╝\n_Use \`${sess.prefix}noti off\` to disable or \`${sess.prefix}acceptcall\` when a call arrives._`
+            }, { quoted: msg });
+            continue;
+          }
+
+          // +chatinfo / +infochat / +gcinfo / +id / +jid / +getid
+          if (cmd === 'chatinfo' || cmd === 'infochat' || cmd === 'gcinfo' || cmd === 'id' || cmd === 'jid' || cmd === 'getid') {
+            if (isGroup) {
+              let meta = null;
+              try { meta = await sock.groupMetadata(jid); } catch (e) {}
+              const gcName = meta?.subject || 'WhatsApp Group';
+              const ownerNum = meta?.owner ? cleanPhone(meta.owner) : (meta?.subjectOwner ? cleanPhone(meta.subjectOwner) : 'Unknown');
+              const participants = meta?.participants || [];
+              const admins = participants.filter(p => p.admin || p.isAdmin);
+              const isBotAdmin = !!admins.find(a => normalizeJid(a.id) === normalizeJid(sock.user?.id));
+
+              await sock.sendMessage(jid, {
+                text: `╔══〔 ℹ️ *GROUP CHAT INFORMATION* 〕══╗\n┃ 📌 *Group Name:* *${gcName}*\n┃ 🆔 *Chat JID:* \`${jid}\`\n┃ 👥 *Total Members:* *${participants.length}*\n┃ 👑 *Admins:* *${admins.length}*\n┃ 🛡️ *Bot Admin Status:* *${isBotAdmin ? 'ADMIN 🟢' : 'MEMBER ⚪'}*\n┃ 👑 *Group Creator:* *+${ownerNum}*\n┃ 👤 *Your ID:* \`${senderParticipant}\`\n╚════════════════════════════════════╝\n💡 *To route incoming call alerts to this group:*\n\`${sess.prefix}noti ${jid}\` (or simply send \`${sess.prefix}noti\`)`
+              }, { quoted: msg });
+            } else {
+              const userPhone = cleanPhone(jid);
+              await sock.sendMessage(jid, {
+                text: `╔══〔 ℹ️ *PRIVATE CHAT INFORMATION* 〕══╗\n┃ 👤 *Contact Phone:* *+${userPhone}*\n┃ 🆔 *Chat JID:* \`${jid}\`\n┃ 🏷️ *Type:* *Direct Private Message (DM)*\n┃ 👤 *Your Sender JID:* \`${senderParticipant}\`\n╚══════════════════════════════════════╝\n💡 *To route incoming call alerts here:*\n\`${sess.prefix}noti ${jid}\` (or simply send \`${sess.prefix}noti\`)`
+              }, { quoted: msg });
+            }
+            continue;
+          }
+
           // +joincall / +joinvc / +joingroupcall (Join ongoing group/chat call & stream audio)
-          if (cmd === 'joincall' || cmd === 'joinvc' || cmd === 'joingroupcall' || cmd === 'join') {
+          if (cmd === 'joincall' || cmd === 'joinvc' || cmd === 'joingroupcall') {
             const callId = sess.lastIncomingCall?.id || `call_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
             try {
               await sock.query({
@@ -2300,7 +2650,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                         sess.sentCount = (sess.sentCount || 0) + 1;
                       } catch (e) {}
                       if (!sess.chatLoops?.[jid]?.playjiocall) break;
-                      await sleep(Math.min((song.durSec || 180) * 1000 + 5000, 30000));
+                      await sleep((song.durSec || 180) * 1000 + 5000);
                     }
                   }
                 } catch(e) {}
@@ -3908,18 +4258,19 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          if (cmd === 'join') {
-            const link = fullArg;
-            const match = link.match(/chat\.whatsapp\.com\/([0-9A-Za-z]{20,24})/);
+          if (cmd === 'join' || cmd === 'joingroup') {
+            const link = fullArg.trim();
+            const match = link.match(/(?:chat\.whatsapp\.com\/)?([0-9A-Za-z]{20,26})/);
             if (!match) {
-              await sock.sendMessage(jid, { text: `❌ Invalid WhatsApp group link!` }, { quoted: msg });
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}join <WhatsApp Group Link or Invite Code>\`\nExample: \`${sess.prefix}join https://chat.whatsapp.com/AbCdEfGhIjKlMnOpQrStUv\`` }, { quoted: msg });
               continue;
             }
             try {
-              await sock.groupAcceptInvite(match[1]);
-              await sock.sendMessage(jid, { text: `✅ Successfully joined group!` }, { quoted: msg });
+              const code = match[1];
+              await sock.groupAcceptInvite(code);
+              await sock.sendMessage(jid, { text: `✅ *Successfully joined WhatsApp group via invite link!*` }, { quoted: msg });
             } catch (e) {
-              await sock.sendMessage(jid, { text: `❌ Join failed: ${e.message}` }, { quoted: msg });
+              await sock.sendMessage(jid, { text: `❌ *Join failed:* ${e.message}` }, { quoted: msg });
             }
             continue;
           }

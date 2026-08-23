@@ -558,6 +558,8 @@ def download_full_audio(query_or_url: str, output_path: str) -> Optional[Dict]:
         except Exception: pass
 
     jio_endpoints = [
+        f"https://jiosavan-api2.vercel.app/api/search/songs?query={requests.utils.quote(cleaned)}&limit=5",
+        f"https://saavn.me/search/songs?query={requests.utils.quote(cleaned)}&page=1&limit=5",
         f"https://saavn-api-alpha.vercel.app/api/search/songs?query={requests.utils.quote(cleaned)}",
         f"https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&p=1&n=5&q={requests.utils.quote(cleaned)}"
     ]
@@ -573,7 +575,7 @@ def download_full_audio(query_or_url: str, output_path: str) -> Optional[Dict]:
                 data = res.json()
                 results = []
                 if isinstance(data, dict):
-                    results = data.get("data", {}).get("results", []) or data.get("results", [])
+                    results = data.get("data", {}).get("results", []) or data.get("data", []) or data.get("results", [])
                 elif isinstance(data, list):
                     results = data
 
@@ -614,23 +616,7 @@ def download_full_audio(query_or_url: str, output_path: str) -> Optional[Dict]:
     for cand_url in candidate_urls:
         try:
             res = requests.get(cand_url, headers=headers, timeout=30)
-            if res.status_code == 200 and len(res.content) > 1000000:
-                with open(output_path, "wb") as f:
-                    f.write(res.content)
-                duration = get_file_duration(output_path)
-                return {
-                    "status": True,
-                    "title": song_title,
-                    "artist": song_artist,
-                    "file_path": output_path,
-                    "duration": duration
-                }
-        except Exception: pass
-
-    for cand_url in candidate_urls:
-        try:
-            res = requests.get(cand_url, headers=headers, timeout=25)
-            if res.status_code == 200 and len(res.content) > 300000:
+            if res.status_code == 200 and len(res.content) > 500000:
                 with open(output_path, "wb") as f:
                     f.write(res.content)
                 duration = get_file_duration(output_path)
@@ -912,6 +898,9 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
         sub = (event.pattern_match.group(2) or "").strip().lower()
 
+        main_pic = "main.png" if os.path.exists("main.png") else None
+        dash_pic = "dashbaord.png" if os.path.exists("dashbaord.png") else ("dashboard.png" if os.path.exists("dashboard.png") else main_pic)
+
         if sub in ["1", "ultra", "raid"]:
             menu_text = f"""╭──────────────────────────────╮
 │ 👑 <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽18.0 ⚡</b> │
@@ -961,6 +950,9 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 ╭──────────────────────────────╮
 │ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
 ╰──────────────────────────────╯"""
+            if dash_pic:
+                try: return await event.reply(menu_text, file=dash_pic, parse_mode="html")
+                except Exception: pass
             return await event.reply(menu_text, parse_mode="html")
 
         if sub in ["2", "call", "voip"]:
@@ -994,6 +986,9 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 ╭─────────────────────────╮
 भिड़ मत, तेरी माँ चोदूँगा।
 ╰─────────────────────────╯"""
+            if main_pic:
+                try: return await event.reply(call_menu, file=main_pic, parse_mode="html")
+                except Exception: pass
             return await event.reply(call_menu, parse_mode="html")
 
         if sub in ["3", "song", "music"]:
@@ -1023,6 +1018,9 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 ╭──────────────────────────────╮
 │ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
 ╰──────────────────────────────╯"""
+            if main_pic:
+                try: return await event.reply(song_menu, file=main_pic, parse_mode="html")
+                except Exception: pass
             return await event.reply(song_menu, parse_mode="html")
 
         portal_text = f"""╭──────────────────────────────╮
@@ -1047,6 +1045,9 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 │ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
 ╰──────────────────────────────╯
 👉 <i>Use <code>{PREFIX}menu 1</code>, <code>{PREFIX}menu 2</code>, or <code>{PREFIX}menu 3</code></i>"""
+        if main_pic:
+            try: return await event.reply(portal_text, file=main_pic, parse_mode="html")
+            except Exception: pass
         await event.reply(portal_text, parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play1call|playcall|startcall|joincall)$'))
@@ -1245,7 +1246,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
             asyncio.create_task(unmute_loop())
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(cutcall|leavecall)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(cutcall|leavecall|endcall|hangup|stopcall)$'))
     async def ub_cutcall(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         msg = await event.reply("🔌 <b>Leaving Call...</b>", parse_mode="html")
@@ -1265,6 +1266,54 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
             await msg.edit("🛑 <b>Left Voice/Video Call Successfully.</b>", parse_mode="html")
         except Exception as e:
             await msg.edit(f"🛑 <b>Call Left:</b> {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(chatinfo|infochat|id|gcinfo|getid)$'))
+    async def ub_chatinfo_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val): return
+        chat = await event.get_chat()
+        chat_id = event.chat_id
+        chat_title = getattr(chat, 'title', getattr(chat, 'first_name', 'Private Chat'))
+        chat_username = getattr(chat, 'username', None)
+        username_str = f"@{chat_username}" if chat_username else "No Username"
+        chat_type = "Supergroup / Channel" if getattr(chat, 'megagroup', False) or getattr(chat, 'broadcast', False) else ("Basic Group" if event.is_group else "Private DM")
+        
+        reply_user_id = "None"
+        if event.is_reply:
+            reply_msg = await event.get_reply_message()
+            if reply_msg and reply_msg.sender_id:
+                reply_user_id = str(reply_msg.sender_id)
+
+        info_text = f"""╭──〔 ℹ️ <b>TELEGRAM CHAT INFO</b> 〕──╮
+│ 📌 <b>Title:</b> <code>{chat_title}</code>
+│ 🆔 <b>Chat ID:</b> <code>{chat_id}</code>
+│ 🏷️ <b>Username:</b> <code>{username_str}</code>
+│ 📂 <b>Type:</b> <code>{chat_type}</code>
+│ 👤 <b>Your ID:</b> <code>{event.sender_id}</code>
+│ 🎯 <b>Replied ID:</b> <code>{reply_user_id}</code>
+╰──────────────────────────╯"""
+        await event.reply(info_text, parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(join|joingroup)\s+(.+)'))
+    async def ub_join_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val): return
+        raw_target = event.pattern_match.group(2).strip()
+        msg = await event.reply("🔄 <b>Joining Telegram Chat / Channel...</b>", parse_mode="html")
+        try:
+            invite_hash_match = re.search(r'(?:t\.me\/(?:\+|joinchat\/))([A-Za-z0-9_-]+)', raw_target)
+            if invite_hash_match:
+                invite_hash = invite_hash_match.group(1)
+                await event.client(ImportChatInviteRequest(invite_hash))
+                return await msg.edit("✅ <b>Successfully joined private Telegram group via invite link!</b>", parse_mode="html")
+
+            uname_match = re.search(r'(?:t\.me\/|@)?([A-Za-z0-9_]{4,32})', raw_target)
+            if uname_match:
+                uname = uname_match.group(1)
+                await event.client(JoinChannelRequest(uname))
+                return await msg.edit(f"✅ <b>Successfully joined @{uname}!</b>", parse_mode="html")
+
+            await msg.edit("❌ <b>Invalid Telegram link or username provided.</b>", parse_mode="html")
+        except Exception as e:
+            await msg.edit(f"❌ <b>Join Error:</b> {e}", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(spamdelay|delay|speed)(?:\s+(\d+(?:\.\d+)?))?$'))
     async def ub_spam_delay(event):
