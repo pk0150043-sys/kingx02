@@ -79,8 +79,8 @@ def ensure_baileys_service():
         script_dir = os.path.dirname(os.path.abspath(__file__))
         node_file = os.path.join(script_dir, "wp_baileys_service.js")
         if os.path.exists(node_file):
-            print(f"[BAILEYS] Starting Baileys Node microservice (max memory: 120MB): {node_file}")
-            baileys_process = subprocess.Popen(["node", "--expose-gc", "--max-old-space-size=120", "wp_baileys_service.js"], cwd=script_dir)
+            print(f"[BAILEYS] Starting Baileys Node microservice (max memory: 512MB): {node_file}")
+            baileys_process = subprocess.Popen(["node", "--expose-gc", "--max-old-space-size=512", "wp_baileys_service.js"], cwd=script_dir)
             for _ in range(12):
                 time.sleep(0.5)
                 try:

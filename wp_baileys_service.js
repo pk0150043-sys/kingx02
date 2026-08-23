@@ -88,6 +88,7 @@ if (!process.env.PATH.includes(__dirname)) {
   process.env.PATH = `${__dirname};${process.env.PATH}`;
 }
 
+const { pathToFileURL } = require('url');
 const crypto = require('crypto');
 
 const SHA256_LEN = 32;
@@ -145,7 +146,6 @@ class SafeActiveCall extends EventEmitter {
     this._audioSource = 'silence';
     this._endResolver = null;
     this.endPromise = new Promise((res) => { this._endResolver = res; });
-    // Default call duration minimum 45s so the phone rings for at least 30-45s
     const dur = Math.max(Number(durationMs) || 180000, 45000);
     this._endTimer = setTimeout(() => this.end(), dur);
   }
@@ -171,14 +171,14 @@ class SafeActiveCall extends EventEmitter {
   _updateState(state) {
     const prevState = this.state;
     this.state = state;
-    if (state === 1) { // Calling
+    if (state === 1) { // Calling / Dialing
       this.hasStarted = true;
       this.emit('dialing');
-    } else if (state === 2) { // PreacceptReceived (Phone Ringing)
+    } else if (state === 2) { // PreacceptReceived (Phone is ringing!)
       this.hasStarted = true;
       this.hasRung = true;
       this.emit('ringing');
-    } else if (state === 6) { // Active Connected
+    } else if (state === 5 || state === 6) { // AcceptReceived / Active Connected
       this.hasStarted = true;
       this.hasConnected = true;
       this.emit('connected');
@@ -187,7 +187,7 @@ class SafeActiveCall extends EventEmitter {
         this._forceEnd('ended');
       }
     } else if (state === 0) { // Idle
-      if (prevState === 13 || prevState === 6 || this.hasConnected) {
+      if (prevState === 13 || prevState === 6 || prevState === 5 || this.hasConnected) {
         this._forceEnd('ended');
       }
     }
@@ -216,7 +216,6 @@ class SessionVoipManager {
   constructor(sess, uid) {
     this.sess = sess;
     this.uid = uid;
-    this.sock = sess.sock;
     this.engine = null;
     this.relay = null;
     this.signaling = null;
@@ -231,19 +230,31 @@ class SessionVoipManager {
     this.captureFramesPerChunk = 320;
   }
 
+  get sock() {
+    return this.sess?.sock;
+  }
+
   async init() {
     if (this.isReady && this.engine) return;
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
       try {
-        const { WasmEngine } = await import('./node_modules/baileys-caller/dist/wasm-engine.mjs');
-        const { RelayRtcTransport } = await import('./node_modules/baileys-caller/dist/relay-transport.mjs');
-        const { SignalingBridge } = await import('./node_modules/baileys-caller/dist/signaling.mjs');
+        const wasmPath = path.join(__dirname, 'node_modules', 'baileys-caller', 'dist', 'wasm-engine.mjs');
+        const relayPath = path.join(__dirname, 'node_modules', 'baileys-caller', 'dist', 'relay-transport.mjs');
+        const sigPath = path.join(__dirname, 'node_modules', 'baileys-caller', 'dist', 'signaling.mjs');
 
-        if (!this.sock || !this.sock.authState) return;
+        const { WasmEngine } = await import(pathToFileURL(wasmPath).href);
+        const { RelayRtcTransport } = await import(pathToFileURL(relayPath).href);
+        const { SignalingBridge } = await import(pathToFileURL(sigPath).href);
 
-        this.signaling = new SignalingBridge({ sock: this.sock });
+        const currentSock = this.sock;
+        if (!currentSock || !currentSock.authState) {
+          logMsg(this.uid, `VoIP init deferred: WhatsApp socket not fully authenticated yet.`);
+          return;
+        }
+
+        this.signaling = new SignalingBridge({ sock: currentSock });
         await this.signaling.init();
 
         this.relay = new RelayRtcTransport({
@@ -268,22 +279,21 @@ class SessionVoipManager {
         await this.engine.initialize();
         this.signaling.attachEngine(this.engine);
 
-        const rawSelfPn = this.sess.connectedNumber ? `${cleanPhone(this.sess.connectedNumber)}@s.whatsapp.net` : (this.sock.authState?.creds?.me?.id || this.sess.userJid || '');
-        const selfPnJid = toBareJid(rawSelfPn);
-        const rawSelfLid = this.sock.authState?.creds?.me?.lid || '';
-        const selfLidJid = rawSelfLid ? toBareJid(rawSelfLid) : undefined;
-        this.engine.initVoipStack(selfPnJid, selfPnJid, selfLidJid);
+        const selfPnJid = currentSock.authState?.creds?.me?.id || (this.sess.connectedNumber ? `${cleanPhone(this.sess.connectedNumber)}@s.whatsapp.net` : '');
+        const selfLidJid = currentSock.authState?.creds?.me?.lid || '';
+
+        this.engine.initVoipStack(selfPnJid, toBareJid(selfPnJid), selfLidJid || undefined);
         await this.engine.waitForVoipStackReady();
 
         try {
           this.engine.updateNetworkMedium(2, 0);
         } catch (e) {}
 
-        if (this.sock.ws) {
-          this.sock.ws.on('CB:call', (node) => {
+        if (currentSock.ws) {
+          currentSock.ws.on('CB:call', (node) => {
             this.signaling.processIncomingCall(node, this.engine, this.activeCall?.callId ?? '');
           });
-          this.sock.ws.on('CB:receipt', (node) => {
+          currentSock.ws.on('CB:receipt', (node) => {
             if (!isCallReceiptNode(node)) return;
             this.signaling.processIncomingReceipt(node, this.engine, this.activeCall?.callId ?? '');
           });
@@ -292,8 +302,9 @@ class SessionVoipManager {
         this.isReady = true;
         logMsg(this.uid, `✅ [VOIP ENGINE] Official WhatsApp Web VoIP Engine Attached & Ready for Calls!`);
       } catch (err) {
-        logMsg(this.uid, `⚠️ [VOIP ENGINE] Initialization warning: ${err.message}`);
+        logMsg(this.uid, `⚠️ [VOIP ENGINE] Initialization notice: ${err.message}`);
         this.isReady = false;
+        this.initPromise = null;
       }
     })();
 
@@ -313,6 +324,8 @@ class SessionVoipManager {
         const update = JSON.parse(eventData);
         this.relay?.updateRelayList(update);
       } catch {}
+    } else if (eventType === 2) {
+      this.activeCall?._forceEnd('remote_end');
     }
   }
 
@@ -326,25 +339,30 @@ class SessionVoipManager {
     this.capturePtr = this.engine.malloc(this.captureChunkBytes);
   }
 
-  handleAudioCaptureStart() {
+  async handleAudioCaptureStart() {
     if (!this.engine || !this.capturePtr) return;
     const audioSource = this.activeCall?._audioSource ?? (fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence');
     logMsg(this.uid, `🎙️ [VOIP AUDIO] Streaming '${audioSource}' into active call session...`);
 
-    import('./node_modules/baileys-caller/dist/audio-feeder.mjs').then(({ AudioFeeder }) => {
+    try {
+      const feederPath = path.join(__dirname, 'node_modules', 'baileys-caller', 'dist', 'audio-feeder.mjs');
+      const { AudioFeeder } = await import(pathToFileURL(feederPath).href);
+      if (this.feeder) {
+        try { this.feeder.stop(); } catch {}
+      }
       this.feeder = new AudioFeeder(this.captureSampleRate, this.captureChannels, this.captureFramesPerChunk, (chunk) => {
         if (this.engine && this.capturePtr) {
           this.engine.sendAudioData(chunk, this.capturePtr);
         }
       }, audioSource);
       this.feeder.start();
-    }).catch((e) => {
+    } catch (e) {
       logMsg(this.uid, `AudioFeeder start error: ${e.message}`);
-    });
+    }
   }
 
   handleAudioCaptureStop() {
-    this.feeder?.stop();
+    try { this.feeder?.stop(); } catch {}
     this.feeder = null;
     if (this.engine && this.capturePtr) {
       try { this.engine.free(this.capturePtr); } catch {}
@@ -353,43 +371,65 @@ class SessionVoipManager {
   }
 
   async call(phoneNumber, opts = {}) {
+    const currentSock = this.sock;
+    if (!currentSock) throw new Error('WhatsApp session is not connected.');
+
     await this.init();
     if (!this.engine || !this.signaling) {
-      throw new Error('VoIP engine is not ready yet. Please retry in 3 seconds.');
+      await sleep(1000);
+      await this.init();
+      if (!this.engine || !this.signaling) {
+        throw new Error('VoIP engine is not ready yet. Please retry in 3 seconds.');
+      }
     }
+
     if (this.activeCall && this.activeCall.state !== 0) {
       try { this.activeCall.end(); } catch {}
     }
 
-    const { ActiveCall } = await import('./node_modules/baileys-caller/dist/index.mjs');
     const targetNumber = phoneNumber.replace(/\D/g, '');
+    if (!targetNumber || targetNumber.length < 7) {
+      throw new Error(`Invalid phone number: ${phoneNumber}`);
+    }
+
     const targetPnJid = `${targetNumber}@s.whatsapp.net`;
     const durationMs = opts.durationMs ?? 180_000;
     const audioSource = opts.audioSource ?? (fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence');
 
+    // 1. Resolve LID with multiple strategies
     let peerLid = await this.signaling.resolveLid(targetPnJid);
     if (!peerLid) {
       try {
-        const [res] = await this.sock.onWhatsApp(targetPnJid);
-        if (res?.lid) peerLid = res.lid;
+        const checkResults = await currentSock.onWhatsApp(targetNumber);
+        if (Array.isArray(checkResults) && checkResults.length > 0 && checkResults[0]?.lid) {
+          peerLid = checkResults[0].lid;
+        }
       } catch (e) {}
     }
     if (!peerLid) {
-      peerLid = targetPnJid;
+      try {
+        const checkResults = await currentSock.onWhatsApp(targetPnJid);
+        if (Array.isArray(checkResults) && checkResults.length > 0 && checkResults[0]?.lid) {
+          peerLid = checkResults[0].lid;
+        }
+      } catch (e) {}
     }
-    peerLid = toBareJid(peerLid);
 
-    for (const jid of [targetPnJid, peerLid]) {
-      try { await this.sock.presenceSubscribe(jid); } catch {}
+    const isLid = !!(peerLid && peerLid.includes('@lid'));
+    const targetPeer = peerLid ? toBareJid(peerLid) : targetPnJid;
+
+    // 2. Presence subscribe
+    for (const jid of [targetPnJid, targetPeer]) {
+      try { await currentSock.presenceSubscribe(jid); } catch {}
     }
-    await sleep(400);
+    await sleep(500);
 
+    // 3. Discover peer devices
     let peerDeviceJids = [];
     try {
-      peerDeviceJids = await this.signaling.discoverPeerDevices(peerLid);
+      peerDeviceJids = await this.signaling.discoverPeerDevices(targetPeer);
     } catch (e) {}
 
-    // Filter out device 99 and invalid companion devices
     const safeDeviceList = (peerDeviceJids || [])
       .filter(j => {
         if (!j || typeof j !== 'string') return false;
@@ -404,21 +444,25 @@ class SessionVoipManager {
         return (!dev || dev === '0') ? `${user}@${srv}` : `${user}:${dev}@${srv}`;
       });
 
-    const deviceList = safeDeviceList.length ? safeDeviceList : [toBareJid(peerLid)];
+    const deviceList = safeDeviceList.length ? safeDeviceList : [toBareJid(targetPeer)];
+
+    // 4. Ensure Signal sessions for peer devices
     await this.signaling.ensureSessionsForPeers(deviceList);
-    await sleep(350);
+    await sleep(400);
 
-    await this.signaling.issueTcToken(peerLid);
-    const tcToken = await this.signaling.ensureTcToken(peerLid, targetPnJid);
+    // 5. Issue & ensure TC Token
+    try { await this.signaling.issueTcToken(targetPeer); } catch {}
+    const tcToken = await this.signaling.ensureTcToken(targetPeer, targetPnJid);
+
+    // 6. Create call ID & ActiveCall instance
     const callId = ('00' + crypto.randomBytes(16).toString('hex').slice(2)).toUpperCase();
-
     const call = new SafeActiveCall(callId, this.engine, durationMs);
     call._audioSource = audioSource;
     this.activeCall = call;
 
-    const isLid = peerLid.endsWith('@lid');
+    // 7. Start VoIP Call through WASM Stack
     this.engine.startCall({
-      peerJid: toBareJid(peerLid),
+      peerJid: targetPeer,
       peerPn: targetPnJid,
       peerList: deviceList,
       callId,
@@ -1014,7 +1058,7 @@ function isAuthorizedOwner(sess, msg, sock) {
   }
 
   const ownerInput = String(sess.ownerJid || '').trim();
-  if (!ownerInput) return !isGroup;
+  if (!ownerInput) return true;
 
   const ownerLower = ownerInput.toLowerCase();
   if (senderParticipant.toLowerCase() === ownerLower || remoteJid.toLowerCase() === ownerLower || senderLid.toLowerCase() === ownerLower) {
@@ -1839,10 +1883,48 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             }
           }
 
-          // STRICT OWNER CHECK
+          // MODE COMMAND (Toggle Public vs Self / Private)
+          if (cmd === 'mode' || cmd === 'workmode' || cmd === 'public' || cmd === 'self' || cmd === 'private') {
+            const isAuthorized = isAuthorizedOwner(sess, msg, sock);
+            if (!isAuthorized) {
+              await sock.sendMessage(jid, { text: `⛔ *Access Denied:* Only Owner/Admin can change bot mode.` }, { quoted: msg });
+              continue;
+            }
+            let targetMode = (cmd === 'public' ? 'public' : (cmd === 'self' || cmd === 'private' ? 'self' : parts[1]?.toLowerCase()));
+            if (!targetMode || (targetMode !== 'public' && targetMode !== 'self' && targetMode !== 'private')) {
+              await sock.sendMessage(jid, {
+                text: `⚙️ *BOT WORK MODE*\n• Current Mode: *${(sess.mode || 'public').toUpperCase()}*\n• DM (Personal Chat) Access: *${sess.allowDm !== false ? 'Enabled 🟢' : 'Disabled 🔴'}*\n\n_Usage:_ \`${sess.prefix}mode public\` or \`${sess.prefix}mode self\``
+              }, { quoted: msg });
+              continue;
+            }
+            if (targetMode === 'private') targetMode = 'self';
+            sess.mode = targetMode;
+            sess.publicMode = (targetMode === 'public');
+            saveSessionConfig(uid, { mode: targetMode, publicMode: sess.publicMode });
+            await sock.sendMessage(jid, {
+              text: `✅ *Bot Mode Updated!*\n• Mode: *${targetMode.toUpperCase()}*\n• DM (Personal Chat) Access: *${targetMode === 'public' ? 'OPEN TO ALL' : 'OWNER/ADMIN ONLY'}*`
+            }, { quoted: msg });
+            continue;
+          }
+
+          // SENSITIVE ADMIN COMMANDS LIST
+          const SENSITIVE_ADMIN_COMMANDS = new Set([
+            'setowner', 'setadmin', 'addadmin', 'deladmin', 'removeadmin', 'showadmins', 'admins', 'listadmins',
+            'mode', 'workmode', 'public', 'self', 'private',
+            'eval', 'exec', 'restart', 'reboot', 'shutdown', 'clearsession', 'logout'
+          ]);
+
           const isOwner = isAuthorizedOwner(sess, msg, sock);
-          if (!isOwner) {
-            logMsg(uid, `⛔ [UNAUTHORIZED BLOCKED] User ${senderParticipant} tried to run [${cmd}] - Allowed Owner: ${sess.ownerJid || 'Bot Self Only'}`);
+          const isSelfOnlyMode = (sess.mode === 'self' || sess.publicMode === false);
+
+          if (SENSITIVE_ADMIN_COMMANDS.has(cmd)) {
+            if (!isOwner) {
+              logMsg(uid, `⛔ [ADMIN COMMAND BLOCKED] User ${senderParticipant} tried to run [${cmd}]`);
+              await sock.sendMessage(jid, { text: `⛔ *Access Denied:* Only the Bot Owner / Admin can run \`${sess.prefix || '+'}${cmd}\`.` }, { quoted: msg }).catch(() => {});
+              continue;
+            }
+          } else if (isSelfOnlyMode && !isOwner) {
+            logMsg(uid, `⛔ [SELF MODE BLOCKED] User ${senderParticipant} tried to run [${cmd}] in Self Mode`);
             continue;
           }
 
@@ -1850,7 +1932,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          logMsg(uid, `👑 [AUTHORIZED COMMAND] [${usedPrefix || ''}${cmd}] in ${jid} by ${senderParticipant}`);
+          logMsg(uid, `👑 [COMMAND EXECUTION] [${usedPrefix || ''}${cmd}] in ${jid} by ${senderParticipant}`);
 
           // ==================================================================
           // 1. +START COMMAND (Sends main.png + Bot Info + Uptime Telemetry)
@@ -2065,29 +2147,20 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               });
 
             } catch (callErr) {
-              logMsg(uid, `VoIP Call notice: ${callErr.message}`);
-
-              // Fallback query offer
-              const fallbackCallId = ('00' + crypto.randomBytes(16).toString('hex').slice(2)).toUpperCase();
-              const myBareId = toBareJid(sock.user?.id || (sess.connectedNumber ? `${sess.connectedNumber}@s.whatsapp.net` : ''));
+              logMsg(uid, `❌ [VOIP CALL ERROR] +${targetPhone}: ${callErr.message}`);
+              // Try re-init and retry once
               try {
-                await sock.query({
-                  tag: 'call',
-                  attrs: { to: targetJid, id: sock.generateMessageTag() },
-                  content: [{
-                    tag: 'offer',
-                    attrs: { 'call-id': fallbackCallId, 'call-creator': myBareId },
-                    content: [
-                      { tag: 'audio', attrs: { enc: 'opus', rate: '16000' }, content: undefined },
-                      { tag: 'net', attrs: { medium: '3' }, content: undefined },
-                      { tag: 'capability', attrs: { ver: '1' }, content: new Uint8Array([1, 4, 255, 131, 207, 4]) }
-                    ]
-                  }]
-                }).catch(() => {});
+                logMsg(uid, `🔄 [VOIP RETRY] Re-initializing VoIP stack for retry...`);
+                sess.voipManager = new SessionVoipManager(sess, uid);
+                await sess.voipManager.init();
+                const activeCall = await sess.voipManager.call(targetPhone, {
+                  audioSource,
+                  durationMs: 300000
+                });
 
                 sess.activeCalls = sess.activeCalls || new Map();
                 sess.activeCalls.set(targetJid, {
-                  callId: fallbackCallId,
+                  callId: activeCall.callId,
                   targetJid,
                   startTime: Date.now(),
                   isMuted: false,
@@ -2095,11 +2168,44 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                   loop: null,
                   track: trackName
                 });
-              } catch (e) {}
 
-              await sock.sendMessage(jid, {
-                text: `╔══〔 📞 *CALL PLACED & DIALED* 〕══╗\n┃ 🎯 Target: *+${targetPhone}*\n┃ 🆔 Call ID: \`${fallbackCallId}\`\n┃ 🎵 Audio Track: *${trackName}*\n┃ 📡 Status: *🟢 DIALED & RINGING*\n┃ 🔊 Audio Sentinel: *Ready*\n╚════════════════════════════════╝\n_Use \`${sess.prefix}endcall\` to terminate._`
-              }, { quoted: msg });
+                await sock.sendMessage(jid, {
+                  text: `╔══〔 📞 *REAL VOIP CALL PLACED* 〕══╗\n┃ 🎯 Target: *+${targetPhone}*\n┃ 🆔 Call ID: \`${activeCall.callId}\`\n┃ ⚡ Engine: *WhatsApp Web VoIP WASM*\n┃ 🎵 Audio Track: *${trackName}*\n┃ 📡 Status: *🟡 DIALING / INITIATING...*\n╚════════════════════════════════════╝\n_Use \`${sess.prefix}endcall\` to terminate._`
+                }, { quoted: msg });
+
+                activeCall.on('ringing', async () => {
+                  logMsg(uid, `🔔 [CALL RINGING] Target phone +${targetPhone} is ringing!`);
+                  await sock.sendMessage(jid, {
+                    text: `╔══〔 🔔 *PHONE IS RINGING!* 〕══╗\n┃ 🎯 Target: *+${targetPhone}*\n┃ 📡 Status: *🟢 REMOTE PHONE IS RINGING!*\n┃ 🔊 Media: *${trackName} ready to stream*\n╚════════════════════════════════╝`
+                  }).catch(() => {});
+                });
+
+                activeCall.on('connected', async () => {
+                  logMsg(uid, `🎉 [CALL CONNECTED] Receiver +${targetPhone} answered the call! Audio streaming.`);
+                  await sock.sendMessage(jid, {
+                    text: `╔══〔 🎉 *CALL ANSWERED & CONNECTED!* 〕══╗\n┃ 🎯 Target: *+${targetPhone}*\n┃ 🔊 Audio: *STREAMING LIVE OPUS AUDIO* 🎶\n┃ 🎙️ Status: *FULL-DUPLEX CONNECTED* 🟢\n╚════════════════════════════════════════╝\n_Use \`${sess.prefix}endcall\` to terminate or \`${sess.prefix}callmute\` to mute._`
+                  }).catch(() => {});
+                });
+
+                activeCall.on('ended', async (reason) => {
+                  logMsg(uid, `⏹️ [CALL ENDED] VoIP Call with +${targetPhone} ended: ${reason}`);
+                  sess.activeCalls?.delete(targetJid);
+                  await sock.sendMessage(jid, {
+                    text: `╔══〔 ⏹️ *CALL TERMINATED* 〕══╗\n┃ 🎯 Target: *+${targetPhone}*\n┃ 📝 Reason: *${reason || 'Call Ended'}*\n╚═════════════════════════════╝`
+                  }).catch(() => {});
+                });
+
+                activeCall.on('error', async (err) => {
+                  logMsg(uid, `❌ [CALL ERROR] VoIP call error: ${err.message}`);
+                  await sock.sendMessage(jid, { text: `❌ VoIP Call Error: ${err.message}` }).catch(() => {});
+                });
+
+              } catch (retryErr) {
+                logMsg(uid, `❌ [VOIP RETRY FAILED] ${retryErr.message}`);
+                await sock.sendMessage(jid, {
+                  text: `❌ *VoIP Call Failed:* ${retryErr.message}\n• Please verify target number *+${targetPhone}* is registered on WhatsApp.\n• Ensure bot WhatsApp session is online.`
+                }, { quoted: msg });
+              }
             }
             continue;
           }
