@@ -480,52 +480,58 @@ function getCallingEngineMenu(prefix = '+') {
 ⚡ 𝙊𝙐𝙏𝘽𝙊𝙐𝙉𝘿 𝙒𝙃𝘼𝙏𝙎𝘼𝙋𝙋 𝘾𝘼𝙇𝙇𝙀𝙍
 
 │
-├─► 📞 \`${prefix}outcall <number>\`
+├─► 📞 ${prefix}outcall <number>
 │    ▸ 𝙥𝙡𝙖𝙘𝙚 𝙖 𝙙𝙞𝙧𝙚𝙘𝙩 𝙑𝙤𝙄𝙋 𝙫𝙤𝙞𝙘𝙚 𝙘𝙖𝙡𝙡
 │
-├─► 🎵 \`${prefix}outcall <number> <recording/file>\`
+├─► 🚪 ${prefix}joincall [51.mp3/song] / ${prefix}joinvc
+│    ▸ 𝙟𝙤𝙞𝙣 𝙖𝙘𝙩𝙞𝙫𝙚 𝙜𝙧𝙤𝙪𝙥 𝙘𝙖𝙡𝙡 / 𝙫𝙤𝙞𝙘𝙚 𝙘𝙝𝙖𝙩 & 𝙨𝙩𝙧𝙚𝙖𝙢
+│
+├─► 🎵 ${prefix}outcall <number> <recording/file>
 │    ▸ 𝙘𝙖𝙡𝙡 & 𝙥𝙡𝙖𝙮 𝙨𝙖𝙫𝙚𝙙 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜 𝙤𝙧 𝙢𝙥𝟯
 │
-├─► 🎙️ \`${prefix}outcall <number> vn <text>\`
+├─► 🎙️ ${prefix}outcall <number> vn <text>
 │    ▸ 𝙨𝙥𝙚𝙖𝙠 𝙬𝙞𝙩𝙝 𝙏𝙏𝙎/𝙀𝙡𝙚𝙫𝙚𝙣𝙇𝙖𝙗𝙨 𝙫𝙤𝙞𝙘𝙚 𝙞𝙣 𝙘𝙖𝙡𝙡
 │
-├─► 🗣️ \`${prefix}cvn <text>\`
+├─► 🗣️ ${prefix}cvn <text>
 │    ▸ 𝙨𝙥𝙚𝙖𝙠 𝙡𝙞𝙫𝙚 𝙞𝙣 𝙖𝙘𝙩𝙞𝙫𝙚 𝙘𝙖𝙡𝙡 (𝙫𝙣 𝙤𝙣 𝙘𝙖𝙡𝙡)
 │
-├─► 🔊 \`${prefix}play1call\`
+├─► 🔊 ${prefix}play1call
 │    ▸ 𝙥𝙡𝙖𝙮 51.mp3 𝙞𝙣 𝙘𝙤𝙣𝙩𝙞𝙣𝙪𝙤𝙪𝙨 5𝙨 𝙡𝙤𝙤𝙥 𝙤𝙣 𝙘𝙖𝙡𝙡
 │
-├─► 🎶 \`${prefix}playjiocall <song name>\`
+├─► 🎶 ${prefix}playjiocall <song name>
 │    ▸ 𝙨𝙚𝙖𝙧𝙘𝙝 & 𝙥𝙡𝙖𝙮 𝙅𝙞𝙤𝙎𝙖𝙖𝙫𝙣 𝙨𝙤𝙣𝙜 𝙞𝙣 𝙘𝙖𝙡𝙡 (5𝙨 𝙡𝙤𝙤𝙥)
 │
-├─► 🔓 \`${prefix}autounmute\`
+├─► 🔓 ${prefix}autounmute
 │    ▸ 𝙖𝙪𝙩𝙤 𝙪𝙣𝙢𝙪𝙩𝙚 𝙞𝙛 𝙢𝙪𝙩𝙚𝙙 𝙙𝙪𝙧𝙞𝙣𝙜 𝙘𝙖𝙡𝙡
 │
-├─► 💾 \`${prefix}saverd <name>\`
+├─► 💾 ${prefix}saverd <name>
 │    ▸ 𝙧𝙚𝙥𝙡𝙮 𝙩𝙤 𝙖𝙪𝙙𝙞𝙤/𝙫𝙣 𝙩𝙤 𝙨𝙖𝙫𝙚 𝙞𝙣 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜𝙨
 │
-├─► 📋 \`${prefix}listrd\`
+├─► 📋 ${prefix}listrd
 │    ▸ 𝙡𝙞𝙨𝙩 𝙖𝙡𝙡 𝙨𝙖𝙫𝙚𝙙 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜𝙨 𝙬𝙞𝙩𝙝 𝙨𝙞𝙯𝙚𝙨
 │
-├─► ▶️ \`${prefix}playrd <name>\`
+├─► ▶️ ${prefix}playrd <name>
 │    ▸ 𝙥𝙡𝙖𝙮 𝙨𝙖𝙫𝙚𝙙 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜 𝙤𝙣 𝙡𝙞𝙫𝙚 𝙖𝙘𝙩𝙞𝙫𝙚 𝙘𝙖𝙡𝙡
 │
-├─► 🗑️ \`${prefix}delrd <name>\`
+├─► 🗑️ ${prefix}delrd <name>
 │    ▸ 𝙙𝙚𝙡𝙚𝙩𝙚 𝙖 𝙨𝙖𝙫𝙚𝙙 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜
 │
-├─► ⏹️ \`${prefix}endcall\` / \`${prefix}hangup\`
+├─► ⏹️ ${prefix}endcall / ${prefix}hangup
 │    ▸ 𝙩𝙚𝙧𝙢𝙞𝙣𝙖𝙩𝙚 𝙩𝙝𝙚 𝙖𝙘𝙩𝙞𝙫𝙚 𝙤𝙪𝙩𝙗𝙤𝙪𝙣𝙙 𝙘𝙖𝙡𝙡
 │
-├─► 🚫 \`${prefix}anticall on/off\` / \`${prefix}autorejectcall\`
+├─► 🚪 ${prefix}leavecall / ${prefix}leavevc
+│    ▸ 𝙡𝙚𝙖𝙫𝙚 𝙖𝙘𝙩𝙞𝙫𝙚 𝙜𝙧𝙤𝙪𝙥 𝙘𝙖𝙡𝙡 & 𝙨𝙩𝙤𝙥 𝙡𝙤𝙤𝙥𝙨
+│
+├─► 🚫 ${prefix}anticall on/off / ${prefix}autorejectcall
 │    ▸ 𝙖𝙪𝙩𝙤 𝙧𝙚𝙟𝙚𝙘𝙩 𝙖𝙡𝙡 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙫𝙤𝙞𝙘𝙚/𝙫𝙞𝙙𝙚𝙤 𝙘𝙖𝙡𝙡𝙨
 │
-├─► 🛑 \`${prefix}rejectcall\`
+├─► 🛑 ${prefix}rejectcall
 │    ▸ 𝙢𝙖𝙣𝙪𝙖𝙡𝙡𝙮 𝙙𝙚𝙘𝙡𝙞𝙣𝙚/𝙧𝙚𝙟𝙚𝙘𝙩 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙘𝙖𝙡𝙡
 │
-├─► 📊 \`${prefix}callstatus\`
+├─► 📊 ${prefix}callstatus
 │    ▸ 𝙫𝙞𝙚𝙬 𝙡𝙞𝙫𝙚 𝙘𝙖𝙡𝙡 𝙨𝙩𝙖𝙩𝙚, 𝙘𝙖𝙡𝙡 𝙄𝘿 & 𝙙𝙪𝙧𝙖𝙩𝙞𝙤𝙣
 │
-└─► 🔇 \`${prefix}callmute\` / \`${prefix}callunmute\`
+└─► 🔇 ${prefix}callmute / ${prefix}callunmute
      ▸ 𝙩𝙤𝙜𝙜𝙡𝙚 𝙤𝙪𝙩𝙜𝙤𝙞𝙣𝙜 𝙖𝙪𝙙𝙞𝙤 𝙢𝙪𝙩𝙚 𝙙𝙪𝙧𝙞𝙣𝙜 𝙘𝙖𝙡𝙡
 
 ╭─────────────────────────╮
@@ -1537,6 +1543,105 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               logMsg(uid, `Outcall error: ${callErr.message}`);
               await sock.sendMessage(jid, { text: `❌ Outcall error: ${callErr.message}` }, { quoted: msg });
             }
+          continue;
+          }
+
+          // +joincall / +joinvc / +joingroupcall (Join ongoing group/chat call & stream audio)
+          if (cmd === 'joincall' || cmd === 'joinvc' || cmd === 'joingroupcall' || cmd === 'join') {
+            const callId = sess.lastIncomingCall?.id || `call_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+            try {
+              await sock.query({
+                tag: 'call',
+                attrs: { to: jid, id: callId },
+                content: [{
+                  tag: 'accept',
+                  attrs: { 'call-id': callId },
+                  content: []
+                }]
+              }).catch(() => {});
+            } catch (e) {}
+
+            sess.activeCalls = sess.activeCalls || new Map();
+            sess.activeCalls.set(jid, {
+              callId,
+              targetJid: jid,
+              startTime: Date.now(),
+              isMuted: false,
+              autoUnmute: true
+            });
+
+            await sock.sendMessage(jid, {
+              text: `╔══〔 📞 *JOINED ACTIVE CALL / GROUP VC* 〕══╗\n┃ 🎯 Chat: *${jid.endsWith('@g.us') ? 'Group Call' : jid.split('@')[0]}*\n┃ 🆔 Call ID: *${callId}*\n┃ 🔊 Audio Streamer: *READY & CONNECTED*\n┃ ⚡ Control: \`${sess.prefix}play1call\` • \`${sess.prefix}playjiocall <song>\`\n╚═════════════════════════════════════════╝\n_Use \`${sess.prefix}leavecall\` or \`${sess.prefix}endcall\` to exit._`
+            }, { quoted: msg });
+
+            // If audio argument specified like '+joincall 51.mp3' or '+joincall <song>'
+            const subArg = (parts[1] || '').toLowerCase();
+            if (subArg === '51' || subArg === '51.mp3' || subArg === 'loop') {
+              sess.chatLoops = sess.chatLoops || {};
+              sess.chatLoops[jid] = sess.chatLoops[jid] || {};
+              sess.chatLoops[jid].play1call = true;
+              if (fs.existsSync(AUDIO_51_PATH)) {
+                (async () => {
+                  const audioBuf = fs.readFileSync(AUDIO_51_PATH);
+                  while (sess.chatLoops?.[jid]?.play1call) {
+                    try {
+                      await sock.sendMessage(jid, { audio: audioBuf, mimetype: 'audio/mp4', ptt: true });
+                      sess.sentCount = (sess.sentCount || 0) + 1;
+                    } catch (e) {}
+                    if (!sess.chatLoops?.[jid]?.play1call) break;
+                    await sleep(5000);
+                  }
+                })();
+              }
+            } else if (parts[1]) {
+              const songQuery = parts.slice(1).join(' ');
+              (async () => {
+                try {
+                  const song = await searchJioSaavn(songQuery);
+                  if (song) {
+                    const buf = await downloadBuffer(song.audioUrl);
+                    sess.chatLoops = sess.chatLoops || {};
+                    sess.chatLoops[jid] = sess.chatLoops[jid] || {};
+                    sess.chatLoops[jid].playjiocall = true;
+                    while (sess.chatLoops?.[jid]?.playjiocall) {
+                      try {
+                        await sock.sendMessage(jid, { audio: buf, mimetype: 'audio/mp4', ptt: true });
+                        sess.sentCount = (sess.sentCount || 0) + 1;
+                      } catch (e) {}
+                      if (!sess.chatLoops?.[jid]?.playjiocall) break;
+                      await sleep(Math.min((song.durSec || 180) * 1000 + 5000, 30000));
+                    }
+                  }
+                } catch(e) {}
+              })();
+            }
+            continue;
+          }
+
+          // +leavecall / +leavevc / +stopcall (Leave active call / voice chat)
+          if (cmd === 'leavecall' || cmd === 'leavevc' || cmd === 'stopcall') {
+            if (sess.chatLoops && sess.chatLoops[jid]) {
+              sess.chatLoops[jid].play1call = false;
+              sess.chatLoops[jid].playjiocall = false;
+              sess.chatLoops[jid].playrd = false;
+            }
+            if (sess.activeCalls && sess.activeCalls.has(jid)) {
+              const call = sess.activeCalls.get(jid);
+              try {
+                await sock.query({
+                  tag: 'call',
+                  attrs: { to: jid, id: call.callId },
+                  content: [{
+                    tag: 'terminate',
+                    attrs: { 'call-id': call.callId, reason: 'leave' }
+                  }]
+                }).catch(() => {});
+              } catch (e) {}
+              sess.activeCalls.delete(jid);
+            }
+            await sock.sendMessage(jid, {
+              text: `╔══〔 🚪 *LEFT CALL / GROUP VC* 〕══╗\n┃ Chat: *${jid.endsWith('@g.us') ? 'Group' : jid.split('@')[0]}*\n┃ Status: *DISCONNECTED & LOOPS STOPPED* 🛑\n╚═══════════════════════════════════╝`
+            }, { quoted: msg });
             continue;
           }
 
