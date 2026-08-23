@@ -3261,9 +3261,25 @@ def tg_master_status():
             logs = d.get("logs", [])
 
             if not is_owner():
-                me = get_current_user()
-                userbots = {k: v for k, v in userbots.items() if v.get("owner") == me}
-                swarms = {k: v for k, v in swarms.items() if v.get("owner") == me}
+                me = str(get_current_user()).strip().lower()
+                userbots = {k: v for k, v in userbots.items() if str(v.get("owner", "")).strip().lower() == me}
+                swarms = {k: v for k, v in swarms.items() if str(v.get("owner", "")).strip().lower() == me}
+
+                # Filter logs to only show user's own bot events
+                user_identifiers = set(userbots.keys())
+                for ub in userbots.values():
+                    if ub.get("phone"):
+                        clean_p = str(ub.get("phone")).replace("+", "").strip()
+                        if clean_p: user_identifiers.add(clean_p)
+                    if ub.get("name"):
+                        clean_n = str(ub.get("name")).strip()
+                        if clean_n: user_identifiers.add(clean_n)
+
+                filtered_logs = []
+                for l in logs:
+                    if any(ident in l for ident in user_identifiers if ident):
+                        filtered_logs.append(l)
+                logs = filtered_logs
 
             # Inject clean display names & brand owner
             for k, ub in userbots.items():
@@ -3360,13 +3376,15 @@ def wp_pair_code():
 
     ensure_baileys_service()
     try:
-        r = requests.post(f"{BAILEYS_SERVICE_URL}/session/{uid}/pair", json={"phone": phone}, timeout=20)
+        r = requests.post(f"{BAILEYS_SERVICE_URL}/session/{uid}/pair", json={"phone": phone}, timeout=25)
         res_data = r.json()
         if res_data.get("success"):
             return jsonify({
                 "status": "ok",
                 "pairingCode": res_data.get("pairingCode"),
-                "phone": res_data.get("phone")
+                "rawCode": res_data.get("rawCode"),
+                "phone": res_data.get("phone"),
+                "expiresIn": res_data.get("expiresIn", 900)
             })
         else:
             return jsonify({"status": "error", "message": res_data.get("message", "Failed to generate pairing code")}), 400
@@ -3589,23 +3607,20 @@ def wp_status():
                     "hasPairingCode": b_sess.get("hasPairingCode", False)
                 }
 
-    # Filter logs so each user only sees their own bot events, or show all for admin/active user
-    user_uids = set(accounts.keys())
-    filtered_logs = []
-    for log_line in global_logs:
-        if is_adm:
-            filtered_logs.append(log_line)
-        else:
-            if any(f"[{u}]" in log_line for u in user_uids) or "[SYSTEM]" in log_line or not user_uids:
+    # Filter logs so each user only sees their own bot events, or show all for admin/owner
+    if is_adm:
+        filtered_logs = global_logs[:120]
+    else:
+        user_uids = {str(u) for u in accounts.keys() if u}
+        filtered_logs = []
+        for log_line in global_logs:
+            if any(f"[{u}]" in log_line for u in user_uids if u):
                 filtered_logs.append(log_line)
-
-    if not filtered_logs and global_logs:
-        filtered_logs = global_logs[:60]
 
     return jsonify({
         "accounts": accounts,
         "stats": visible_stats,
-        "globalLogs": filtered_logs[:80]
+        "globalLogs": filtered_logs[:100]
     })
 
 # ================= OWNER CONTROLS =================

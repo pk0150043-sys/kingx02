@@ -52,6 +52,7 @@ const QRCode = require('qrcode');
 const {
   default: makeWASocket,
   useMultiFileAuthState,
+  makeCacheableSignalKeyStore,
   DisconnectReason,
   Browsers,
   fetchLatestBaileysVersion,
@@ -81,6 +82,17 @@ for (const dir of [SESSIONS_BASE_DIR, RECORDINGS_DIR]) {
 // In-Memory Global Registries
 const activeSessions = {};
 const globalLogs = [];
+
+// Dynamic Baileys VoIP Caller Module Loader
+let baileysCallerMod = null;
+(async () => {
+  try {
+    baileysCallerMod = await import('baileys-caller');
+    console.log('[VOIP] ✅ baileys-caller VoIP Engine Loaded & Ready!');
+  } catch (e) {
+    console.log('[VOIP] Note: baileys-caller dynamic loader:', e.message);
+  }
+})();
 
 // Periodic V8 Memory Cleanup
 if (typeof global.gc === 'function') {
@@ -504,6 +516,12 @@ function getCallingEngineMenu(prefix = '+') {
 ├─► ⏹️ \`${prefix}endcall\` / \`${prefix}hangup\`
 │    ▸ 𝙩𝙚𝙧𝙢𝙞𝙣𝙖𝙩𝙚 𝙩𝙝𝙚 𝙖𝙘𝙩𝙞𝙫𝙚 𝙤𝙪𝙩𝙗𝙤𝙪𝙣𝙙 𝙘𝙖𝙡𝙡
 │
+├─► 🚫 \`${prefix}anticall on/off\` / \`${prefix}autorejectcall\`
+│    ▸ 𝙖𝙪𝙩𝙤 𝙧𝙚𝙟𝙚𝙘𝙩 𝙖𝙡𝙡 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙫𝙤𝙞𝙘𝙚/𝙫𝙞𝙙𝙚𝙤 𝙘𝙖𝙡𝙡𝙨
+│
+├─► 🛑 \`${prefix}rejectcall\`
+│    ▸ 𝙢𝙖𝙣𝙪𝙖𝙡𝙡𝙮 𝙙𝙚𝙘𝙡𝙞𝙣𝙚/𝙧𝙚𝙟𝙚𝙘𝙩 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙘𝙖𝙡𝙡
+│
 ├─► 📊 \`${prefix}callstatus\`
 │    ▸ 𝙫𝙞𝙚𝙬 𝙡𝙞𝙫𝙚 𝙘𝙖𝙡𝙡 𝙨𝙩𝙖𝙩𝙚, 𝙘𝙖𝙡𝙡 𝙄𝘿 & 𝙙𝙪𝙧𝙖𝙩𝙞𝙤𝙣
 │
@@ -910,11 +928,16 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         reconnectAttempts: 0,
         reconnectTimer: null,
         pairingCode: '',
+        pairingRawCode: '',
+        pairingPhone: '',
+        pairingCodeCreatedAt: 0,
         connectedNumber: '',
         userJid: '',
         ownerJid: ownerJid ? ownerJid.trim() : '',
         prefix: '+',
         executionMode: 'solo',
+        autoRejectCall: false,
+        lastIncomingCall: null,
         chatLoops: {},
         delays: {
           nc: 50,
@@ -947,7 +970,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
     const sess = activeSessions[uid];
 
-    if (!hasAuth && options.standbyOnly && !options.force) {
+    if (!hasAuth && options.standbyOnly && !options.force && !options.isPairing) {
       sess.status = 'STANDBY';
       return sess;
     }
@@ -977,15 +1000,18 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
       version,
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      auth: state,
-      browser: Browsers.macOS('Desktop'),
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+      },
+      browser: Browsers.ubuntu('Chrome'), // Standard Ubuntu Chrome ID for flawless pairing codes
       syncFullHistory: false,
       markOnlineOnConnect: true,
       generateHighQualityLinkPreview: false,
-      defaultQueryTimeoutMs: 45000,
-      connectTimeoutMs: 45000,
+      defaultQueryTimeoutMs: 60000,
+      connectTimeoutMs: 60000,
       keepAliveIntervalMs: 25000,
-      retryRequestDelayMs: 1000,
+      retryRequestDelayMs: 1500,
       maxRetries: 5
     });
 
@@ -1002,9 +1028,9 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        // If pairing code is active and under 10 minutes old, keep pairing code active
-        const isPairingActive = sess.status === 'PAIRING' && sess.pairingCode && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 600000);
-        if (!isPairingActive) {
+        // If pairing code is active and under 15 minutes old, keep pairing code active
+        const isPairingActive = (sess.status === 'PAIRING' || options.isPairing) && sess.pairingCode && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 900000);
+        if (!isPairingActive && !options.isPairing) {
           sess.status = 'AWAITING_SCAN';
           sess.qrAttempts = (sess.qrAttempts || 0) + 1;
           try {
@@ -1032,10 +1058,11 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         const rawUser = sock.user ? (sock.user.id || '') : '';
         const userPhone = rawUser.split(':')[0] || rawUser.split('@')[0] || '';
         sess.userJid = sock.user?.id || '';
-        sess.connectedNumber = userPhone ? `+${userPhone}` : 'Linked Account';
+        sess.connectedNumber = userPhone ? `+${userPhone}` : (sess.pairingPhone ? `+${sess.pairingPhone}` : 'Linked Account');
         sess.status = 'ONLINE';
         sess.qr = '';
         sess.pairingCode = '';
+        sess.pairingRawCode = '';
         sess.connectedAt = Date.now();
 
         logMsg(uid, `🎉 ONLINE! Number: ${sess.connectedNumber} | Admin Owner ID: ${sess.ownerJid || 'Not Set'}`);
@@ -1044,7 +1071,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === 403;
-        const isAuth = hasSavedAuthCreds(uid) || sess.status === 'ONLINE';
+        const isPairingActive = sess.pairingCode && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 900000);
 
         try {
           sock.ev.removeAllListeners();
@@ -1059,20 +1086,36 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           sess.userJid = '';
           sess.qr = '';
           sess.pairingCode = '';
+          sess.pairingRawCode = '';
           stopAllOperations(sess);
           logMsg(uid, `🔴 Session logged out / unlinked. Cleaned auth directory from disk.`);
           deleteSessionAuthDir(uid);
           return;
         }
 
+        // WhatsApp pairing handshake exchange triggers a 515 restart or transient close
+        if (isPairingActive || statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+          sess.status = isPairingActive ? 'PAIRING' : 'RECONNECTING';
+          logMsg(uid, `🔄 WhatsApp connection handshake/restart (Code: ${statusCode || '515'}). Reconnecting with saved session keys...`);
+
+          clearTimeout(sess.reconnectTimer);
+          sess.reconnectTimer = setTimeout(() => {
+            if (activeSessions[uid] && activeSessions[uid].status !== 'LOGGED_OUT') {
+              initSessionSocket(uid, sess.ownerJid, { force: false, preservePairing: true });
+            }
+          }, 2500);
+          return;
+        }
+
+        const isAuth = hasSavedAuthCreds(uid) || sess.status === 'ONLINE';
         if (!isAuth) {
           if ((sess.qrAttempts || 0) >= 30) {
             sess.status = 'QR_EXPIRED';
             sess.qr = '';
-            logMsg(uid, `⏸️ QR scan session expired after 10m. Click Refresh QR on dashboard when ready.`);
+            logMsg(uid, `⏸️ QR scan session expired. Click Refresh QR on dashboard when ready.`);
             return;
           } else {
-            sess.status = (sess.pairingCode && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 600000)) ? 'PAIRING' : 'RECONNECTING';
+            sess.status = 'RECONNECTING';
             clearTimeout(sess.reconnectTimer);
             sess.reconnectTimer = setTimeout(() => {
               if (activeSessions[uid] && activeSessions[uid].status !== 'LOGGED_OUT') {
@@ -1084,7 +1127,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         }
 
         sess.reconnectAttempts = (sess.reconnectAttempts || 0) + 1;
-        const backoffDelay = Math.min(30000, 3000 * Math.pow(1.3, Math.min(sess.reconnectAttempts, 6)));
+        const backoffDelay = Math.min(25000, 2500 * Math.pow(1.2, Math.min(sess.reconnectAttempts, 5)));
         sess.status = 'RECONNECTING';
         logMsg(uid, `⚠️ Connection dropped (Code: ${statusCode || 'Drop'}). Auto-reconnecting in ${Math.round(backoffDelay / 1000)}s...`);
 
@@ -1098,21 +1141,31 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
     });
 
     // ========================================================================
-    // INCOMING CALL HANDLER (Auto-Reject or VoIP Connection Tracker)
+    // INCOMING CALL HANDLER (Real-Time Caller Engine, Auto-Reject & Auto-Mute)
     // ========================================================================
     sock.ev.on('call', async (callEvents) => {
       try {
         for (const call of callEvents) {
           const from = call.from;
           const callId = call.id;
-          const status = call.status; // 'offer', 'ringing', 'timeout', 'reject'
+          const status = call.status; // 'offer', 'ringing', 'timeout', 'reject', 'terminate'
+          sess.lastIncomingCall = { id: callId, from, status, timestamp: Date.now() };
           logMsg(uid, `📞 Incoming Call Event: id=${callId}, from=${from}, status=${status}`);
 
           if (status === 'offer') {
-            // Check if autounmute or active caller handling is set
-            const sessCall = sess.activeCalls?.get(from);
-            if (sessCall && sessCall.autoUnmute) {
-              logMsg(uid, `🔊 [AUTO-UNMUTE] Unmuting active call with ${from}`);
+            if (sess.autoRejectCall) {
+              try {
+                await sock.rejectCall(callId, from);
+                logMsg(uid, `🚫 [AUTO-REJECT] Incoming call ${callId} from ${from} rejected successfully.`);
+                await sock.sendMessage(from, { text: `🚫 *[AUTO-CALL SENTINEL]* This bot does not accept voice or video calls.` });
+              } catch (rejErr) {
+                logMsg(uid, `Auto-reject error: ${rejErr.message}`);
+              }
+            } else {
+              const sessCall = sess.activeCalls?.get(from);
+              if (sessCall && sessCall.autoUnmute) {
+                logMsg(uid, `🔊 [AUTO-UNMUTE] Unmuting active call with ${from}`);
+              }
             }
           }
         }
@@ -1727,6 +1780,38 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
+          // +anticall on/off or +autorejectcall on/off
+          if (cmd === 'anticall' || cmd === 'autorejectcall' || cmd === 'autocallreject') {
+            const subArg = (parts[1] || '').toLowerCase();
+            if (subArg === 'on' || subArg === 'enable' || subArg === '1') {
+              sess.autoRejectCall = true;
+            } else if (subArg === 'off' || subArg === 'disable' || subArg === '0') {
+              sess.autoRejectCall = false;
+            } else {
+              sess.autoRejectCall = !sess.autoRejectCall;
+            }
+            await sock.sendMessage(jid, {
+              text: `╔══〔 🚫 *ANTI-CALL SENTINEL* 〕══╗\n┃ Status: *${sess.autoRejectCall ? 'ENABLED (AUTO REJECT ALL CALLS) 🟢' : 'DISABLED 🔴'}*\n┃ Engine: *Baileys VoIP Guard*\n┃ Action: *Auto-Decline Incoming Calls*\n╚════════════════════════════════╝`
+            }, { quoted: msg });
+            continue;
+          }
+
+          // +rejectcall / +declinecall (Manually rejects latest/incoming call)
+          if (cmd === 'rejectcall' || cmd === 'declinecall') {
+            let rejCount = 0;
+            if (sess.lastIncomingCall?.id && sess.lastIncomingCall?.from) {
+              try {
+                await sock.rejectCall(sess.lastIncomingCall.id, sess.lastIncomingCall.from);
+                rejCount++;
+                logMsg(uid, `🚫 Rejected call ${sess.lastIncomingCall.id} from ${sess.lastIncomingCall.from}`);
+              } catch (e) {}
+            }
+            await sock.sendMessage(jid, {
+              text: `╔══〔 🚫 *CALL REJECTED* 〕══╗\n┃ Rejected: *${rejCount > 0 ? 'SUCCESS' : 'NO PENDING CALL'}*\n┃ Action: *Call Disconnected*\n╚══════════════════════════╝`
+            }, { quoted: msg });
+            continue;
+          }
+
           // +endcall / +hangup / +stopcallplay
           if (cmd === 'endcall' || cmd === 'hangup' || cmd === 'stopcallplay' || cmd === 'cutcall') {
             if (sess.chatLoops && sess.chatLoops[jid]) {
@@ -1762,16 +1847,16 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           // +callstatus
           if (cmd === 'callstatus') {
             const calls = sess.activeCalls ? [...sess.activeCalls.values()] : [];
-            if (!calls.length && !sess.chatLoops?.[jid]?.play1call && !sess.chatLoops?.[jid]?.playjiocall) {
-              await sock.sendMessage(jid, { text: `📊 *Call Status:* No active outbound calls or audio loops in progress.` }, { quoted: msg });
-              continue;
-            }
-
             let txt = `╔══〔 📊 *LIVE VOIP CALL STATUS* 〕══╗\n`;
-            calls.forEach((c, i) => {
-              const durSec = Math.floor((Date.now() - c.startTime) / 1000);
-              txt += `┃ ${i + 1}. Target: *${c.targetJid.split('@')[0]}*\n┃    Call ID: \`${c.callId}\`\n┃    Duration: *${durSec}s* | Mute: *${c.isMuted ? 'YES' : 'NO'}*\n┃    Auto-Unmute: *${c.autoUnmute ? 'ON' : 'OFF'}*\n`;
-            });
+            txt += `┃ 🚫 Anti-Call Auto-Reject: *${sess.autoRejectCall ? 'ENABLED 🟢' : 'DISABLED 🔴'}*\n`;
+            if (calls.length > 0) {
+              calls.forEach((c, i) => {
+                const durSec = Math.floor((Date.now() - c.startTime) / 1000);
+                txt += `┃ ${i + 1}. Target: *${c.targetJid.split('@')[0]}*\n┃    Call ID: \`${c.callId}\`\n┃    Duration: *${durSec}s* | Mute: *${c.isMuted ? 'YES' : 'NO'}*\n┃    Auto-Unmute: *${c.autoUnmute ? 'ON' : 'OFF'}*\n`;
+              });
+            } else {
+              txt += `┃ 📞 Active Calls: *None*\n`;
+            }
             txt += `┃ 🔊 51.mp3 Loop: *${sess.chatLoops?.[jid]?.play1call ? 'RUNNING 🟢' : 'OFF ⚪'}*\n`;
             txt += `┃ 🎵 JioCall Loop: *${sess.chatLoops?.[jid]?.playjiocall ? 'RUNNING 🟢' : 'OFF ⚪'}*\n`;
             txt += `╚════════════════════════════════╝`;
@@ -3279,18 +3364,29 @@ app.get('/session/:uid/qr', handleSessionStatus);
 app.post('/session/:uid/refresh_qr', async (req, res) => {
   const { uid } = req.params;
   try {
-    deleteSessionAuthDir(uid);
     const sess = activeSessions[uid];
+    if (sess && sess.status === 'ONLINE') {
+      return res.json({
+        success: true,
+        uid,
+        status: 'ONLINE',
+        connectedNumber: sess.connectedNumber || '',
+        message: 'Account is already ONLINE and connected.'
+      });
+    }
+
+    deleteSessionAuthDir(uid);
     if (sess) {
       sess.qrAttempts = 0;
       sess.qr = '';
       sess.pairingCode = '';
+      sess.pairingRawCode = '';
       sess.pairingCodeCreatedAt = 0;
     }
-    const newSess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: true });
+    const newSess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: true, isPairing: false });
     if (newSess) {
-      for (let i = 0; i < 10; i++) {
-        await sleep(300);
+      for (let i = 0; i < 12; i++) {
+        await sleep(250);
         if (newSess.qr || newSess.status === 'ONLINE') break;
       }
     }
@@ -3310,16 +3406,6 @@ app.post('/session/:uid/pair', async (req, res) => {
   const { uid } = req.params;
   const { phone } = req.body;
 
-  let sess = activeSessions[uid];
-  if (!sess || !sess.sock) {
-    try {
-      if (sess) sess.qrAttempts = 0;
-      sess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: false });
-    } catch (e) {
-      return res.status(500).json({ success: false, message: 'Could not initialize session socket' });
-    }
-  }
-
   let cleaned = cleanPhone(phone);
   if (!cleaned || cleaned.length < 10) {
     return res.status(400).json({ success: false, message: 'Please provide a valid 10-14 digit WhatsApp phone number.' });
@@ -3328,49 +3414,92 @@ app.post('/session/:uid/pair', async (req, res) => {
     cleaned = '91' + cleaned;
   }
 
-  // If already generated for this phone and under 10 minutes, reuse it
-  if (sess.pairingCode && sess.pairingPhone === cleaned && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 600000)) {
-    const timeLeft = Math.max(0, Math.floor((600000 - (Date.now() - sess.pairingCodeCreatedAt)) / 1000));
+  let sess = activeSessions[uid];
+
+  if (sess && sess.status === 'ONLINE' && sess.sock) {
+    return res.json({
+      success: true,
+      uid,
+      phone: `+${cleaned}`,
+      status: 'ONLINE',
+      message: 'Session is already ONLINE and connected!'
+    });
+  }
+
+  // If already generated for this phone and under 15 minutes, reuse it
+  if (sess && sess.pairingCode && sess.pairingPhone === cleaned && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 900000)) {
+    const timeLeft = Math.max(0, Math.floor((900000 - (Date.now() - sess.pairingCodeCreatedAt)) / 1000));
     return res.json({
       success: true,
       uid,
       phone: `+${cleaned}`,
       pairingCode: sess.pairingCode,
+      rawCode: sess.pairingRawCode || sess.pairingCode.replace(/-/g, ''),
       timeLeft,
-      message: 'Active pairing code reused (valid for 10m)'
+      message: 'Active pairing code reused (valid for 15m)'
     });
   }
 
   try {
-    logMsg(uid, `Requesting pairing code for number: +${cleaned}...`);
+    logMsg(uid, `Requesting fresh pairing code for number: +${cleaned}...`);
 
+    // Clean unauthenticated auth dir to ensure clean pairing handshake
+    if (!hasSavedAuthCreds(uid) || (sess && sess.status !== 'ONLINE')) {
+      deleteSessionAuthDir(uid);
+    }
+
+    if (sess) {
+      sess.qrAttempts = 0;
+      sess.qr = '';
+      sess.pairingCode = '';
+      sess.pairingRawCode = '';
+      sess.pairingCodeCreatedAt = 0;
+    }
+
+    sess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: true, isPairing: true });
+
+    // Wait until socket is ready to request pairing code
     let attempts = 0;
-    while ((!sess.sock || !sess.sock.requestPairingCode) && attempts < 15) {
-      await sleep(300);
+    while ((!sess.sock || !sess.sock.requestPairingCode) && attempts < 20) {
+      await sleep(250);
       attempts++;
     }
 
     if (!sess.sock) {
-      return res.status(500).json({ success: false, message: 'Socket connecting, please retry in 2 seconds.' });
+      return res.status(500).json({ success: false, message: 'Socket could not be initialized, please retry in 2 seconds.' });
     }
 
-    await sleep(800);
+    // Wait a brief moment for websocket connection to settle
+    await sleep(1500);
+
+    if (sess.sock.authState && sess.sock.authState.creds && sess.sock.authState.creds.registered) {
+      return res.json({
+        success: true,
+        uid,
+        phone: `+${cleaned}`,
+        status: 'ONLINE',
+        message: 'Account is already registered and logged in!'
+      });
+    }
 
     const rawCode = await sess.sock.requestPairingCode(cleaned);
-    const code = rawCode ? (rawCode.match(/.{1,4}/g)?.join('-') || rawCode) : '';
-    sess.pairingCode = code;
-    sess.pairingCodeCreatedAt = Date.now();
+    const formattedCode = rawCode ? (rawCode.match(/.{1,4}/g)?.join('-') || rawCode) : '';
+
+    sess.pairingCode = formattedCode;
+    sess.pairingRawCode = rawCode;
     sess.pairingPhone = cleaned;
+    sess.pairingCodeCreatedAt = Date.now();
     sess.status = 'PAIRING';
     sess.qr = '';
 
-    logMsg(uid, `🔢 Pairing Code Generated for +${cleaned}: ${code} (Valid for 10 Minutes)`);
+    logMsg(uid, `🔢 Pairing Code Generated for +${cleaned}: ${formattedCode} (Valid for 15 Minutes)`);
     res.json({
       success: true,
       uid,
       phone: `+${cleaned}`,
-      pairingCode: code,
-      expiresIn: 600
+      pairingCode: formattedCode,
+      rawCode: rawCode,
+      expiresIn: 900
     });
   } catch (err) {
     logMsg(uid, `Error requesting pairing code: ${err.message}`);
