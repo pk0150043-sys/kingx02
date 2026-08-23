@@ -1002,18 +1002,22 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        sess.status = 'AWAITING_SCAN';
-        sess.pairingCode = '';
-        sess.qrAttempts = (sess.qrAttempts || 0) + 1;
-        try {
-          sess.qr = await QRCode.toDataURL(qr, {
-            margin: 2,
-            width: 256,
-            color: { dark: '#000000', light: '#ffffff' }
-          });
-          logMsg(uid, `📷 Live QR Code generated & ready to scan (Attempt #${sess.qrAttempts}).`);
-        } catch (qrErr) {
-          logMsg(uid, `QR rendering error: ${qrErr.message}`);
+        // If pairing code is active and under 10 minutes old, keep pairing code active
+        const isPairingActive = sess.status === 'PAIRING' && sess.pairingCode && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 600000);
+        if (!isPairingActive) {
+          sess.status = 'AWAITING_SCAN';
+          sess.qrAttempts = (sess.qrAttempts || 0) + 1;
+          try {
+            sess.qr = await QRCode.toDataURL(qr, {
+              margin: 2,
+              width: 256,
+              color: { dark: '#000000', light: '#ffffff' }
+            });
+            sess.qrCreatedAt = Date.now();
+            logMsg(uid, `📷 Live QR Code generated & ready to scan (Attempt #${sess.qrAttempts} - Valid 10m).`);
+          } catch (qrErr) {
+            logMsg(uid, `QR rendering error: ${qrErr.message}`);
+          }
         }
       }
 
@@ -1062,19 +1066,19 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         }
 
         if (!isAuth) {
-          if ((sess.qrAttempts || 0) >= 3) {
+          if ((sess.qrAttempts || 0) >= 30) {
             sess.status = 'QR_EXPIRED';
             sess.qr = '';
-            logMsg(uid, `⏸️ QR scan timed out. Refresh QR on dashboard when ready.`);
+            logMsg(uid, `⏸️ QR scan session expired after 10m. Click Refresh QR on dashboard when ready.`);
             return;
           } else {
-            sess.status = 'RECONNECTING';
+            sess.status = (sess.pairingCode && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 600000)) ? 'PAIRING' : 'RECONNECTING';
             clearTimeout(sess.reconnectTimer);
             sess.reconnectTimer = setTimeout(() => {
               if (activeSessions[uid] && activeSessions[uid].status !== 'LOGGED_OUT') {
-                initSessionSocket(uid, sess.ownerJid, { force: true });
+                initSessionSocket(uid, sess.ownerJid, { force: false });
               }
-            }, 4000);
+            }, 3000);
             return;
           }
         }
@@ -3112,6 +3116,30 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
+          if (cmd === 'addbotsession' || cmd === 'addbot') {
+            const botName = (parts[1] || '').trim();
+            if (!botName) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}addbotsession <Name>\`\nExample: \`${sess.prefix}addbotsession KING_BOT_2\`` }, { quoted: msg });
+              continue;
+            }
+            const newUid = botName.startsWith('wp_') ? botName : `wp_${botName}`;
+            await initSessionSocket(newUid, sess.ownerJid, { force: true });
+            await sock.sendMessage(jid, { text: `🤖 *Bot Node \`${newUid}\` Allocated!* Open Dashboard to scan QR or generate pairing code (Valid 10 mins).` }, { quoted: msg });
+            continue;
+          }
+
+          if (cmd === 'removebot' || cmd === 'delbot') {
+            const targetUid = (parts[1] || '').trim();
+            if (!targetUid || !activeSessions[targetUid]) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}removebot <SessionName>\`` }, { quoted: msg });
+              continue;
+            }
+            deleteSessionAuthDir(targetUid);
+            delete activeSessions[targetUid];
+            await sock.sendMessage(jid, { text: `🗑️ Bot session \`${targetUid}\` destroyed.` }, { quoted: msg });
+            continue;
+          }
+
           if (cmd === 'bots') {
             const count = Object.keys(activeSessions).length;
             let list = `╔══〔 🛰️ *ONLINE BOT NODES (${count})* 〕══╗\n`;
@@ -3198,19 +3226,25 @@ async function handleSessionStatus(req, res) {
   const { uid } = req.params;
   let sess = activeSessions[uid];
 
-  // Auto-initialize if session socket does not exist or was in standby
-  if (!sess || !sess.sock || sess.status === 'STANDBY' || req.query.connect === '1') {
+  // Auto-initialize ONLY if session socket does not exist or in standby
+  if (!sess || !sess.sock || sess.status === 'STANDBY') {
     try {
-      sess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: true });
+      sess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: false });
     } catch (e) {
       logMsg(uid, `Auto-connect error: ${e.message}`);
     }
   }
 
-  // Wait up to 3 seconds for QR code if not online and not pairing
+  // Check if active pairing code has expired (> 10 minutes)
+  if (sess && sess.pairingCode && (Date.now() - (sess.pairingCodeCreatedAt || 0) > 600000)) {
+    sess.pairingCode = '';
+    sess.status = 'AWAITING_SCAN';
+  }
+
+  // Wait up to 2 seconds for QR code if not online and not pairing
   if (sess && sess.status !== 'ONLINE' && !sess.qr && !sess.pairingCode) {
-    for (let i = 0; i < 10; i++) {
-      await sleep(300);
+    for (let i = 0; i < 8; i++) {
+      await sleep(250);
       if (sess.qr || sess.status === 'ONLINE' || sess.pairingCode) break;
     }
   }
@@ -3218,6 +3252,8 @@ async function handleSessionStatus(req, res) {
   if (!sess) return res.status(404).json({ success: false, message: 'Session not found' });
 
   const uptime = sess.connectedAt ? Math.floor((Date.now() - sess.connectedAt) / 1000) : 0;
+  const pairingTimeLeft = sess.pairingCodeCreatedAt ? Math.max(0, Math.floor((600000 - (Date.now() - sess.pairingCodeCreatedAt)) / 1000)) : 0;
+
   res.json({
     success: true,
     uid,
@@ -3228,6 +3264,7 @@ async function handleSessionStatus(req, res) {
     ownerJid: sess.ownerJid || '',
     qr: sess.qr || '',
     pairingCode: sess.pairingCode || '',
+    pairingTimeLeft,
     isWorkerRunning: !!sess.isWorkerRunning,
     sentCount: sess.sentCount || 0,
     failedCount: sess.failedCount || 0,
@@ -3248,6 +3285,7 @@ app.post('/session/:uid/refresh_qr', async (req, res) => {
       sess.qrAttempts = 0;
       sess.qr = '';
       sess.pairingCode = '';
+      sess.pairingCodeCreatedAt = 0;
     }
     const newSess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: true });
     if (newSess) {
@@ -3276,7 +3314,7 @@ app.post('/session/:uid/pair', async (req, res) => {
   if (!sess || !sess.sock) {
     try {
       if (sess) sess.qrAttempts = 0;
-      sess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: true });
+      sess = await initSessionSocket(uid, sess ? sess.ownerJid : '', { force: false });
     } catch (e) {
       return res.status(500).json({ success: false, message: 'Could not initialize session socket' });
     }
@@ -3290,11 +3328,24 @@ app.post('/session/:uid/pair', async (req, res) => {
     cleaned = '91' + cleaned;
   }
 
+  // If already generated for this phone and under 10 minutes, reuse it
+  if (sess.pairingCode && sess.pairingPhone === cleaned && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 600000)) {
+    const timeLeft = Math.max(0, Math.floor((600000 - (Date.now() - sess.pairingCodeCreatedAt)) / 1000));
+    return res.json({
+      success: true,
+      uid,
+      phone: `+${cleaned}`,
+      pairingCode: sess.pairingCode,
+      timeLeft,
+      message: 'Active pairing code reused (valid for 10m)'
+    });
+  }
+
   try {
     logMsg(uid, `Requesting pairing code for number: +${cleaned}...`);
 
     let attempts = 0;
-    while ((!sess.sock || !sess.sock.requestPairingCode) && attempts < 12) {
+    while ((!sess.sock || !sess.sock.requestPairingCode) && attempts < 15) {
       await sleep(300);
       attempts++;
     }
@@ -3308,15 +3359,18 @@ app.post('/session/:uid/pair', async (req, res) => {
     const rawCode = await sess.sock.requestPairingCode(cleaned);
     const code = rawCode ? (rawCode.match(/.{1,4}/g)?.join('-') || rawCode) : '';
     sess.pairingCode = code;
+    sess.pairingCodeCreatedAt = Date.now();
+    sess.pairingPhone = cleaned;
     sess.status = 'PAIRING';
     sess.qr = '';
 
-    logMsg(uid, `🔢 Pairing Code Generated for +${cleaned}: ${code}`);
+    logMsg(uid, `🔢 Pairing Code Generated for +${cleaned}: ${code} (Valid for 10 Minutes)`);
     res.json({
       success: true,
       uid,
       phone: `+${cleaned}`,
-      pairingCode: code
+      pairingCode: code,
+      expiresIn: 600
     });
   } catch (err) {
     logMsg(uid, `Error requesting pairing code: ${err.message}`);

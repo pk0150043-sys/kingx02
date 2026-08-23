@@ -3389,7 +3389,7 @@ def wp_qr():
             requests.post(f"{BAILEYS_SERVICE_URL}/session/{uid}/refresh_qr", timeout=8)
             time.sleep(1)
 
-        r = requests.get(f"{BAILEYS_SERVICE_URL}/session/{uid}/status?connect=1", timeout=8)
+        r = requests.get(f"{BAILEYS_SERVICE_URL}/session/{uid}/status", timeout=8)
         res_data = r.json()
         return jsonify({
             "status": "ok",

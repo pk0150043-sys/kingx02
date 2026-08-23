@@ -859,7 +859,7 @@
       const admin_id = document.getElementById("ubAdminId").value.trim();
       document.getElementById("btnRegenQr").style.display = "none";
       document.getElementById("qrStatus").innerHTML = "⚡ Generating QR Code...";
-      document.getElementById("qrTimer").textContent = "⏱ 30s remaining";
+      document.getElementById("qrTimer").textContent = "⏱ 10m 00s remaining";
       document.getElementById("qrTimer").style.color = "#f59e0b";
 
       try {
@@ -871,7 +871,7 @@
         const data = await res.json();
         if (data.status === "ok") {
           document.getElementById("qrModal").style.display = "flex";
-          document.getElementById("qrStatus").innerHTML = "⚡ Awaiting Scan in Telegram App...";
+          document.getElementById("qrStatus").innerHTML = "⚡ Awaiting Scan in Telegram App (Valid 10 mins)...";
           const qrContainer = document.getElementById("qrContainer");
           qrContainer.innerHTML = "";
           qrContainer.style.opacity = "1.0";
@@ -885,11 +885,13 @@
           if (activeQrInterval) clearInterval(activeQrInterval);
           if (qrTimerInterval) clearInterval(qrTimerInterval);
 
-          let timeLeft = 30;
+          let timeLeft = 600;
           qrTimerInterval = setInterval(() => {
             timeLeft--;
             if (timeLeft > 0) {
-              document.getElementById("qrTimer").textContent = `⏱ ${timeLeft}s remaining`;
+              const mins = Math.floor(timeLeft / 60);
+              const secs = String(timeLeft % 60).padStart(2, '0');
+              document.getElementById("qrTimer").textContent = `⏱ ${mins}m ${secs}s remaining`;
             } else {
               clearInterval(qrTimerInterval);
               clearInterval(activeQrInterval);

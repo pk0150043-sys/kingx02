@@ -3618,7 +3618,7 @@ async def api_qr_gen(request):
             "status": "ok",
             "uid": uid,
             "qr_url": qr_login.url,
-            "expires": 30
+            "expires": 600
         }, headers=make_cors_headers())
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400, headers=make_cors_headers())
@@ -3636,7 +3636,19 @@ async def api_qr_check(request):
     qr_client = sess["client"]
     qr_login = sess["qr_login"]
 
+    # If session is older than 10 minutes, expire it
+    if time.time() - sess.get("timestamp", 0) > 600:
+        qr_pending_sessions.pop(uid, None)
+        return web.json_response({"status": "expired", "message": "QR session expired (10m limit)"}, status=400, headers=make_cors_headers())
+
     try:
+        # Auto-recreate token if expired so QR remains valid for user
+        if hasattr(qr_login, "is_expired") and qr_login.is_expired:
+            try:
+                await qr_login.recreate()
+            except Exception:
+                pass
+
         user = await asyncio.wait_for(qr_login.wait(5), timeout=2.0)
         me = user or (await qr_client.get_me())
         session_str = qr_client.session.save()
