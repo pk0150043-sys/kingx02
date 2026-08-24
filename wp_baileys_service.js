@@ -3622,15 +3622,25 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 }
 
                 const track = lastSearchedTracks.get(jid);
+                const trackTitle = (track?.title || query).replace(/[^a-zA-Z0-9_-]/g, '_');
                 const caption = `🎵 *${track?.title || query}*\n👤 *Artist:* ${track?.author || 'YouTube Music'}\n⏱️ *Duration:* ${track?.duration || 'Full'}\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
 
-                await sock.sendMessage(jid, {
-                  audio: audioBuf,
-                  mimetype: 'audio/mp4',
-                  fileName: `${(track?.title || query).replace(/[^a-zA-Z0-9_-]/g, '_')}.mp3`,
-                  ptt: false,
-                  caption
-                }, { quoted: msg });
+                if (audioBuf.length > 50 * 1024 * 1024) {
+                  await sock.sendMessage(jid, {
+                    document: audioBuf,
+                    mimetype: 'audio/mpeg',
+                    fileName: `${trackTitle}.mp3`,
+                    caption
+                  }, { quoted: msg });
+                } else {
+                  await sock.sendMessage(jid, {
+                    audio: audioBuf,
+                    mimetype: 'audio/mp4',
+                    fileName: `${trackTitle}.mp3`,
+                    ptt: false,
+                    caption
+                  }, { quoted: msg });
+                }
 
                 sess.sentCount = (sess.sentCount || 0) + 1;
                 if (actualFile && fs.existsSync(actualFile)) {
