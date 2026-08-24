@@ -376,20 +376,26 @@ def get_client_tasks(client: TelegramClient) -> Dict:
 
 async def execute_db_query(query: str, params: tuple = (), fetchone=False, fetchall=False, commit=False):
     def db_worker():
-        with db_lock:
-            with sqlite3.connect(DB_FILE, timeout=10) as conn:
-                c = conn.cursor()
-                c.execute('PRAGMA busy_timeout=5000;')
-                c.execute(query, params)
-                res = None
-                if fetchone:
-                    res = c.fetchone()
-                elif fetchall:
-                    res = c.fetchall()
-                if commit:
-                    conn.commit()
-                return res
-    return await asyncio.to_thread(db_worker)
+        try:
+            with db_lock:
+                with sqlite3.connect(DB_FILE, timeout=10) as conn:
+                    c = conn.cursor()
+                    c.execute('PRAGMA busy_timeout=5000;')
+                    c.execute(query, params)
+                    res = None
+                    if fetchone:
+                        res = c.fetchone()
+                    elif fetchall:
+                        res = c.fetchall()
+                    if commit:
+                        conn.commit()
+                    return res
+        except Exception:
+            return None
+    try:
+        return await asyncio.to_thread(db_worker)
+    except (asyncio.CancelledError, GeneratorExit):
+        return None
 
 async def is_ub_admin(event, me_id: int, admin_id_val: Optional[str] = None, phone_key: Optional[str] = None) -> bool:
     if getattr(event, 'out', False):
@@ -3337,25 +3343,39 @@ def setup_telebot_handlers(bot, token):
                 bot.set_message_reaction(msg.chat.id, msg.message_id, [telebot.types.ReactionTypeEmoji(rxn)])
             except Exception: pass
 
+active_bot_tokens: Set[str] = set()
+
 def start_single_bot(token):
+    token = token.strip()
+    if not token: return
+    if token in active_bot_tokens:
+        logger.info(f"ℹ️ Bot token {token[:10]}... already active in another manager, skipping duplicate polling.")
+        return
+    active_bot_tokens.add(token)
     try:
         bot = telebot.TeleBot(token)
+        try:
+            bot.remove_webhook()
+        except Exception: pass
         bot_info = bot.get_me()
         bot_usernames[token] = bot_info.username
         botStartTimes[token] = time.time()
         running_bots[token] = bot
         setup_telebot_handlers(bot, token)
         logger.info(f"🤖 Bot Active: @{bot_info.username}")
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        bot.infinity_polling(timeout=10, long_polling_timeout=5, restart_on_change=False)
     except Exception as e:
         logger.error(f"❌ Failed bot {token[:10]}: {e}")
+    finally:
+        active_bot_tokens.discard(token)
 
 def run_all_bots():
     if os.path.exists(TOKEN_FILE):
         with open(TOKEN_FILE, "r") as f:
             tokens = [line.strip() for line in f if line.strip()]
         for t in tokens:
-            threading.Thread(target=start_single_bot, args=(t,), daemon=True).start()
+            if t not in active_bot_tokens:
+                threading.Thread(target=start_single_bot, args=(t,), daemon=True).start()
 
 # ==============================================================================
 # SERVER GOD CLAN MULTI-BOT SWARM MATRIX (PTB ENGINE)
@@ -3424,13 +3444,22 @@ class BotSwarmManager:
             return
 
         for token in self.tokens:
+            token = token.strip()
+            if not token: continue
+            if token in active_bot_tokens:
+                add_log(f"⚠️ Bot token {token[:10]}... already active in another instance, skipping duplicate polling.")
+                continue
+            active_bot_tokens.add(token)
             try:
                 request = HTTPXRequest(connection_pool_size=50, connect_timeout=60.0, read_timeout=60.0)
                 app = Application.builder().token(token).request(request).build()
                 self._setup_handlers(app, token)
                 await app.initialize()
                 await app.start()
-                asyncio.create_task(app.updater.start_polling())
+                try:
+                    await app.bot.delete_webhook(drop_pending_updates=True)
+                except Exception: pass
+                asyncio.create_task(app.updater.start_polling(drop_pending_updates=True))
                 self.apps.append(app)
                 self.bots.append(app.bot)
                 try:
@@ -3439,6 +3468,7 @@ class BotSwarmManager:
                 except Exception:
                     self.bot_usernames.append("bot")
             except Exception as e:
+                active_bot_tokens.discard(token)
                 add_log(f"⚠️ Bot token failed: {e}")
 
         add_log(f"✅ SERVER GOD CLAN Multi-Bot '{self.swarm_id}' online with {len(self.bots)} bots: {', '.join(self.bot_usernames)}")
@@ -3446,12 +3476,18 @@ class BotSwarmManager:
     async def stop(self):
         self.is_running = False
         self.active_chats.clear()
+        for token in self.tokens:
+            active_bot_tokens.discard(token.strip())
         for app in self.apps:
             try:
-                await app.updater.stop()
+                if app.updater and app.updater.running:
+                    await app.updater.stop()
                 await app.stop()
                 await app.shutdown()
             except Exception: pass
+        self.apps.clear()
+        self.bots.clear()
+        self.bot_usernames.clear()
         self.apps.clear()
         self.bots.clear()
         add_log(f"🛑 SERVER GOD CLAN Multi-Bot '{self.swarm_id}' stopped.")
@@ -4883,8 +4919,8 @@ async def restore_all_saved_sessions():
                 admin_id = doc.get("admin_id", str(user_id))
 
                 if uid and sess_str and uid not in restored_uids:
+                    cli = TelegramClient(StringSession(sess_str), API_ID, API_HASH, connection_retries=5, retry_delay=2, auto_reconnect=True, timeout=15, request_retries=3)
                     try:
-                        cli = TelegramClient(StringSession(sess_str), API_ID, API_HASH, connection_retries=15, retry_delay=2, auto_reconnect=True, timeout=30, request_retries=5)
                         await cli.connect()
                         if await cli.is_user_authorized():
                             me = await cli.get_me()
@@ -4902,8 +4938,14 @@ async def restore_all_saved_sessions():
                             restored_uids.add(str(uid))
                             add_log(f"🍃 [MONGODB ATLAS] Restored Userbot: {me.first_name} (ID: {me.id})")
                             asyncio.create_task(safe_run_telethon_client(cli, str(uid), me.first_name))
+                        else:
+                            add_log(f"⚠️ Userbot {uid} session is not authorized.")
+                            try: await cli.disconnect()
+                            except Exception: pass
                     except Exception as e:
                         add_log(f"❌ Failed to restore Atlas userbot {uid}: {e}")
+                        try: await cli.disconnect()
+                        except Exception: pass
         except Exception as ex:
             add_log(f"⚠️ Mongo restore exception: {ex}")
 
@@ -4913,8 +4955,8 @@ async def restore_all_saved_sessions():
         for r in ub_rows:
             phone_key, sess_str, fname, uid, owner, admin_id = r
             if str(phone_key) not in restored_uids:
+                cli = TelegramClient(StringSession(sess_str), API_ID, API_HASH, connection_retries=5, retry_delay=2, auto_reconnect=True, timeout=15, request_retries=3)
                 try:
-                    cli = TelegramClient(StringSession(sess_str), API_ID, API_HASH, connection_retries=15, retry_delay=2, auto_reconnect=True, timeout=30, request_retries=5)
                     await cli.connect()
                     if await cli.is_user_authorized():
                         me = await cli.get_me()
@@ -4933,8 +4975,14 @@ async def restore_all_saved_sessions():
                         mongo_save_userbot(str(phone_key), sess_str, me.first_name, me.id, owner, str(admin_id))
                         add_log(f"⚡ Saved Userbot Restored: {me.first_name} (ID: {me.id})")
                         asyncio.create_task(safe_run_telethon_client(cli, str(phone_key), me.first_name))
+                    else:
+                        add_log(f"⚠️ SQLite Userbot {phone_key} session is not authorized.")
+                        try: await cli.disconnect()
+                        except Exception: pass
                 except Exception as e:
                     add_log(f"❌ Failed to restore SQLite userbot {phone_key}: {e}")
+                    try: await cli.disconnect()
+                    except Exception: pass
 
     # Restore Swarms
     add_log("🔄 Restoring saved Multi-Bot Swarms from MongoDB Atlas & Database...")
@@ -4984,7 +5032,6 @@ async def restore_all_saved_sessions():
 # ==============================================================================
 async def main():
     asyncio.create_task(memory_monitor())
-    run_all_bots()
 
     app = web.Application()
     app.add_routes(routes)
@@ -5001,6 +5048,7 @@ async def main():
     add_log(f"========================================================================")
 
     await restore_all_saved_sessions()
+    run_all_bots()
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
