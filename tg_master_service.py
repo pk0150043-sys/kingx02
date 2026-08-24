@@ -411,7 +411,7 @@ async def is_ub_admin(event, me_id: int, admin_id_val: Optional[str] = None, pho
             return True
 
         row = await execute_db_query(
-            "SELECT user_id FROM userbot_admins WHERE user_id=? AND (node_uid=? OR node_uid IS NULL OR node_uid='')",
+            "SELECT user_id FROM userbot_admins WHERE user_id=? AND node_uid=?",
             (sender_id, phone_key),
             fetchone=True
         )

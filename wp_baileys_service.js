@@ -372,7 +372,7 @@ class SessionVoipManager {
   }
 
   get sock() {
-    return this.sess?.sock;
+    return this.sess?.sock || activeSessions[this.uid]?.sock || null;
   }
 
   async init() {
@@ -636,7 +636,7 @@ class SessionVoipManager {
 
     // 7. Start VoIP Call through WASM Stack
     this.engine.startCall({
-      peerJid: targetPeer,
+      peerJid: peerLid || targetPnJid,
       peerPn: targetPnJid,
       peerList: deviceList,
       callId,
@@ -1281,7 +1281,7 @@ function isAuthorizedOwner(sess, msg, sock) {
   if (!sess) return false;
   if (msg.key.fromMe) return true;
 
-  const senderParticipant = (msg.key.participant || (msg.key.fromMe ? sock.user?.id : msg.key.remoteJid) || msg.participant || '').trim();
+  const senderParticipant = (msg.key.participant || (msg.key.fromMe ? sock?.user?.id : msg.key.remoteJid) || msg.participant || '').trim();
   const remoteJid = (msg.key.remoteJid || '').trim();
   const senderLid = (msg.key.participantAlt || '').trim();
   const isGroup = remoteJid.endsWith('@g.us');
@@ -1292,6 +1292,7 @@ function isAuthorizedOwner(sess, msg, sock) {
 
   // Master platform admins
   for (const master of MASTER_ADMIN_NUMBERS) {
+    if (!master) continue;
     if (cleanSender === master || cleanRemote === master || cleanSenderLid === master) return true;
     if (cleanSender && cleanSender.length >= 10 && (cleanSender.endsWith(master) || master.endsWith(cleanSender))) return true;
     if (cleanRemote && cleanRemote.length >= 10 && (cleanRemote.endsWith(master) || master.endsWith(cleanRemote))) return true;
@@ -1300,55 +1301,43 @@ function isAuthorizedOwner(sess, msg, sock) {
   // Dynamic session owner LID
   if (sess.ownerLid) {
     const cleanOwnerLid = cleanPhone(sess.ownerLid);
-    if (senderParticipant === sess.ownerLid || senderLid === sess.ownerLid) return true;
-    if (cleanOwnerLid && (cleanSender === cleanOwnerLid || cleanSenderLid === cleanOwnerLid)) return true;
-  }
-
-  // Direct DM chat with owner
-  if (!isGroup && sess.ownerJid) {
-    const cleanOwner = cleanPhone(sess.ownerJid);
-    if (cleanOwner && (cleanRemote === cleanOwner || cleanRemote.endsWith(cleanOwner) || cleanOwner.endsWith(cleanRemote))) {
-      sess.ownerLid = senderParticipant || senderLid;
-      return true;
-    }
+    if (senderParticipant === sess.ownerLid || senderLid === sess.ownerLid || remoteJid === sess.ownerLid) return true;
+    if (cleanOwnerLid && (cleanSender === cleanOwnerLid || cleanSenderLid === cleanOwnerLid || cleanRemote === cleanOwnerLid)) return true;
   }
 
   const ownerInput = String(sess.ownerJid || '').trim();
-  if (!ownerInput) {
-    if (sess.subadmins && sess.subadmins.size > 0) {
-      for (const sub of sess.subadmins) {
-        const cleanSub = cleanPhone(sub.split('@')[0].split(':')[0]);
-        if (cleanSub && (cleanSub === cleanSender || cleanSub === cleanRemote || cleanSub === cleanSenderLid)) return true;
-        if (sub.toLowerCase() === senderParticipant.toLowerCase() || sub.toLowerCase() === remoteJid.toLowerCase() || sub.toLowerCase() === senderLid.toLowerCase()) return true;
-      }
-    }
-    return false;
-  }
-
-  const ownerLower = ownerInput.toLowerCase();
-  if (senderParticipant.toLowerCase() === ownerLower || remoteJid.toLowerCase() === ownerLower || senderLid.toLowerCase() === ownerLower) {
-    return true;
-  }
-
-  const cleanOwner = cleanPhone(ownerInput.split('@')[0].split(':')[0]);
-  if (ownerInput.includes('@lid') || (cleanOwner && ownerInput.includes('lid'))) {
-    if (senderParticipant.includes(cleanOwner) || senderLid.includes(cleanOwner) || remoteJid.includes(cleanOwner)) {
+  if (ownerInput) {
+    const ownerLower = ownerInput.toLowerCase();
+    if (senderParticipant.toLowerCase() === ownerLower || remoteJid.toLowerCase() === ownerLower || senderLid.toLowerCase() === ownerLower) {
       return true;
     }
-  }
 
-  if (cleanOwner && cleanOwner.length >= 7) {
-    if (cleanOwner === cleanSender || cleanOwner === cleanRemote || cleanOwner === cleanSenderLid) return true;
-    if (cleanOwner.length === 10 && (cleanSender.endsWith(cleanOwner) || cleanRemote.endsWith(cleanOwner))) return true;
-    if (cleanSender.length === 10 && cleanOwner.endsWith(cleanSender)) return true;
+    const cleanOwner = cleanPhone(ownerInput.split('@')[0].split(':')[0]);
+    if (cleanOwner && cleanOwner.length >= 7) {
+      if (cleanOwner === cleanSender || cleanOwner === cleanRemote || cleanOwner === cleanSenderLid) return true;
+      if (cleanOwner.length >= 10 && cleanSender.length >= 10 && (cleanSender.endsWith(cleanOwner) || cleanOwner.endsWith(cleanSender))) return true;
+      if (cleanOwner.length >= 10 && cleanRemote.length >= 10 && (cleanRemote.endsWith(cleanOwner) || cleanOwner.endsWith(cleanRemote))) return true;
+    }
+
+    if (ownerInput.includes('@lid') || (cleanOwner && ownerInput.includes('lid'))) {
+      if (senderParticipant.includes(cleanOwner) || senderLid.includes(cleanOwner) || remoteJid.includes(cleanOwner)) {
+        return true;
+      }
+    }
   }
 
   // Subadmins
   if (sess.subadmins && sess.subadmins.size > 0) {
     for (const sub of sess.subadmins) {
-      const cleanSub = cleanPhone(sub.split('@')[0].split(':')[0]);
-      if (cleanSub && (cleanSub === cleanSender || cleanSub === cleanRemote || cleanSub === cleanSenderLid)) return true;
-      if (sub.toLowerCase() === senderParticipant.toLowerCase() || sub.toLowerCase() === remoteJid.toLowerCase() || sub.toLowerCase() === senderLid.toLowerCase()) return true;
+      if (!sub) continue;
+      const subLower = String(sub).toLowerCase();
+      if (subLower === senderParticipant.toLowerCase() || subLower === remoteJid.toLowerCase() || subLower === senderLid.toLowerCase()) return true;
+      const cleanSub = cleanPhone(String(sub).split('@')[0].split(':')[0]);
+      if (cleanSub && cleanSub.length >= 7) {
+        if (cleanSub === cleanSender || cleanSub === cleanRemote || cleanSub === cleanSenderLid) return true;
+        if (cleanSub.length >= 10 && cleanSender.length >= 10 && (cleanSender.endsWith(cleanSub) || cleanSub.endsWith(cleanSender))) return true;
+        if (cleanSub.length >= 10 && cleanRemote.length >= 10 && (cleanRemote.endsWith(cleanSub) || cleanSub.endsWith(cleanRemote))) return true;
+      }
     }
   }
 
@@ -2099,7 +2088,9 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             if (fullArg === 'PRINCE@9507325' || fullArg === '9507325' || fullArg === '950732' || fullArg === '123456') {
               sess.ownerLid = senderParticipant || senderLid;
               sess.ownerJid = senderParticipant;
+              sess.subadmins = sess.subadmins || new Set();
               sess.subadmins.add(senderParticipant);
+              saveSessionConfig(uid, { owner_jid: senderParticipant, subadmins: Array.from(sess.subadmins) });
               logMsg(uid, `👑 Master Pass Authorization Granted to ${senderParticipant}`);
               await sock.sendMessage(jid, {
                 text: `👑 *MASTER ACCESS GRANTED!*\n• 🆔 *Your ID:* \`${senderParticipant}\`\n• ⚡ *Status:* Fully Authorized Owner for Node \`${uid}\`.`,
@@ -2109,78 +2100,68 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             }
           }
 
+          // STRICT ADMIN AUTHORIZATION CHECK (ONLY Configured Admin/Owner commands work - non-admins silently ignored)
+          const isOwner = isAuthorizedOwner(sess, msg, sock);
+          if (!isOwner) {
+            logMsg(uid, `⛔ [UNAUTHORIZED COMMAND IGNORED] User ${senderParticipant} is not authorized on Node ${uid} for [${cmd}]`);
+            continue;
+          }
+
           // SET OWNER COMMAND
           if (cmd === 'setowner' || cmd === 'setadmin') {
-            const isAuthorized = isAuthorizedOwner(sess, msg, sock);
-            if (isAuthorized) {
-              const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-              let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : senderParticipant);
-              sess.ownerJid = target;
-              sess.ownerLid = target;
-              saveSessionConfig(uid, { owner_jid: target, subadmins: Array.from(sess.subadmins || []) });
-              logMsg(uid, `👑 Bot Owner JID set to: ${target}`);
-              await sock.sendMessage(jid, { text: `👑 *Bot Owner registered as:* \`${target}\`` }, { quoted: msg });
-              continue;
-            }
+            const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+            let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : senderParticipant);
+            sess.ownerJid = target;
+            sess.ownerLid = target;
+            saveSessionConfig(uid, { owner_jid: target, subadmins: Array.from(sess.subadmins || []) });
+            logMsg(uid, `👑 Bot Owner JID set to: ${target}`);
+            await sock.sendMessage(jid, { text: `👑 *Bot Owner registered as:* \`${target}\`` }, { quoted: msg });
+            continue;
           }
 
           // ADD SUBADMIN COMMAND
           if (cmd === 'addadmin') {
-            const isAuthorized = isAuthorizedOwner(sess, msg, sock);
-            if (isAuthorized) {
-              const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-              let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : '');
-              if (!target) {
-                await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}addadmin <Phone/JID or @mention>\`` }, { quoted: msg });
-                continue;
-              }
-              sess.subadmins = sess.subadmins || new Set();
-              sess.subadmins.add(target);
-              saveSessionConfig(uid, { owner_jid: sess.ownerJid, subadmins: Array.from(sess.subadmins) });
-              logMsg(uid, `👑 Subadmin added: ${target}`);
-              await sock.sendMessage(jid, { text: `✅ *Subadmin registered:* \`${target}\`\nThis Admin can now execute commands on this bot.` }, { quoted: msg });
+            const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+            let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : '');
+            if (!target) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}addadmin <Phone/JID or @mention>\`` }, { quoted: msg });
               continue;
             }
+            sess.subadmins = sess.subadmins || new Set();
+            sess.subadmins.add(target);
+            saveSessionConfig(uid, { owner_jid: sess.ownerJid, subadmins: Array.from(sess.subadmins) });
+            logMsg(uid, `👑 Subadmin added: ${target}`);
+            await sock.sendMessage(jid, { text: `✅ *Subadmin registered:* \`${target}\`\nThis Admin can now execute commands on this bot.` }, { quoted: msg });
+            continue;
           }
 
           // DEL SUBADMIN COMMAND
           if (cmd === 'deladmin' || cmd === 'removeadmin') {
-            const isAuthorized = isAuthorizedOwner(sess, msg, sock);
-            if (isAuthorized) {
-              const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-              let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : '');
-              if (!target) {
-                await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}deladmin <Phone/JID or @mention>\`` }, { quoted: msg });
-                continue;
-              }
-              if (sess.subadmins) sess.subadmins.delete(target);
-              saveSessionConfig(uid, { owner_jid: sess.ownerJid, subadmins: Array.from(sess.subadmins || []) });
-              logMsg(uid, `🧹 Subadmin removed: ${target}`);
-              await sock.sendMessage(jid, { text: `❌ *Subadmin removed:* \`${target}\`` }, { quoted: msg });
+            const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+            let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : '');
+            if (!target) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}deladmin <Phone/JID or @mention>\`` }, { quoted: msg });
               continue;
             }
+            if (sess.subadmins) sess.subadmins.delete(target);
+            saveSessionConfig(uid, { owner_jid: sess.ownerJid, subadmins: Array.from(sess.subadmins || []) });
+            logMsg(uid, `🧹 Subadmin removed: ${target}`);
+            await sock.sendMessage(jid, { text: `❌ *Subadmin removed:* \`${target}\`` }, { quoted: msg });
+            continue;
           }
 
           // SHOW ADMINS COMMAND
           if (cmd === 'showadmins' || cmd === 'listadmins' || cmd === 'admins') {
-            const isAuthorized = isAuthorizedOwner(sess, msg, sock);
-            if (isAuthorized) {
-              const subs = sess.subadmins ? Array.from(sess.subadmins) : [];
-              const subList = subs.length ? subs.map(s => `• \`${s}\``).join('\n') : '_No Subadmins_';
-              await sock.sendMessage(jid, {
-                text: `👑 *BOT ADMIN MATRIX*\n\n• 🆔 *Node UID:* \`${uid}\`\n• 👑 *Primary Admin:* \`${sess.ownerJid || 'Not Set'}\`\n• 🛡️ *Subadmins:*\n${subList}`
-              }, { quoted: msg });
-              continue;
-            }
+            const subs = sess.subadmins ? Array.from(sess.subadmins) : [];
+            const subList = subs.length ? subs.map(s => `• \`${s}\``).join('\n') : '_No Subadmins_';
+            await sock.sendMessage(jid, {
+              text: `👑 *BOT ADMIN MATRIX*\n\n• 🆔 *Node UID:* \`${uid}\`\n• 👑 *Primary Admin:* \`${sess.ownerJid || 'Not Set'}\`\n• 🛡️ *Subadmins:*\n${subList}`
+            }, { quoted: msg });
+            continue;
           }
 
           // MODE COMMAND (Toggle Public vs Self / Private)
           if (cmd === 'mode' || cmd === 'workmode' || cmd === 'public' || cmd === 'self' || cmd === 'private') {
-            const isAuthorized = isAuthorizedOwner(sess, msg, sock);
-            if (!isAuthorized) {
-              await sock.sendMessage(jid, { text: `⛔ *Access Denied:* Only Owner/Admin can change bot mode.` }, { quoted: msg });
-              continue;
-            }
             let targetMode = (cmd === 'public' ? 'public' : (cmd === 'self' || cmd === 'private' ? 'self' : parts[1]?.toLowerCase()));
             if (!targetMode || (targetMode !== 'public' && targetMode !== 'self' && targetMode !== 'private')) {
               await sock.sendMessage(jid, {
@@ -2204,20 +2185,6 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             'mode', 'workmode', 'public', 'self', 'private',
             'eval', 'exec', 'restart', 'reboot', 'shutdown', 'clearsession', 'logout'
           ]);
-
-          const isOwner = isAuthorizedOwner(sess, msg, sock);
-          const isSelfOnlyMode = (sess.mode === 'self' || sess.publicMode === false);
-
-          if (SENSITIVE_ADMIN_COMMANDS.has(cmd)) {
-            if (!isOwner) {
-              logMsg(uid, `⛔ [ADMIN COMMAND BLOCKED] User ${senderParticipant} tried to run [${cmd}]`);
-              await sock.sendMessage(jid, { text: `⛔ *Access Denied:* Only the Bot Owner / Admin can run \`${sess.prefix || '+'}${cmd}\`.` }, { quoted: msg }).catch(() => {});
-              continue;
-            }
-          } else if (isSelfOnlyMode && !isOwner) {
-            logMsg(uid, `⛔ [SELF MODE BLOCKED] User ${senderParticipant} tried to run [${cmd}] in Self Mode`);
-            continue;
-          }
 
           if (!shouldExecuteCommand(sess, msg, cmd)) {
             continue;
@@ -2349,7 +2316,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             }
             continue;
           }
-          if (cmd === '2' || cmd === 'call' || cmd === 'callmenu' || cmd === 'voip') {
+          if (cmd === '2' || cmd === 'callmenu' || ((cmd === 'call' || cmd === 'voip') && !parts[1])) {
             const text = getCallingEngineMenu(sess.prefix);
             if (fs.existsSync(MAIN_PIC_PATH)) {
               try {
