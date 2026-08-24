@@ -191,7 +191,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
 
     const isUrl = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
     const target = isUrl ? cleanTarget : `ytsearch1:${cleanTarget}`;
-    const format = type === 'video' ? 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio/bestvideo+bestaudio/best' : 'bestaudio/best';
+    const format = type === 'video' ? 'best[ext=mp4][vcodec^=avc1]/best[ext=mp4]/18/22/best' : 'bestaudio/best';
     
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
     const outTmpl = `${baseWithoutExt}.%(ext)s`;
@@ -238,11 +238,11 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       if (found) {
         return resolve({ success: true, filePath: found });
       }
-      // Retry with mweb,android client
+      // Retry with broader format and mweb,android client
       const retryProc = spawn('python', [
         '-m', 'yt_dlp',
-        '-f', format,
-        '--extractor-args', 'youtube:player_client=mweb,android',
+        '-f', 'best',
+        '--extractor-args', 'youtube:player_client=android,mweb,web',
         '-o', outTmpl,
         '--no-warnings',
         target
@@ -939,7 +939,7 @@ class SessionVoipManager {
       callId,
       isVideo: false,
       isLidCall: isLid,
-      isFromDialer: false,
+      isFromDialer: true,
       extraData: tcToken,
     });
 
@@ -3852,13 +3852,23 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
                 const videoBuf = fs.readFileSync(dlRes.filePath);
                 const track = lastSearchedTracks.get(jid);
+                const trackTitle = (track?.title || query).replace(/[^a-zA-Z0-9_-]/g, '_');
                 const caption = `🎬 *${track?.title || query}*\n👤 *Channel:* ${track?.author || 'YouTube'}\n⏱️ *Duration:* ${track?.duration || 'Full'}\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
 
-                await sock.sendMessage(jid, {
-                  video: videoBuf,
-                  mimetype: 'video/mp4',
-                  caption
-                }, { quoted: msg });
+                if (videoBuf.length > 60 * 1024 * 1024) {
+                  await sock.sendMessage(jid, {
+                    document: videoBuf,
+                    mimetype: 'video/mp4',
+                    fileName: `${trackTitle}.mp4`,
+                    caption
+                  }, { quoted: msg });
+                } else {
+                  await sock.sendMessage(jid, {
+                    video: videoBuf,
+                    mimetype: 'video/mp4',
+                    caption
+                  }, { quoted: msg });
+                }
 
                 sess.sentCount = (sess.sentCount || 0) + 1;
                 if (dlRes.filePath && fs.existsSync(dlRes.filePath)) {
