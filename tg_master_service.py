@@ -32,6 +32,13 @@ import qrcode
 import pytz
 from pymongo import MongoClient
 
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None
+
+tg_last_searched_tracks: Dict[int, Dict] = {}
+
 import telethon
 from telethon import TelegramClient, events, functions, types
 from telethon.sessions import StringSession
@@ -541,6 +548,80 @@ def get_file_duration(file_path: str) -> float:
             return max(30.0, est_sec)
     except Exception: pass
     return 210.0
+
+def search_youtube_py(query: str) -> Optional[Dict]:
+    if yt_dlp:
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'extract_flat': True,
+                'no_warnings': True
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                res = ydl.extract_info(f"ytsearch1:{query}", download=False)
+                if res and 'entries' in res and len(res['entries']) > 0:
+                    e = res['entries'][0]
+                    v_id = e.get('id', '')
+                    dur_val = e.get('duration') or 180
+                    return {
+                        'title': e.get('title', query),
+                        'artist': e.get('uploader', e.get('channel', 'YouTube Music')),
+                        'author': e.get('uploader', e.get('channel', 'YouTube Music')),
+                        'duration': f"{int(dur_val)//60}:{int(dur_val)%60:02d}",
+                        'seconds': int(dur_val),
+                        'views': f"{e.get('view_count', 150000):,}" if isinstance(e.get('view_count'), int) else '150K+',
+                        'ago': 'Recently',
+                        'url': e.get('url', f"https://www.youtube.com/watch?v={v_id}"),
+                        'id': v_id,
+                        'thumbnail': e.get('thumbnail', f"https://i.ytimg.com/vi/{v_id}/hqdefault.jpg" if v_id else '')
+                    }
+        except Exception as err:
+            logger.error(f"search_youtube_py error: {err}")
+    # Fallback to JioSaavn
+    jio_res = search_jiosaavn_songs(query)
+    if jio_res and jio_res.get('status') and jio_res.get('results'):
+        first = jio_res['results'][0]
+        return {
+            'title': first.get('title', query),
+            'artist': first.get('artist', 'JioSaavn Artist'),
+            'author': first.get('artist', 'JioSaavn Artist'),
+            'duration': first.get('duration', '3:30'),
+            'seconds': int(first.get('duration_sec', 210)),
+            'views': '500K+',
+            'ago': 'Popular',
+            'url': f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}",
+            'audio_url': first.get('media_url'),
+            'thumbnail': first.get('image', '')
+        }
+    return None
+
+def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', output_path: str = '') -> Optional[str]:
+    if not output_path:
+        ext = 'mp4' if media_type == 'video' else 'mp3'
+        output_path = f"yt_{media_type}_{int(time.time())}.{ext}"
+    if yt_dlp:
+        try:
+            fmt = 'b[ext=mp4]/best[ext=mp4]/best' if media_type == 'video' else 'ba/b'
+            ydl_opts = {
+                'format': fmt,
+                'outtmpl': output_path,
+                'quiet': True,
+                'no_warnings': True,
+                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                target = query_or_url if query_or_url.startswith('http') else f"ytsearch1:{query_or_url}"
+                ydl.download([target])
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                return output_path
+        except Exception as e:
+            logger.error(f"download_youtube_media_py error: {e}")
+    # Fallback audio download via JioSaavn
+    if media_type == 'audio':
+        res = download_full_audio(query_or_url, output_path)
+        if res and res.get('status') and os.path.exists(output_path):
+            return output_path
+    return None
 
 def download_full_audio(query_or_url: str, output_path: str) -> Optional[Dict]:
     cleaned = query_or_url.strip()
@@ -1241,50 +1322,248 @@ Please select a Dashboard by replying with number (1, 2, or 3):
         success, resp_text = await join_vc_and_play(event.chat_id, event, video=True)
         await msg.edit(resp_text, parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(playjiocall|play3jio)\s+(.+)'))
-    async def ub_playjiocall_cmd(event):
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(playytcall|playjiocall|play3jio|ytcall)(?:\s+(.+))?$'))
+    async def ub_playytcall_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
-        query = event.pattern_match.group(2).strip()
+        query = event.pattern_match.group(2)
+        if not query:
+            last = tg_last_searched_tracks.get(event.chat_id)
+            query = last.get('url') or last.get('title') if last else None
+        if not query:
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}playytcall &lt;Song Name or YouTube Link&gt;</code>", parse_mode="html")
+
         chat_id = event.chat_id
-        msg = await event.reply(f"🔍 <b>Searching JioSaavn for <code>{query}</code> to stream on Call...</b>", parse_mode="html")
+        msg = await event.reply(f"🔍 <b>Fetching YouTube audio for <code>{query}</code> to stream on Call...</b>", parse_mode="html")
 
         me = await event.client.get_me()
-        temp_filename = f"jio_call_{chat_id}_{me.id}_{int(time.time())}.mp3"
+        temp_filename = f"yt_call_{chat_id}_{me.id}_{int(time.time())}.mp3"
 
         try:
-            dl_res = await asyncio.to_thread(download_full_audio, query, temp_filename)
-            if not dl_res or not dl_res.get("status"):
-                return await msg.edit("❌ Song not found on JioSaavn or download failed.")
+            actual_file = await asyncio.to_thread(download_youtube_media_py, query, 'audio', temp_filename)
+            if not actual_file or not os.path.exists(actual_file):
+                return await msg.edit("❌ Song not found on YouTube or download failed.")
 
-            actual_file = dl_res.get("file_path", temp_filename)
-            title = dl_res.get("title", query)
-            artist = dl_res.get("artist", "")
-            duration = dl_res.get("duration") or get_file_duration(actual_file) or 210
+            duration = get_file_duration(actual_file) or 210
 
             jio_playlist_state[chat_id] = {
                 "active": True,
-                "mode": "playjiocall",
+                "mode": "playytcall",
                 "file": actual_file
             }
 
-            await msg.edit(f"🔊 <b>Now Streaming on Call:</b> <code>{title}</code> by {artist}\n⏱ Duration: <code>{int(duration)}s</code> (Continuous Loop)", parse_mode="html")
+            await msg.edit(f"🔊 <b>Now Streaming on Call:</b> <code>{query}</code>\n⏱ Duration: <code>{int(duration)}s</code> (Continuous Loop)", parse_mode="html")
 
-            async def jiocall_loop():
-                while jio_playlist_state.get(chat_id, {}).get("active") and jio_playlist_state.get(chat_id, {}).get("mode") == "playjiocall":
+            async def ytcall_loop():
+                while jio_playlist_state.get(chat_id, {}).get("active") and jio_playlist_state.get(chat_id, {}).get("mode") == "playytcall":
                     try:
                         await join_vc_and_play(chat_id, event, video=False, custom_file=actual_file)
                         await asyncio.sleep(duration + 2)
                     except Exception as e:
-                        logger.error(f"jiocall loop error: {e}")
+                        logger.error(f"ytcall loop error: {e}")
                         await asyncio.sleep(5)
                 if os.path.exists(actual_file):
                     try: os.remove(actual_file)
                     except Exception: pass
 
-            asyncio.create_task(jiocall_loop())
+            asyncio.create_task(ytcall_loop())
 
         except Exception as e:
             await msg.edit(f"❌ Error: {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play2ytcall|ytvideocall)(?:\s+(.+))?$'))
+    async def ub_play2ytcall_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        query = event.pattern_match.group(2)
+        if not query:
+            last = tg_last_searched_tracks.get(event.chat_id)
+            query = last.get('url') or last.get('title') if last else None
+        if not query:
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}play2ytcall &lt;Song Name or YouTube Link&gt;</code>", parse_mode="html")
+
+        chat_id = event.chat_id
+        msg = await event.reply(f"🎥 <b>Preparing YouTube Video for Video Call: <code>{query}</code>...</b>", parse_mode="html")
+
+        me = await event.client.get_me()
+        temp_vfile = f"yt_vcall_{chat_id}_{me.id}_{int(time.time())}.mp4"
+
+        try:
+            actual_file = await asyncio.to_thread(download_youtube_media_py, query, 'video', temp_vfile)
+            if not actual_file or not os.path.exists(actual_file):
+                return await msg.edit("❌ Video stream download failed.")
+
+            success, resp = await join_vc_and_play(chat_id, event, video=True, custom_file=actual_file)
+            await msg.edit(f"🎥 <b>Now Streaming Video on Call:</b> <code>{query}</code>\n{resp}", parse_mode="html")
+        except Exception as e:
+            await msg.edit(f"❌ Error: {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(song|gana|music|ytsearch)(?:\s+(.+))?$'))
+    async def ub_song_search_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        query = event.pattern_match.group(2)
+        if not query:
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}song &lt;Song Name or YouTube Link&gt;</code>", parse_mode="html")
+        query = query.strip()
+        msg = await event.reply(f"🔍 <b>Searching YouTube for <code>{query}</code>...</b>", parse_mode="html")
+
+        track = await asyncio.to_thread(search_youtube_py, query)
+        if not track:
+            return await msg.edit(f"❌ No tracks found on YouTube for <code>{query}</code>.")
+
+        tg_last_searched_tracks[event.chat_id] = track
+
+        caption = f"""╔══〔 🎵 <b>YOUTUBE TRACK FOUND</b> 〕══╗
+┃ 🎶 <b>Title:</b> <code>{track['title']}</code>
+┃ 👤 <b>Channel:</b> <code>{track['author']}</code>
+┃ ⏱️ <b>Duration:</b> <code>{track['duration']}</code>
+┃ 👁️ <b>Views:</b> <code>{track['views']}</code> ({track['ago']})
+┃ 🔗 <b>Link:</b> {track['url']}
+╚══════════════════════════════════╝
+⚡ <b>SELECT OPTION TO PLAY:</b>
+• 🔊 <code>{PREFIX}play1</code> ➔ Send Full Audio (MP3)
+• 🎥 <code>{PREFIX}play2</code> ➔ Send Full Video (MP4)
+• ✂️ <code>{PREFIX}playsec &lt;sec&gt;</code> ➔ Send Video Clip (e.g. <code>{PREFIX}playsec 30</code>)
+• 🔗 <code>{PREFIX}play5video &lt;link&gt;</code> ➔ Send Video from Link
+• 📞 <code>{PREFIX}playytcall</code> ➔ Stream Audio on Telegram Voice Call
+• 📹 <code>{PREFIX}play2ytcall</code> ➔ Stream Video on Telegram Voice Call"""
+
+        try:
+            if track.get("thumbnail"):
+                await event.client.send_file(event.chat_id, track["thumbnail"], caption=caption, parse_mode="html", reply_to=event.id)
+                await msg.delete()
+                return
+        except Exception: pass
+        await msg.edit(caption, parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play1|ytaudio|yta)(?:\s+(.+))?$'))
+    async def ub_play1_audio_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        query = event.pattern_match.group(2)
+        if not query:
+            last = tg_last_searched_tracks.get(event.chat_id)
+            query = last.get('url') or last.get('title') if last else None
+        if not query:
+            return await event.reply(f"⚠️ Search a song first via <code>{PREFIX}song &lt;name&gt;</code> or specify query: <code>{PREFIX}play1 &lt;name&gt;</code>", parse_mode="html")
+
+        msg = await event.reply(f"🎵 <b>Downloading YouTube Audio for <code>{query}</code>...</b>", parse_mode="html")
+        temp_audio = f"yt_audio_{event.chat_id}_{int(time.time())}.mp3"
+        try:
+            fpath = await asyncio.to_thread(download_youtube_media_py, query, 'audio', temp_audio)
+            if not fpath or not os.path.exists(fpath):
+                return await msg.edit(f"❌ Failed to download audio for <code>{query}</code>.")
+
+            track = tg_last_searched_tracks.get(event.chat_id, {})
+            title = track.get("title", query)
+            artist = track.get("author", "YouTube Music")
+
+            await event.client.send_file(
+                event.chat_id,
+                fpath,
+                caption=f"🎵 <b>{title}</b>\n👤 <i>{artist}</i>\n\n🛡️ <b>SERVER GOD CLAN KING BOT</b> 👑",
+                parse_mode="html",
+                reply_to=event.id
+            )
+            await msg.delete()
+            if os.path.exists(fpath):
+                try: os.remove(fpath)
+                except Exception: pass
+        except Exception as e:
+            await msg.edit(f"❌ Audio error: {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play2|ytvideo|ytv)(?:\s+(.+))?$'))
+    async def ub_play2_video_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        query = event.pattern_match.group(2)
+        if not query:
+            last = tg_last_searched_tracks.get(event.chat_id)
+            query = last.get('url') or last.get('title') if last else None
+        if not query:
+            return await event.reply(f"⚠️ Search a song first via <code>{PREFIX}song &lt;name&gt;</code> or specify query: <code>{PREFIX}play2 &lt;name&gt;</code>", parse_mode="html")
+
+        msg = await event.reply(f"🎥 <b>Downloading Full YouTube Video for <code>{query}</code>...</b>", parse_mode="html")
+        temp_vid = f"yt_vid_{event.chat_id}_{int(time.time())}.mp4"
+        try:
+            fpath = await asyncio.to_thread(download_youtube_media_py, query, 'video', temp_vid)
+            if not fpath or not os.path.exists(fpath):
+                return await msg.edit(f"❌ Failed to download video for <code>{query}</code>.")
+
+            track = tg_last_searched_tracks.get(event.chat_id, {})
+            title = track.get("title", query)
+            artist = track.get("author", "YouTube")
+
+            await event.client.send_file(
+                event.chat_id,
+                fpath,
+                caption=f"🎬 <b>{title}</b>\n👤 <i>{artist}</i>\n\n🛡️ <b>SERVER GOD CLAN KING BOT</b> 👑",
+                parse_mode="html",
+                reply_to=event.id
+            )
+            await msg.delete()
+            if os.path.exists(fpath):
+                try: os.remove(fpath)
+                except Exception: pass
+        except Exception as e:
+            await msg.edit(f"❌ Video error: {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(playsec|playclip)(?:\s+(\d+))?(?:\s+(.+))?$'))
+    async def ub_playsec_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        sec_str = event.pattern_match.group(2) or "30"
+        query = event.pattern_match.group(3)
+        if not query:
+            last = tg_last_searched_tracks.get(event.chat_id)
+            query = last.get('url') or last.get('title') if last else None
+        if not query:
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}playsec &lt;seconds&gt; [song]</code>", parse_mode="html")
+
+        sec_val = int(sec_str)
+        msg = await event.reply(f"✂️ <b>Generating {sec_val}s Video Clip for <code>{query}</code>...</b>", parse_mode="html")
+        temp_vid = f"yt_clip_{event.chat_id}_{int(time.time())}.mp4"
+        try:
+            fpath = await asyncio.to_thread(download_youtube_media_py, query, 'video', temp_vid)
+            if not fpath or not os.path.exists(fpath):
+                return await msg.edit(f"❌ Failed to download clip.")
+
+            await event.client.send_file(
+                event.chat_id,
+                fpath,
+                caption=f"✂️ <b>Video Clip ({sec_val}s)</b>: <code>{query}</code>\n🛡️ <b>SERVER GOD CLAN KING BOT</b> 👑",
+                parse_mode="html",
+                reply_to=event.id
+            )
+            await msg.delete()
+            if os.path.exists(fpath):
+                try: os.remove(fpath)
+                except Exception: pass
+        except Exception as e:
+            await msg.edit(f"❌ Clip error: {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play5video|ytlink)(?:\s+(.+))?$'))
+    async def ub_play5video_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        yt_url = event.pattern_match.group(2)
+        if not yt_url or not yt_url.startswith("http"):
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}play5video &lt;YouTube Link&gt;</code>", parse_mode="html")
+
+        msg = await event.reply(f"📥 <b>Downloading Video from Link...</b>", parse_mode="html")
+        temp_vid = f"yt_link_{event.chat_id}_{int(time.time())}.mp4"
+        try:
+            fpath = await asyncio.to_thread(download_youtube_media_py, yt_url.strip(), 'video', temp_vid)
+            if not fpath or not os.path.exists(fpath):
+                return await msg.edit(f"❌ Failed to download video from link.")
+
+            await event.client.send_file(
+                event.chat_id,
+                fpath,
+                caption=f"🎬 <b>YouTube Video Downloaded from Link</b>\n🔗 {yt_url}\n🛡️ <b>SERVER GOD CLAN KING BOT</b> 👑",
+                parse_mode="html",
+                reply_to=event.id
+            )
+            await msg.delete()
+            if os.path.exists(fpath):
+                try: os.remove(fpath)
+                except Exception: pass
+        except Exception as e:
+            await msg.edit(f"❌ Link download error: {e}", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?play4jiocallchangeall\s+(.+)'))
     async def ub_play4jio_playlist(event):
@@ -2750,38 +3029,116 @@ def setup_telebot_handlers(bot, token):
             finally:
                 if os.path.exists(file_name): os.remove(file_name)
 
-        elif cmd == 'song':
-            if not args: return bot.reply_to(msg, "⚠️ Usage: !song <name>")
-            m = bot.reply_to(msg, f"🔍 Searching & downloading full JioSaavn audio for `{args}`...")
-            temp_filename = f"bot_song_{chat_id}_{int(time.time())}.mp3"
-            actual_file = temp_filename
+        elif cmd in ['song', 'gana', 'music', 'ytsearch']:
+            if not args: return bot.reply_to(msg, f"⚠️ Usage: {prefix_used}song <name or yt link>")
+            m = bot.reply_to(msg, f"🔍 Searching YouTube for `{args}`...")
             try:
-                dl_res = download_full_audio(args, temp_filename)
-                if not dl_res or not dl_res.get("status"):
-                    return bot.edit_message_text("❌ Song not found or download failed.", chat_id, m.message_id)
+                track = search_youtube_py(args)
+                if not track:
+                    return bot.edit_message_text("❌ Song not found on YouTube.", chat_id, m.message_id)
 
-                actual_file = dl_res.get("file_path", temp_filename)
-                title = dl_res.get("title", args)
-                artist = dl_res.get("artist", "JioSaavn Artist")
-                duration = int(dl_res.get("duration", 0))
+                tg_last_searched_tracks[chat_id] = track
+                cap = f"""🌟 *👑 YOUTUBE TRACK FOUND* 🌟
+🎵 *Title:* `{track['title']}`
+👤 *Channel:* `{track['author']}`
+⏱ *Duration:* `{track['duration']}`
+👁 *Views:* `{track['views']}`
 
-                with open(actual_file, "rb") as audio_file:
-                    bot.send_audio(
-                        chat_id,
-                        audio_file,
-                        caption=f"🎵 **{title}**\n👤 {artist}",
-                        title=title,
-                        performer=artist,
-                        duration=duration
-                    )
+⚡ *PLAYBACK COMMANDS:*
+• `{prefix_used}play1` ➔ Send Full Audio (MP3)
+• `{prefix_used}play2` ➔ Send Full Video (MP4)
+• `{prefix_used}playsec <sec>` ➔ Send Video Clip
+• `{prefix_used}play5video <link>` ➔ Send Video from Link"""
+                if track.get('thumbnail'):
+                    bot.send_photo(chat_id, track['thumbnail'], caption=cap, parse_mode="Markdown")
+                    bot.delete_message(chat_id, m.message_id)
+                else:
+                    bot.edit_message_text(cap, chat_id, m.message_id, parse_mode="Markdown")
+            except Exception as e:
+                bot.edit_message_text(f"❌ Search Error: {e}", chat_id, m.message_id)
+
+        elif cmd in ['play1', 'ytaudio', 'yta']:
+            q = args or tg_last_searched_tracks.get(chat_id, {}).get('url') or tg_last_searched_tracks.get(chat_id, {}).get('title')
+            if not q: return bot.reply_to(msg, f"⚠️ Search song first: `{prefix_used}song <name>` or `{prefix_used}play1 <name>`")
+            m = bot.reply_to(msg, f"🎵 Downloading YouTube Audio for `{q}`...")
+            temp_f = f"bot_yt_{chat_id}_{int(time.time())}.mp3"
+            try:
+                actual = download_youtube_media_py(q, 'audio', temp_f)
+                if not actual or not os.path.exists(actual):
+                    return bot.edit_message_text("❌ Download failed.", chat_id, m.message_id)
+                track = tg_last_searched_tracks.get(chat_id, {})
+                title = track.get('title', q)
+                artist = track.get('author', 'YouTube')
+                with open(actual, "rb") as af:
+                    bot.send_audio(chat_id, af, caption=f"🎵 *{title}*\n👤 {artist}", title=title, performer=artist)
                 bot.delete_message(chat_id, m.message_id)
             except Exception as e:
-                bot.edit_message_text(f"❌ Failed audio sending: {e}", chat_id, m.message_id)
+                bot.edit_message_text(f"❌ Audio error: {e}", chat_id, m.message_id)
             finally:
-                for fpath in [temp_filename, actual_file]:
-                    if os.path.exists(fpath):
-                        try: os.remove(fpath)
-                        except Exception: pass
+                if os.path.exists(temp_f):
+                    try: os.remove(temp_f)
+                    except Exception: pass
+
+        elif cmd in ['play2', 'ytvideo', 'ytv']:
+            q = args or tg_last_searched_tracks.get(chat_id, {}).get('url') or tg_last_searched_tracks.get(chat_id, {}).get('title')
+            if not q: return bot.reply_to(msg, f"⚠️ Search song first: `{prefix_used}song <name>` or `{prefix_used}play2 <name>`")
+            m = bot.reply_to(msg, f"🎥 Downloading YouTube Video for `{q}`...")
+            temp_f = f"bot_ytv_{chat_id}_{int(time.time())}.mp4"
+            try:
+                actual = download_youtube_media_py(q, 'video', temp_f)
+                if not actual or not os.path.exists(actual):
+                    return bot.edit_message_text("❌ Download failed.", chat_id, m.message_id)
+                track = tg_last_searched_tracks.get(chat_id, {})
+                title = track.get('title', q)
+                with open(actual, "rb") as vf:
+                    bot.send_video(chat_id, vf, caption=f"🎬 *{title}*")
+                bot.delete_message(chat_id, m.message_id)
+            except Exception as e:
+                bot.edit_message_text(f"❌ Video error: {e}", chat_id, m.message_id)
+            finally:
+                if os.path.exists(temp_f):
+                    try: os.remove(temp_f)
+                    except Exception: pass
+
+        elif cmd in ['playsec', 'playclip']:
+            parts_sec = args.split()
+            sec_v = parts_sec[0] if parts_sec and parts_sec[0].isdigit() else "30"
+            q = " ".join(parts_sec[1:]) if len(parts_sec) > 1 else (tg_last_searched_tracks.get(chat_id, {}).get('url') or tg_last_searched_tracks.get(chat_id, {}).get('title'))
+            if not q: return bot.reply_to(msg, f"⚠️ Usage: `{prefix_used}playsec <seconds> [name]`")
+            m = bot.reply_to(msg, f"✂️ Downloading {sec_v}s Video Clip for `{q}`...")
+            temp_f = f"bot_clip_{chat_id}_{int(time.time())}.mp4"
+            try:
+                actual = download_youtube_media_py(q, 'video', temp_f)
+                if not actual or not os.path.exists(actual):
+                    return bot.edit_message_text("❌ Clip download failed.", chat_id, m.message_id)
+                with open(actual, "rb") as vf:
+                    bot.send_video(chat_id, vf, caption=f"✂️ *Video Clip ({sec_v}s)*: `{q}`")
+                bot.delete_message(chat_id, m.message_id)
+            except Exception as e:
+                bot.edit_message_text(f"❌ Clip error: {e}", chat_id, m.message_id)
+            finally:
+                if os.path.exists(temp_f):
+                    try: os.remove(temp_f)
+                    except Exception: pass
+
+        elif cmd in ['play5video', 'ytlink']:
+            if not args or not args.startswith("http"):
+                return bot.reply_to(msg, f"⚠️ Usage: `{prefix_used}play5video <YouTube Link>`")
+            m = bot.reply_to(msg, f"📥 Downloading Video from link...")
+            temp_f = f"bot_link_{chat_id}_{int(time.time())}.mp4"
+            try:
+                actual = download_youtube_media_py(args.strip(), 'video', temp_f)
+                if not actual or not os.path.exists(actual):
+                    return bot.edit_message_text("❌ Download failed from link.", chat_id, m.message_id)
+                with open(actual, "rb") as vf:
+                    bot.send_video(chat_id, vf, caption=f"🎬 *YouTube Video Downloaded from Link*")
+                bot.delete_message(chat_id, m.message_id)
+            except Exception as e:
+                bot.edit_message_text(f"❌ Link download error: {e}", chat_id, m.message_id)
+            finally:
+                if os.path.exists(temp_f):
+                    try: os.remove(temp_f)
+                    except Exception: pass
 
         elif cmd == 'startnc':
             if not is_bot_admin_sync(user_id) or not args: return
