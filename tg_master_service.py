@@ -95,18 +95,31 @@ except ImportError:
 # ==============================================================================
 # LOGGING CONFIGURATION
 # ==============================================================================
+class ConflictFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.exc_info and record.exc_info[0]:
+            name = getattr(record.exc_info[0], '__name__', '')
+            if 'Conflict' in name:
+                return False
+        msg = str(record.msg or '') + str(record.args or '')
+        if 'Conflict' in msg or 'terminated by other getUpdates' in msg or 'network_retry_loop' in msg:
+            return False
+        return True
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - [%(levelname)s] - [TG_MASTER] - %(message)s"
 )
 logger = logging.getLogger("TGMaster")
 
-# Silence PTB network loop conflict traceback spam from Railway logs
-logging.getLogger("telegram.ext._utils.networkloop").setLevel(logging.CRITICAL)
-logging.getLogger("telegram.ext._updater").setLevel(logging.CRITICAL)
-logging.getLogger("telegram._bot").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
+for h in logging.root.handlers:
+    h.addFilter(ConflictFilter())
+
+for mod in ["telegram", "telegram.ext", "telegram.ext._utils.networkloop", "telegram.ext._updater", "telegram._bot", "httpx", "httpcore"]:
+    l = logging.getLogger(mod)
+    l.setLevel(logging.CRITICAL)
+    l.addFilter(ConflictFilter())
+    l.propagate = False
 
 # ==============================================================================
 # CONFIGURATION & GLOBAL SETTINGS
@@ -1513,6 +1526,57 @@ Please select a Dashboard by replying with number (1, 2, or 3):
                 except Exception: pass
         except Exception as e:
             await msg.edit(f"❌ Audio error: {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(playbase|playbaseaudio|bass|bassboost)(?:\s+(.+))?$'))
+    async def ub_playbase_audio_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        query = event.pattern_match.group(2)
+        reply = await event.get_reply_message()
+
+        msg = await event.reply("🔊 <b>Processing Bass Boost Audio...</b> 💥", parse_mode="html")
+        raw_audio = f"raw_audio_{event.chat_id}_{int(time.time())}.mp3"
+        bass_audio = f"bass_audio_{event.chat_id}_{int(time.time())}.mp3"
+
+        try:
+            if reply and (reply.audio or reply.voice or reply.video or reply.document):
+                await reply.download_media(file=raw_audio)
+            else:
+                if not query:
+                    last = tg_last_searched_tracks.get(event.chat_id)
+                    query = last.get('url') or last.get('title') if last else None
+                if not query:
+                    return await msg.edit(f"⚠️ Reply to an audio message with <code>{PREFIX}playbase</code> or specify query: <code>{PREFIX}playbase &lt;song&gt;</code>", parse_mode="html")
+                dl_path = await asyncio.to_thread(download_youtube_media_py, query, 'audio', raw_audio)
+                if dl_path and os.path.exists(dl_path):
+                    raw_audio = dl_path
+
+            if not os.path.exists(raw_audio):
+                return await msg.edit("❌ Failed to retrieve audio for bass boost.")
+
+            # Process bass boost with ffmpeg
+            cmd = ["ffmpeg", "-y", "-i", raw_audio, "-af", "bass=g=18:f=100:w=0.6,volume=1.3", "-c:a", "libmp3lame", "-b:a", "192k", bass_audio]
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            await proc.communicate()
+
+            out_file = bass_audio if os.path.exists(bass_audio) and os.path.getsize(bass_audio) > 1000 else raw_audio
+
+            await event.client.send_file(
+                event.chat_id,
+                out_file,
+                caption="🔊 <b>EXTRA BASS BOOSTED AUDIO</b> 💥\n⚡ <i>+18dB Bass Boost | 100Hz Deep Sub-Bass</i>\n\n🛡️ <b>SERVER GOD CLAN KING BOT</b> 👑",
+                parse_mode="html",
+                reply_to=event.id
+            )
+            await msg.delete()
+        except Exception as e:
+            await msg.edit(f"❌ Bass Boost error: {e}", parse_mode="html")
+        finally:
+            if os.path.exists(raw_audio):
+                try: os.remove(raw_audio)
+                except Exception: pass
+            if os.path.exists(bass_audio):
+                try: os.remove(bass_audio)
+                except Exception: pass
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play2|playvideo|video|ytvideo|ytv)(?:\s+(.+))?$'))
     async def ub_play2_video_cmd(event):
