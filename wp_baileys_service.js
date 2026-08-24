@@ -928,64 +928,28 @@ async function searchAudius(query) {
 // ============================================================================
 
 function getMenuPortalText(prefix = '+') {
-  return `✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
-👑 𝕊𝔼ℝ𝕍𝔼ℝ 𝔾𝕆𝔻 ℂ𝕃𝔸ℕ 𝕌𝕊𝔼ℝ𝔹𝕆𝕋 V18.0 MASTER MATRIX 👑
-🟢 STATUS: Active | 🤖 BOTS: 0 | ⚡ USERBOT PREFIX: ${prefix} | 🤖 BOT PREFIX: ?
-✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
+  return `╭──────────────────────────────╮
+│ 👑 𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑴𝑬𝑵𝑼 𝑷𝑶𝑹𝑻𝑨𝑳 ⚡ │
+│ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
+╰──────────────────────────────╯
+      ⚡ PREFIX  :  ${prefix}
+      🚀 SPEED   : 0.01s+
 
-📞 [ VOICE & VIDEO STREAM ENGINE (PyTgCalls + DM Support) ]
-├── ${prefix}play1call / ${prefix}playcall ➪ Stream 51.mp3 Audio in VC/DM
-├── ${prefix}play2call ➪ Stream 52.mp4 Screen Share Video & Audio (720p HD)
-├── ${prefix}play3jio <song> ➪ Stream Live Full Audio on Call (Auto-Loop)
-├── ${prefix}play4jiocallchangeall <genre> ➪ Fast Auto Playlist Loop (Full Song Duration + 5s Gap)
-├── ${prefix}stopjioplaylist ➪ Stop Category Playlist Loop
-├── ${prefix}stopcallplay ➪ Pause / Stop Stream Playback
-├── ${prefix}loopunmute ➪ Auto Unmute Guard Loop
-└── ${prefix}cutcall / ${prefix}leavecall ➪ Leave Voice/Video Call
+Please select a Dashboard by replying with number (1, 2, or 3):
 
-🔮 [ USERBOT AUTH, SYSTEM & BOT MANAGER ]
-├── ${prefix}removeuserbot ➪ Delete & Disconnect Current Userbot
-├── ${prefix}promotadminbots ➪ Promote All Linked Multi-Bots to Admins
-├── ${prefix}addmembers <@source> [<@target>] ➪ Mass Scrape & Add Members
-├── ${prefix}adduserbot <+phone> ➪ Connect New Userbot via Pairing Code
-├── ${prefix}adduserbotqr ➪ Connect New Userbot via Instant QR Code
-├── ${prefix}login <5-digit-code> ➪ Complete Login with Telegram Code
-├── ${prefix}2fa <password> ➪ Submit 2-Step Verification Password
-├── ${prefix}userbots ➪ View All Active & Registered Userbots
-├── ${prefix}join <link|@group> ➪ Join Any Private/Public Group or Channel
-├── ${prefix}start | ${prefix}alive | ${prefix}showadmins
-├── ${prefix}addadmin <id> | ${prefix}removeadmin <id>
-└── ${prefix}addbot <token> | ${prefix}viewbots | ${prefix}removebot <@user>
+1️⃣ 1 or ${prefix}menu 1 ➔ 👑 𝑼𝑳𝑻𝑹𝑨 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫
+   (Target • NC • DC • Spam • PFP • Poll • Radar • Utility • Multi-Node)
 
-⚔️ [ ATTACK, BOMBARDMENT & TARGET CONTROL ]
-├── ${prefix}spam <msg> | ${prefix}stopspam | ${prefix}spamdelay <sec>
-├── ${prefix}raid <count> <@user> | ${prefix}fucktarget <msg>
-├── ${prefix}targetadd | ${prefix}targetdel
-├── ${prefix}promote <@user> | ${prefix}ban <@user> | ${prefix}kick <@user>
-├── ${prefix}addmember <@user> | ${prefix}invite <user>
-├── ${prefix}warn | ${prefix}purge <count> | ${prefix}del
-└── ${prefix}tagall <msg> | ${prefix}mute | ${prefix}unmute | ${prefix}lock <media|links|stickers>
+2️⃣ 2 or ${prefix}menu 2 ➔ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬
+   (Outcall • VN • Recordings • 51.mp3 Loop • JioCall • Autounmute)
 
-📡 [ GROUP CREATION & MASS BLASTER ]
-├── ${prefix}creategcqty <qty> | ${prefix}creategc <user1> <user2>
-├── ${prefix}fetchallgc | ${prefix}targetgc <id> | ${prefix}cleartargets
-├── ${prefix}sendmessage <msg> | ${prefix}welcome <text> | ${prefix}setgoodbye <text>
-└── ${prefix}filter <key> <msg> | ${prefix}stopfilter <key> (Auto-Response Active)
+3️⃣ 3 or ${prefix}menu 3 ➔ 🎵 𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫
+   (JioSaavn 320kbps • Spotify HD • Audius Free • Song Loops)
 
-🎨 [ CREATIVE LAB & FAST MEDIA ]
-├── ${prefix}song <title> ➪ Stream & Send Full JioSaavn Audio (5-10 Mins)
-├── ${prefix}ai <prompt> | ${prefix}q (Quote Card)
-├── ${prefix}font <text> ➪ High-Gloss Stylish Neon Banner
-├── ${prefix}3dpic <prompt> | ${prefix}pdf | ${prefix}tts <text>
-└── ${prefix}tr <lang> <text> | ${prefix}remind <time> <msg> | ${prefix}calc | ${prefix}weather
-
-🛡️ [ AUTOMATION & SYSTEM CONTROL ]
-├── ${prefix}info | ${prefix}chatstats | ${prefix}chatinfo | ${prefix}id | ${prefix}afk <reason>
-├── ${prefix}status | ${prefix}ping | ${prefix}dbstats | ${prefix}sysinfo
-└── ${prefix}dynamicstop ➪ Emergency Kill-Switch | ${prefix}restart
-✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
-
-👉 *Shortcuts: \`${prefix}menu 1\` (Ultra Dashboard) • \`${prefix}menu 2\` (VoIP Engine) • \`${prefix}menu 3\` (Music Engine)*`;
+╭──────────────────────────────╮
+│ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
+╰──────────────────────────────╯
+👉 Reply 1, 2, or 3 (or use shortcut ${prefix}menu 1, ${prefix}menu 2, ${prefix}menu 3)`;
 }
 
 function getUltraDashboardMenu(prefix = '+') {
@@ -1126,78 +1090,44 @@ function getUltraDashboardMenu(prefix = '+') {
 }
 
 function getCallingEngineMenu(prefix = '+') {
-  return `╭─────────────────────────╮
-📞 𝙑𝙊𝙄𝙋 𝘾𝘼𝙇𝙇𝙄𝙉𝙂 𝙀𝙉𝙂𝙄𝙉𝙀 📞
-╰─────────────────────────╯
-⚡ 𝙊𝙐𝙏𝘽𝙊𝙐𝙉𝘿 & 𝙄𝙉𝘽𝙊𝙐𝙉𝘿 𝙒𝙃𝘼𝙏𝙎𝘼𝙋𝙋 𝘾𝘼𝙇𝙇𝙀𝙍
+  return `╭──────────────────────────────╮
+│ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬 ⚡ │
+│ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
+╰──────────────────────────────╯
+      ⚡ PREFIX  :  ${prefix}
+      🚀 SPEED   : 0.01s+
 
-│
-├─► 🔔 ${prefix}noti <Chat JID> (or ${prefix}noti)
-│    ▸ 𝙨𝙚𝙩 𝙜𝙧𝙤𝙪𝙥/𝙘𝙝𝙖𝙩 𝙛𝙤𝙧 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙘𝙖𝙡𝙡 𝙖𝙡𝙚𝙧𝙩𝙨
-│
-├─► 📞 ${prefix}acceptcall [51.mp3/song] / ${prefix}accept
-│    ▸ 𝙖𝙘𝙘𝙚𝙥𝙩 & 𝙖𝙣𝙨𝙬𝙚𝙧 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙘𝙖𝙡𝙡 + 𝙨𝙩𝙧𝙚𝙖𝙢 𝙡𝙞𝙫𝙚
-│
-├─► ℹ️ ${prefix}chatinfo / ${prefix}id
-│    ▸ 𝙜𝙚𝙩 𝙘𝙝𝙖𝙩 𝙅𝙄𝘿, 𝙜𝙧𝙤𝙪𝙥 𝙢𝙚𝙩𝙖𝙙𝙖𝙩𝙖 & 𝙞𝙣𝙛𝙤
-│
-├─► 🚪 ${prefix}join <group_link>
-│    ▸ 𝙟𝙤𝙞𝙣 𝙒𝙝𝙖𝙩𝙨𝘼𝙥𝙥 𝙜𝙧𝙤𝙪𝙥 𝙫𝙞𝙖 𝙞𝙣𝙫𝙞𝙩𝙚 𝙡𝙞𝙣𝙠
-│
-├─► 📞 ${prefix}outcall <number> [track/song]
-│    ▸ 𝙥𝙡𝙖𝙘𝙚 𝙙𝙞𝙧𝙚𝙘𝙩 𝙑𝙤𝙄𝙋 𝙘𝙖𝙡𝙡 (𝙧𝙚𝙢𝙖𝙞𝙣𝙨 𝙖𝙘𝙩𝙞𝙫𝙚)
-│
-├─► 🔊 ${prefix}play1call / ${prefix}playcall
-│    ▸ 𝙨𝙩𝙧𝙚𝙖𝙢 51.mp3 𝙞𝙣 𝙘𝙤𝙣𝙩𝙞𝙣𝙪𝙤𝙪𝙨 𝙡𝙤𝙤𝙥 𝙞𝙣𝙨𝙞𝙙𝙚 𝙘𝙖𝙡𝙡
-│
-├─► 🎶 ${prefix}playjiocall <song name>
-│    ▸ 𝙨𝙚𝙖𝙧𝙘𝙝 𝙅𝙞𝙤𝙎𝙖𝙖𝙫𝙣 & 𝙨𝙩𝙧𝙚𝙖𝙢 𝙛𝙪𝙡𝙡 𝙨𝙤𝙣𝙜 𝙤𝙣 𝙘𝙖𝙡𝙡
-│
-├─► 🚪 ${prefix}joincall [51.mp3/song] / ${prefix}joinvc
-│    ▸ 𝙟𝙤𝙞𝙣 𝙖𝙘𝙩𝙞𝙫𝙚 𝙜𝙧𝙤𝙪𝙥 𝙘𝙖𝙡𝙡 / 𝙫𝙤𝙞𝙘𝙚 𝙘𝙝𝙖𝙩 & 𝙨𝙩𝙧𝙚𝙖𝙢
-│
-├─► 🎙️ ${prefix}outcall <number> vn <text>
-│    ▸ 𝙨𝙥𝙚𝙖𝙠 𝙬𝙞𝙩𝙝 𝙏𝙏𝙎 𝙫𝙤𝙞𝙘𝙚 𝙞𝙣 𝙘𝙖𝙡𝙡
-│
-├─► 🗣️ ${prefix}cvn <text>
-│    ▸ 𝙨𝙥𝙚𝙖𝙠 𝙡𝙞𝙫𝙚 𝙞𝙣 𝙖𝙘𝙩𝙞𝙫𝙚 𝙘𝙖𝙡𝙡 (𝙫𝙣 𝙤𝙣 𝙘𝙖𝙡𝙡)
-│
-├─► 🔓 ${prefix}autounmute
-│    ▸ 𝙖𝙪𝙩𝙤 𝙪𝙣𝙢𝙪𝙩𝙚 𝙞𝙛 𝙢𝙪𝙩𝙚𝙙 𝙙𝙪𝙧𝙞𝙣𝙜 𝙘𝙖𝙡𝙡
-│
-├─► 💾 ${prefix}saverd <name>
-│    ▸ 𝙧𝙚𝙥𝙡𝙮 𝙩𝙤 𝙖𝙪𝙙𝙞𝙤/𝙫𝙣 𝙩𝙤 𝙨𝙖𝙫𝙚 𝙞𝙣 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜𝙨
-│
-├─► 📋 ${prefix}listrd
-│    ▸ 𝙡𝙞𝙨𝙩 𝙖𝙡𝙡 𝙨𝙖𝙫𝙚𝙙 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜𝙨 𝙬𝙞𝙩𝙝 𝙨𝙞𝙯𝙚𝙨
-│
-├─► ▶️ ${prefix}playrd <name>
-│    ▸ 𝙥𝙡𝙖𝙮 𝙨𝙖𝙫𝙚𝙙 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜 𝙤𝙣 𝙡𝙞𝙫𝙚 𝙖𝙘𝙩𝙞𝙫𝙚 𝙘𝙖𝙡𝙡
-│
-├─► 🗑️ ${prefix}delrd <name>
-│    ▸ 𝙙𝙚𝙡𝙚𝙩𝙚 𝙖 𝙨𝙖𝙫𝙚𝙙 𝙧𝙚𝙘𝙤𝙧𝙙𝙞𝙣𝙜
-│
-├─► ⏹️ ${prefix}endcall / ${prefix}hangup / ${prefix}cutcall
-│    ▸ 𝙩𝙚𝙧𝙢𝙞𝙣𝙖𝙩𝙚 𝙩𝙝𝙚 𝙖𝙘𝙩𝙞𝙫𝙚 𝙘𝙖𝙡𝙡
-│
-├─► 🚪 ${prefix}leavecall / ${prefix}leavevc
-│    ▸ 𝙡𝙚𝙖𝙫𝙚 𝙖𝙘𝙩𝙞𝙫𝙚 𝙜𝙧𝙤𝙪𝙥 𝙘𝙖𝙡𝙡 & 𝙨𝙩𝙤𝙥 𝙡𝙤𝙤𝙥𝙨
-│
-├─► 🚫 ${prefix}anticall on/off / ${prefix}autorejectcall
-│    ▸ 𝙖𝙪𝙩𝙤 𝙧𝙚𝙟𝙚𝙘𝙩 𝙖𝙡𝙡 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙫𝙤𝙞𝙘𝙚/𝙫𝙞𝙙𝙚𝙤 𝙘𝙖𝙡𝙡𝙨
-│
-├─► 🛑 ${prefix}rejectcall / ${prefix}declinecall
-│    ▸ 𝙢𝙖𝙣𝙪𝙖𝙡𝙡𝙮 𝙙𝙚𝙘𝙡𝙞𝙣𝙚/𝙧𝙚𝙟𝙚𝙘𝙩 𝙞𝙣𝙘𝙤𝙢𝙞𝙣𝙜 𝙘𝙖𝙡𝙡
-│
-├─► 📊 ${prefix}callstatus
-│    ▸ 𝙫𝙞𝙚𝙬 𝙡𝙞𝙫𝙚 𝙘𝙖𝙡𝙡 𝙨𝙩𝙖𝙩𝙚, 𝙘𝙖𝙡𝙡 𝙄𝘿 & 𝙙𝙪𝙧𝙖𝙩𝙞𝙤𝙣
-│
-└─► 🔇 ${prefix}callmute / ${prefix}callunmute
-     ▸ 𝙩𝙤𝙜𝙜𝙡𝙚 𝙤𝙪𝙩𝙜𝙤𝙞𝙣𝙜 𝙖𝙪𝙙𝙞𝙤 𝙢𝙪𝙩𝙚 𝙙𝙪𝙧𝙞𝙣𝙜 𝙘𝙖𝙡𝙡
+╭─ 📞 𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑺
+│ 📞 ${prefix}call <Number> [Song/Track]
+│ 📞 ${prefix}outcall <Number> 51.mp3
+│ 🎙️ ${prefix}outcall <Number> vn <Text>
+│ 🎶 ${prefix}playjiocall <Song Name>
+│ 🔊 ${prefix}play1call
+│ 🚪 ${prefix}joincall [51.mp3/song]
+│ ⏹️ ${prefix}endcall / ${prefix}cutcall / ${prefix}hangup
+│ 🔇 ${prefix}callmute / ${prefix}callunmute
+╰──────────────────────
 
-╭─────────────────────────╮
-भिड़ मत, तेरी माँ चोदूँगा।
-╰─────────────────────────╯`;
+╭─ 📲 𝑰𝑵𝑪𝑶𝑴𝑰𝑵𝑮 𝑪𝑨𝑳𝑳 𝑪𝑶𝑵𝑻𝑹𝑶𝑳
+│ 🔔 ${prefix}noti <Chat_ID>
+│ 📞 ${prefix}acceptcall [Song/Track]
+│ 🛑 ${prefix}rejectcall / ${prefix}declinecall
+│ 🚫 ${prefix}anticall on/off
+│ 🔓 ${prefix}autounmute
+│ 📊 ${prefix}callstatus
+╰──────────────────────
+
+╭─ 💾 𝑪𝑼𝑺𝑻𝑶𝑴 𝑹𝑬𝑪𝑶𝑹𝑫𝑰𝑵𝑮𝑺
+│ 💾 ${prefix}saverd <name>
+│ 📋 ${prefix}listrd
+│ ▶️ ${prefix}playrd <name>
+│ 🗑️ ${prefix}delrd <name>
+│ 🗣️ ${prefix}cvn <Text>
+╰──────────────────────
+
+╭──────────────────────────────╮
+│ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
+╰──────────────────────────────╯`;
 }
 
 function getSongDashboardMenu(prefix = '+') {

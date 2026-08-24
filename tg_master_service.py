@@ -869,24 +869,24 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
         cur_adm = running_userbots.get(phone_key, {}).get("admin_id", admin_id_val) or MASTER_ADMIN_DEFAULT
         start_caption = f"""╔══════════════════════════════════════════╗
-║  👑 ⚡ <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽18.0 ⚡ 👑</b>  ║
-║  🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 • 𝑴𝑨𝑺𝑻𝑬𝑹 𝑴𝑨𝑻𝑹𝑰𝑿</b> 🛡️  ║
+║  👑 ⚡ <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽2.0 ⚡ 👑</b>  ║
+║  🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 • 𝑴𝑨𝑺𝑻𝑬𝑹 𝑬𝑵𝑮𝑰𝑵𝑬</b> 🛡️  ║
 ╚══════════════════════════════════════════╝
   ✨ <b>PREFIX</b> : [  <code>{PREFIX}</code>  ]  •  🚀 <b>SPEED</b> : <code>0.01s+ (10ms)</code>
 
-🤖 <b>Userbot Node:</b> <code>{user_name}</code>
+🤖 <b>Node Session:</b> <code>{phone_key or user_name}</code>
 📱 <b>Linked Account:</b> <code>{user_phone}</code>
-👑 <b>Master ID:</b> <code>{cur_adm}</code>
+👑 <b>Admin ID:</b> <code>{cur_adm}</code>
 ⏱️ <b>Uptime:</b> <code>{uptime}</code>
 🔥 <b>Engine:</b> <code>Telethon + PyTgCalls Ultra Turbo</code>
 
 ╭──────────────────────────────╮
 │ 💡 <b>QUICK ACTIONS & NAVIGATION</b>
-│ • Type <code>{PREFIX}menu</code> for Interactive Selector
+│ • Type <code>{PREFIX}menu</code> for Interactive Dashboard Selector
 │ • Type <code>{PREFIX}menu 1</code> for 👑 Ultra Raid Dashboard
 │ • Type <code>{PREFIX}menu 2</code> for 📞 VoIP Caller Engine
 │ • Type <code>{PREFIX}menu 3</code> for 🎵 Music & Song Engine
-│ • Type <code>{PREFIX}ping</code> to test latency
+│ • Type <code>{PREFIX}ping</code> to test network latency
 ╰──────────────────────────────╯"""
 
         main_pic = "main.png"
@@ -911,48 +911,134 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
         if sub in ["1", "ultra", "raid"]:
             menu_text = f"""╭──────────────────────────────╮
-│ 👑 <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽18.0 ⚡</b> │
+│ 👑 <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽2.0 ⚡</b> │
 │ 🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b>     │
 ╰──────────────────────────────╯
       ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
       🚀 <b>SPEED</b>   : <code>0.01s+</code>
 
-╭─ 🎯 <b>𝑻𝑨𝑹𝑮𝑬𝑻 & 𝑹𝑨𝑰𝑫</b>
-│ 🎯 <code>{PREFIX}target @user &lt;msg&gt;</code>
-│ 🛑 <code>{PREFIX}stoptarget @user</code>
-│ 🧹 <code>{PREFIX}cleartargets</code>
-│ 📋 <code>{PREFIX}targets</code>
+╭─ 🎯 <b>𝑻𝑨𝑹𝑮𝑬𝑻 𝑺𝒀𝑺𝑻𝑬𝑴</b>
+│ 🎯 <code>{PREFIX}target @tag &lt;Text&gt;</code>
+│ 🛑 <code>{PREFIX}stoptarget @tag</code>
+│ 🧹 <code>{PREFIX}stoptargetall</code>
+│ 📋 <code>{PREFIX}targetlist</code>
 │ ⏱️ <code>{PREFIX}targetdelay &lt;0.01-20&gt;</code>
-│ 💀 <code>{PREFIX}raid &lt;count&gt; @user</code>
+│ 💀 <code>{PREFIX}roast @tag</code>
 ╰──────────────────────
 
 ╭─ 📌 <b>𝑷𝑰𝑵 𝑺𝑷𝑨𝑴</b>
 │ 📌 <code>{PREFIX}pin</code>
 │ 📌 <code>{PREFIX}unpin</code>
-│ ⚡ <code>{PREFIX}pinspam &lt;count&gt; &lt;delay&gt;</code>
+│ ⚡ <code>{PREFIX}pinspam &lt;count&gt; &lt;delay_ms&gt;</code>
 │ 🛑 <code>{PREFIX}pinspam off</code>
 ╰──────────────────────
 
-╭─ 🚀 <b>𝑭𝑳𝑶𝑶𝑫 & 𝑺𝑷𝑨𝑴</b>
+╭─ ⚡ <b>𝑵𝑹 (𝑵𝑨𝑴𝑬 𝑹𝑨𝑰𝑫)</b>
+│ ⚡ <code>{PREFIX}nr &lt;Text&gt;</code>
+│ ⚡ <code>{PREFIX}nr1 &lt;Text&gt;</code>
+│ ⚡ <code>{PREFIX}nr2 &lt;Text&gt;</code>
+│ ⚡ <code>{PREFIX}nr3 &lt;Text&gt;</code>
+│ ⏱️ <code>{PREFIX}nrdelay &lt;0.01-20&gt;</code>
+│ 🛑 <code>{PREFIX}stopnr</code>
+│ 🔴 <code>{PREFIX}stopnrall</code>
+│ 📨 <code>{PREFIX}send &lt;Number/JID&gt; &lt;Text&gt;</code>
+╰──────────────────────
+
+╭─ 🌀 <b>𝑻𝑼𝑹𝑩𝑶 𝑵𝑪</b>
+│ 🌀 <code>{PREFIX}nc &lt;Text&gt;</code>
+│ ⚡ <code>{PREFIX}triplenc1 &lt;Text&gt;</code>
+│ ⏱️ <code>{PREFIX}ncdelay &lt;0.01-20&gt;</code>
+│ 🛑 <code>{PREFIX}stopnc</code>
+│ 🔴 <code>{PREFIX}stopncall</code>
+╰──────────────────────
+
+╭─ ✍️ <b>𝑮𝑹𝑶𝑼𝑷 𝑫𝑪</b>
+│ 📝 <code>{PREFIX}gdc &lt;Text&gt;</code>
+│ 📝 <code>{PREFIX}gcdc &lt;Text&gt;</code>
+│ ⏱️ <code>{PREFIX}gdcdelay &lt;0.01-20&gt;</code>
+│ 🛑 <code>{PREFIX}gdcstop</code>
+│ 🔴 <code>{PREFIX}stopgdcall</code>
+╰──────────────────────
+
+╭─ 🖼️ <b>𝑨𝑼𝑻𝑶 𝑷𝑭𝑷</b>
+│ 📸 <code>{PREFIX}pfpchange</code>
+│ ⏱️ <code>{PREFIX}pfpdelay &lt;0.1-20&gt;</code>
+│ 🛑 <code>{PREFIX}pfpstop</code>
+╰──────────────────────
+
+╭─ 📸 <b>𝑷𝑰𝑪 𝑺𝑷𝑨𝑴</b>
+│ 🖼️ <code>{PREFIX}picspam &lt;Text&gt;</code>
+│ ⏱️ <code>{PREFIX}picspamdelay &lt;0.1-20&gt;</code>
+│ 🛑 <code>{PREFIX}picspamstop</code>
+│ 🔴 <code>{PREFIX}stoppicspamall</code>
+╰──────────────────────
+
+╭─ 📊 <b>𝑻𝑬𝑿𝑻 & 𝑷𝑶𝑳𝑳</b>
+│ 📝 <code>{PREFIX}textspam &lt;Text&gt;</code>
+│ ⏱️ <code>{PREFIX}textspamdelay &lt;0.01-20&gt;</code>
+│ 🛑 <code>{PREFIX}textspamstop</code>
+│ 📊 <code>{PREFIX}pollspam Name | opt1 | opt2</code>
+│ ⏱️ <code>{PREFIX}pollspamdelay &lt;0.1-20&gt;</code>
+│ 🛑 <code>{PREFIX}pollspamstop</code>
+╰──────────────────────
+
+╭─ 💀 <b>𝑹𝑨𝑫𝑨𝑹 & 𝑴𝑼𝑻𝑬</b>
+│ 💀 <code>{PREFIX}autodelete @tag</code>
+│ 🔓 <code>{PREFIX}stopdelete @tag</code>
+│ 🔇 <code>{PREFIX}mute @tag</code>
+│ 🔊 <code>{PREFIX}unmute @tag</code>
+╰──────────────────────
+
+╭─ 🚀 <b>𝑭𝑳𝑶𝑶𝑫 & 𝑺𝑾𝑰𝑷𝑬</b>
 │ 🚀 <code>{PREFIX}spam &lt;Text&gt;</code>
 │ ⏱️ <code>{PREFIX}spamdelay &lt;0.01-20&gt;</code>
 │ 🛑 <code>{PREFIX}stopspam</code>
-│ 🚨 <code>{PREFIX}dynamicstop</code>
+│ 🔴 <code>{PREFIX}stopspamall</code>
+│ 🔄 <code>{PREFIX}swipe &lt;Text&gt;</code>
+│ ⏱️ <code>{PREFIX}swipedelay &lt;0.01-20&gt;</code>
+│ 🛑 <code>{PREFIX}stopswipe</code>
+│ 🚨 <code>{PREFIX}stopall</code>
 ╰──────────────────────
 
 ╭─ 🛡️ <b>𝑴𝑶𝑫𝑬𝑹𝑨𝑻𝑰𝑶𝑵</b>
-│ ⚠️ <code>{PREFIX}warn</code> | <code>{PREFIX}purge &lt;count&gt;</code>
-│ 🧹 <code>{PREFIX}kick @user</code> | <code>{PREFIX}ban @user</code>
-│ 👑 <code>{PREFIX}promote @user</code> | <code>{PREFIX}demote @user</code>
+│ ⚠️ <code>{PREFIX}warn @tag</code>
+│ 🔄 <code>{PREFIX}resetwarn @tag</code>
+│ 🔗 <code>{PREFIX}antilink on/off</code>
 │ 📢 <code>{PREFIX}tagall &lt;Text&gt;</code>
-│ 🔇 <code>{PREFIX}mute</code> | <code>{PREFIX}unmute</code>
+│ 👑 <code>{PREFIX}addsubadmin @tag</code>
+│ ❌ <code>{PREFIX}removesubadmin @tag</code>
+│ 📋 <code>{PREFIX}showsubadmin</code>
 ╰──────────────────────
 
 ╭─ ⚙️ <b>𝑮𝑹𝑶𝑼𝑷 𝑼𝑻𝑰𝑳𝑰𝑻𝒀</b>
-│ ➕ <code>{PREFIX}addmember &lt;@user&gt;</code>
-│ 🚪 <code>{PREFIX}join &lt;link&gt;</code> | <code>{PREFIX}leave</code>
-│ 🤖 <code>{PREFIX}creategc &lt;user1&gt; &lt;user2&gt;</code>
-│ ⚡ <code>{PREFIX}ping</code> | <code>{PREFIX}status</code>
+│ ➕ <code>{PREFIX}add &lt;Number&gt;</code>
+│ 🧹 <code>{PREFIX}kick @tag</code>
+│ 👑 <code>{PREFIX}promote @tag</code>
+│ 📉 <code>{PREFIX}demote @tag</code>
+│ 🔒 <code>{PREFIX}closegroup</code>
+│ 🔓 <code>{PREFIX}opengroup</code>
+│ 📢 <code>{PREFIX}hidetag &lt;Text&gt;</code>
+│ 🔗 <code>{PREFIX}gclink</code>
+│ 🔄 <code>{PREFIX}revoke</code>
+│ ✏️ <code>{PREFIX}setgcname &lt;Name&gt;</code>
+│ 📝 <code>{PREFIX}setgcdesc &lt;Desc&gt;</code>
+│ 🎭 <code>{PREFIX}react &lt;Emoji&gt;</code>
+│ 🚪 <code>{PREFIX}join &lt;Link&gt;</code>
+│ 🚪 <code>{PREFIX}leave</code>
+│ 🤖 <code>{PREFIX}creategc &lt;Name&gt;</code>
+│ ⚡ <code>{PREFIX}ping</code>
+│ 📊 <code>{PREFIX}botinfo</code>
+╰──────────────────────
+
+╭─ 🛰️ <b>𝑴𝑼𝑳𝑻𝑰-𝑵𝑶𝑫𝑬</b>
+│ 🔌 <code>{PREFIX}disconnect</code>
+│ ❌ <code>{PREFIX}deletesession</code>
+│ 🆔 <code>{PREFIX}addbotsession &lt;Name&gt;</code>
+│ 📋 <code>{PREFIX}bots</code>
+│ ❌ <code>{PREFIX}removebot &lt;Session&gt;</code>
+│ 🔥 <code>{PREFIX}rage</code>
+│ 🛡️ <code>{PREFIX}solo</code>
+│ 🔄 <code>{PREFIX}changeprefix &lt;Symbol&gt;</code>
 ╰──────────────────────
 
 ╭──────────────────────────────╮
@@ -964,36 +1050,33 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
             return await event.reply(menu_text, parse_mode="html")
 
         if sub in ["2", "call", "voip"]:
-            call_menu = f"""╭─────────────────────────╮
-📞 <b>𝙑𝙊𝙄𝙋 𝘾𝘼𝙇𝙇𝙄𝙉𝙂 𝙀𝙉𝙂𝙄𝙉𝙀</b> 📞
-╰─────────────────────────╯
-⚡ <b>𝙊𝙐𝙏𝘽𝙊𝙐𝙉𝘿 𝙏𝙀𝙇𝙀𝙂𝙍𝘼𝙈 𝘾𝘼𝙇𝙇𝙀𝙍</b>
+            call_menu = f"""╭──────────────────────────────╮
+│ 📞 <b>𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬</b> ⚡ │
+│ 🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b>     │
+╰──────────────────────────────╯
+      ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
+      🚀 <b>SPEED</b>   : <code>0.01s+</code>
 
-│
-├─► 🔊 <code>{PREFIX}play1call</code> / <code>{PREFIX}playcall</code>
+╭─ 📞 <b>𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑺</b>
+│ 🔊 <code>{PREFIX}play1call</code> / <code>{PREFIX}playcall</code>
 │    ▸ <i>Stream 51.mp3 in continuous loop in VC/DM</i>
-│
-├─► 🎶 <code>{PREFIX}playjiocall &lt;song name&gt;</code>
-│    ▸ <i>Search JioSaavn & stream live in Call (Continuous Loop)</i>
-│
-├─► 📺 <code>{PREFIX}play2call</code>
+│ 🎶 <code>{PREFIX}playjiocall &lt;Song Name&gt;</code>
+│    ▸ <i>Search JioSaavn & stream live in Call</i>
+│ 📺 <code>{PREFIX}play2call</code>
 │    ▸ <i>Stream 52.mp4 screen share video (720p HD)</i>
-│
-├─► 📻 <code>{PREFIX}play4jiocallchangeall &lt;genre&gt;</code>
+│ 📻 <code>{PREFIX}play4jiocallchangeall &lt;genre&gt;</code>
 │    ▸ <i>Category playlist auto-player loop</i>
-│
-├─► 🔓 <code>{PREFIX}autounmute</code> / <code>{PREFIX}loopunmute</code>
+│ 🔓 <code>{PREFIX}autounmute</code> / <code>{PREFIX}loopunmute</code>
 │    ▸ <i>Auto unmute sentinel (never stay muted)</i>
-│
-├─► ⏹️ <code>{PREFIX}stopcallplay</code>
+│ ⏹️ <code>{PREFIX}stopcallplay</code>
 │    ▸ <i>Pause / Stop active voice stream</i>
-│
-└─► 🔌 <code>{PREFIX}cutcall</code> / <code>{PREFIX}leavecall</code>
-     ▸ <i>Leave voice chat / call immediately</i>
+│ 🔌 <code>{PREFIX}cutcall</code> / <code>{PREFIX}leavecall</code>
+│    ▸ <i>Leave voice chat / call immediately</i>
+╰──────────────────────
 
-╭─────────────────────────╮
-│ ⚡ <b>SERVER GOD CLAN VOIP</b> ⚡ │
-╰─────────────────────────╯"""
+╭──────────────────────────────╮
+│ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
+╰──────────────────────────────╯"""
             if main_pic:
                 try: return await event.reply(call_menu, file=main_pic, parse_mode="html")
                 except Exception: pass
@@ -1031,66 +1114,32 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
                 except Exception: pass
             return await event.reply(song_menu, parse_mode="html")
 
-        matrix_menu = f"""✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
-👑 𝕊𝔼ℝ𝕍𝔼ℝ 𝔾𝕆𝔻 ℂ𝕃𝔸ℕ 𝕌𝕊𝔼ℝ𝔹𝕆𝕋 V18.0 MASTER MATRIX 👑
-🟢 STATUS: Active | 🤖 BOTS: 0 | ⚡ USERBOT PREFIX: {PREFIX} | 🤖 BOT PREFIX: {BOT_PREFIX}
-✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
+        matrix_menu = f"""╭──────────────────────────────╮
+│ 👑 <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑴𝑬𝑵𝑼 𝑷𝑶𝑹𝑻𝑨𝑳</b> ⚡ │
+│ 🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b>     │
+╰──────────────────────────────╯
+      ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
+      🚀 <b>SPEED</b>   : <code>0.01s+</code>
 
-📞 [ VOICE & VIDEO STREAM ENGINE (PyTgCalls + DM Support) ]
-├── {PREFIX}play1call / {PREFIX}playcall ➪ Stream 51.mp3 Audio in VC/DM
-├── {PREFIX}play2call ➪ Stream 52.mp4 Screen Share Video & Audio (720p HD)
-├── {PREFIX}play3jio <song> ➪ Stream Live Full Audio on Call (Auto-Loop)
-├── {PREFIX}play4jiocallchangeall <genre> ➪ Fast Auto Playlist Loop (Full Song Duration + 5s Gap)
-├── {PREFIX}stopjioplaylist ➪ Stop Category Playlist Loop
-├── {PREFIX}stopcallplay ➪ Pause / Stop Stream Playback
-├── {PREFIX}loopunmute ➪ Auto Unmute Guard Loop
-└── {PREFIX}cutcall / {PREFIX}leavecall ➪ Leave Voice/Video Call
+Please select a Dashboard by replying with number (1, 2, or 3):
 
-🔮 [ USERBOT AUTH, SYSTEM & BOT MANAGER ]
-├── {PREFIX}removeuserbot ➪ Delete & Disconnect Current Userbot
-├── {PREFIX}promotadminbots ➪ Promote All Linked Multi-Bots to Admins
-├── {PREFIX}addmembers <@source> [<@target>] ➪ Mass Scrape & Add Members
-├── {PREFIX}adduserbot <+phone> ➪ Connect New Userbot via Pairing Code
-├── {PREFIX}adduserbotqr ➪ Connect New Userbot via Instant QR Code
-├── {PREFIX}login <5-digit-code> ➪ Complete Login with Telegram Code
-├── {PREFIX}2fa <password> ➪ Submit 2-Step Verification Password
-├── {PREFIX}userbots ➪ View All Active & Registered Userbots
-├── {PREFIX}join <link|@group> ➪ Join Any Private/Public Group or Channel
-├── {PREFIX}start | {PREFIX}alive | {PREFIX}showadmins
-├── {PREFIX}addadmin <id> | {PREFIX}removeadmin <id>
-└── {PREFIX}addbot <token> | {PREFIX}viewbots | {PREFIX}removebot <@user>
+1️⃣ 1 or {PREFIX}menu 1 ➔ 👑 <b>𝑼𝑳𝑻𝑹𝑨 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫</b>
+   (Target • NC • DC • Spam • PFP • Poll • Radar • Utility • Multi-Node)
 
-⚔️ [ ATTACK, BOMBARDMENT & TARGET CONTROL ]
-├── {PREFIX}spam <msg> | {PREFIX}stopspam | {PREFIX}spamdelay <sec>
-├── {PREFIX}raid <count> <@user> | {PREFIX}fucktarget <msg>
-├── {PREFIX}targetadd | {PREFIX}targetdel
-├── {PREFIX}promote <@user> | {PREFIX}ban <@user> | {PREFIX}kick <@user>
-├── {PREFIX}addmember <@user> | {PREFIX}invite <user>
-├── {PREFIX}warn | {PREFIX}purge <count> | {PREFIX}del
-└── {PREFIX}tagall <msg> | {PREFIX}mute | {PREFIX}unmute | {PREFIX}lock <media|links|stickers>
+2️⃣ 2 or {PREFIX}menu 2 ➔ 📞 <b>𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬</b>
+   (Outcall • VN • Recordings • 51.mp3 Loop • JioCall • Autounmute)
 
-📡 [ GROUP CREATION & MASS BLASTER ]
-├── {PREFIX}creategcqty <qty> | {PREFIX}creategc <user1> <user2>
-├── {PREFIX}fetchallgc | {PREFIX}targetgc <id> | {PREFIX}cleartargets
-├── {PREFIX}sendmessage <msg> | {PREFIX}welcome <text> | {PREFIX}setgoodbye <text>
-└── {PREFIX}filter <key> <msg> | {PREFIX}stopfilter <key> (Auto-Response Active)
+3️⃣ 3 or {PREFIX}menu 3 ➔ 🎵 <b>𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫</b>
+   (JioSaavn 320kbps • Spotify HD • Audius Free • Song Loops)
 
-🎨 [ CREATIVE LAB & FAST MEDIA ]
-├── {PREFIX}song <title> ➪ Stream & Send Full JioSaavn Audio (5-10 Mins)
-├── {PREFIX}ai <prompt> | {PREFIX}q (Quote Card)
-├── {PREFIX}font <text> ➪ High-Gloss Stylish Neon Banner
-├── {PREFIX}3dpic <prompt> | {PREFIX}pdf | {PREFIX}tts <text>
-└── {PREFIX}tr <lang> <text> | {PREFIX}remind <time> <msg> | {PREFIX}calc | {PREFIX}weather
-
-🛡️ [ AUTOMATION & SYSTEM CONTROL ]
-├── {PREFIX}info | {PREFIX}chatstats | {PREFIX}chatinfo | {PREFIX}id | {PREFIX}afk <reason>
-├── {PREFIX}status | {PREFIX}ping | {PREFIX}dbstats | {PREFIX}sysinfo
-└── {PREFIX}dynamicstop ➪ Emergency Kill-Switch | {PREFIX}restart
-✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨"""
+╭──────────────────────────────╮
+│ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
+╰──────────────────────────────╯
+👉 Reply 1, 2, or 3 (or use shortcut {PREFIX}menu 1, {PREFIX}menu 2, {PREFIX}menu 3)"""
         if main_pic:
-            try: return await event.reply(matrix_menu, file=main_pic)
+            try: return await event.reply(matrix_menu, file=main_pic, parse_mode="html")
             except Exception: pass
-        await event.reply(matrix_menu)
+        await event.reply(matrix_menu, parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?startcall$'))
     async def ub_startcall_cmd(event):
