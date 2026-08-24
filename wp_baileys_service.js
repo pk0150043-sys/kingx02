@@ -1717,9 +1717,26 @@ function stopAllOperations(sess) {
   if (!sess) return;
   sess.chatLoops = {};
   sess.targetAutoReplies = {};
+  if (sess.voipManager) {
+    try { sess.voipManager.end(); } catch (e) {}
+  }
   if (sess.activeCalls) {
     for (const [jid, call] of sess.activeCalls.entries()) {
-      if (call.loop) call.loop.stop();
+      if (call.loop) {
+        try { call.loop.stop(); } catch (e) {}
+      }
+      try {
+        if (sess.sock && call.callId) {
+          sess.sock.query({
+            tag: 'call',
+            attrs: { to: jid, id: call.callId },
+            content: [{
+              tag: 'terminate',
+              attrs: { 'call-id': call.callId, reason: 'hangup' }
+            }]
+          }).catch(() => {});
+        }
+      } catch (e) {}
     }
     sess.activeCalls.clear();
   }
