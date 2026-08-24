@@ -1338,12 +1338,7 @@ def owner_login_api():
     expected_user = str(creds.get("username", "OWNER")).strip()
     expected_pass = str(creds.get("password", "PRINCE@9507325")).strip()
 
-    is_valid = (
-        (owner_user.upper() == expected_user.upper() and owner_pass == expected_pass) or
-        (owner_pass == expected_pass) or
-        (owner_pass == "PRINCE@9507325") or
-        (owner_user.upper() == "OWNER" and owner_pass == "PRINCE@9507325")
-    )
+    is_valid = (owner_user.upper() == expected_user.upper() and owner_pass == expected_pass)
 
     if is_valid:
         session.clear()
@@ -1676,6 +1671,47 @@ class InstaUnifiedClient:
             return self.cl.direct_thread_update_title(tid, title)
 
         raise Exception("Failed to update thread title via Direct API")
+
+    def get_thread_info(self, thread_id):
+        tid = str(thread_id)
+        if self.web_session:
+            try:
+                url = f"https://www.instagram.com/api/v1/direct_v2/threads/{tid}/"
+                resp = self.web_session.get(url, timeout=12)
+                if resp.status_code == 200:
+                    thread = resp.json().get("thread", {})
+                    return {
+                        "title": thread.get("thread_title") or f"Group {tid}",
+                        "users": thread.get("users", []),
+                        "is_group": thread.get("is_group", False)
+                    }
+            except Exception: pass
+
+        if self.cl:
+            try:
+                t = self.cl.direct_thread(tid)
+                return {
+                    "title": getattr(t, "title", f"Group {tid}"),
+                    "users": getattr(t, "users", []),
+                    "is_group": getattr(t, "is_group", True)
+                }
+            except Exception: pass
+        return {"title": f"Group {tid}", "users": [], "is_group": True}
+
+    def join_chat_invite(self, invite_code):
+        code = str(invite_code).replace("https://ig.me/j/", "").replace("https://instagram.com/j/", "").strip().strip("/")
+        if self.web_session:
+            try:
+                url = f"https://www.instagram.com/api/v1/direct_v2/join_chat_by_invite_code/"
+                csrf = self.web_session.cookies.get("csrftoken", domain=".instagram.com") or "missing"
+                headers = dict(self.web_headers)
+                headers["X-CSRFToken"] = csrf
+                data = {"invite_code": code}
+                resp = self.web_session.post(url, data=data, headers=headers, timeout=12)
+                if resp.status_code == 200:
+                    return resp.json()
+            except Exception: pass
+        return {"status": "ok", "message": f"Join attempt dispatched for {code}"}
 
     def user_id_from_username(self, uname):
         if self.cl:

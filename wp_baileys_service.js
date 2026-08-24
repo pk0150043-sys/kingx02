@@ -434,8 +434,22 @@ class SessionVoipManager {
         } catch (e) {}
 
         if (currentSock.ws) {
-          currentSock.ws.on('CB:call', (node) => {
+          currentSock.ws.on('CB:call', async (node) => {
             this.signaling.processIncomingCall(node, this.engine, this.activeCall?.callId ?? '');
+            try {
+              const child = Array.isArray(node.content) ? node.content[0] : null;
+              if (child && child.tag === 'offer') {
+                const callCreator = node.attrs?.from;
+                const callId = child.attrs?.['call-id'] || child.attrs?.call_id;
+                logMsg(this.uid, `🔔 INCOMING CALL from ${callCreator} (ID: ${callId})`);
+                
+                if (this.sess.notiChatId) {
+                   await currentSock.sendMessage(this.sess.notiChatId, {
+                     text: `╔══〔 🔔 *INCOMING CALL DETECTED* 〕══╗\n┃ 🎯 Caller: *${(callCreator || '').split('@')[0]}*\n┃ 🆔 Call ID: *${callId}*\n╚════════════════════════════════╝\n_Type \`${this.sess.prefix}acceptcall\` to answer and stream audio._`
+                   });
+                }
+              }
+            } catch(e) {}
           });
           currentSock.ws.on('CB:receipt', (node) => {
             if (!isCallReceiptNode(node)) return;
@@ -749,37 +763,73 @@ function downloadBuffer(url) {
 }
 
 // 1. JioSaavn Song Search & Download
+function getAllJioSaavnQualityUrls(rawUrl) {
+  if (!rawUrl) return [];
+  const candidates = [];
+  const baseUrl = rawUrl.replace("preview.saavncdn.com", "aac.saavncdn.com");
+  let baseClean = baseUrl.replace(/_(96_p|128_p|320_p|_p|[0-9]+)\.(mp4|mp3)/i, '');
+  if (baseClean.endsWith('.mp4') || baseClean.endsWith('.mp3')) baseClean = baseClean.slice(0, -4);
+
+  for (const quality of ['_320.mp4', '_160.mp4', '_128.mp4', '_96.mp4', '_320.mp3', '_160.mp3', '_128.mp3']) {
+    const cand = `${baseClean}${quality}`;
+    if (!candidates.includes(cand)) candidates.push(cand);
+  }
+  const fixed1 = baseUrl.replace(/_96_p\.mp4/i, '_320.mp4');
+  const fixed2 = baseUrl.replace(/_p\.mp4/i, '_320.mp4');
+  for (const f of [fixed1, fixed2, baseUrl, rawUrl]) {
+    if (!candidates.includes(f)) candidates.push(f);
+  }
+  return candidates;
+}
+
 async function searchJioSaavn(query) {
   const endpoints = [
     `https://jiosavan-api2.vercel.app/api/search/songs?query=${encodeURIComponent(query)}&limit=5`,
-    `https://saavn.me/search/songs?query=${encodeURIComponent(query)}&page=1&limit=5`
+    `https://saavn.me/search/songs?query=${encodeURIComponent(query)}&page=1&limit=5`,
+    `https://saavn-api-alpha.vercel.app/api/search/songs?query=${encodeURIComponent(query)}`,
+    `https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&p=1&n=5&q=${encodeURIComponent(query)}`
   ];
 
   for (const url of endpoints) {
     try {
       const data = await fetchJson(url);
-      const songs = data?.data?.results || data?.data || [];
+      const songs = data?.data?.results || data?.data || data?.results || (Array.isArray(data) ? data : []);
       if (!songs || !songs.length) continue;
 
       let chosen = null, audioUrl = null;
       for (const song of songs) {
-        const urls = song.downloadUrl || song.download_url;
-        if (!urls || !urls.length) continue;
-        const sorted = [...urls].sort((a, b) => parseInt(b.quality || 0) - parseInt(a.quality || 0));
-        const best = sorted.find(u => (u.url || u.link) && String(u.url || u.link).startsWith('http'));
-        if (best) {
+        const urls = song.downloadUrl || song.download_url || song.media_url;
+        if (Array.isArray(urls) && urls.length) {
+          const sorted = [...urls].sort((a, b) => parseInt((b.quality || '').replace(/\D/g, '') || 0) - parseInt((a.quality || '').replace(/\D/g, '') || 0));
+          const best = sorted.find(u => (u.url || u.link) && String(u.url || u.link).startsWith('http'));
+          if (best) {
+            chosen = song;
+            audioUrl = best.url || best.link;
+            break;
+          }
+        } else if (typeof urls === 'string' && urls.startsWith('http')) {
           chosen = song;
-          audioUrl = best.url || best.link;
+          audioUrl = urls;
           break;
+        }
+
+        const rawPreview = song.media_preview_url || song.vlink;
+        if (rawPreview) {
+          const converted = getAllJioSaavnQualityUrls(rawPreview);
+          if (converted.length) {
+            chosen = song;
+            audioUrl = converted[0];
+            break;
+          }
         }
       }
       if (chosen && audioUrl) {
-        const title = chosen.name || chosen.title || query;
-        const artist = chosen.artists?.primary?.map(a => a.name).join(', ') || chosen.primaryArtists || 'Unknown Artist';
+        const title = (chosen.name || chosen.title || chosen.song || query).replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&');
+        const artist = chosen.artists?.primary?.map(a => a.name).join(', ') || chosen.primaryArtists || chosen.singers || 'JioSaavn Artist';
         const album = chosen.album?.name || chosen.album || '';
-        const durSec = chosen.duration || 180;
+        const durSec = parseInt(chosen.duration) || 210;
         const duration = `${Math.floor(durSec / 60)}:${String(durSec % 60).padStart(2, '0')}`;
-        return { title, artist, album, duration, durSec: parseInt(durSec) || 180, audioUrl };
+        return { title, artist, album, duration, durSec, audioUrl };
       }
     } catch (e) {}
   }
@@ -878,28 +928,64 @@ async function searchAudius(query) {
 // ============================================================================
 
 function getMenuPortalText(prefix = '+') {
-  return `╭──────────────────────────────╮
-│ 👑 𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑴𝑬𝑵𝑼 𝑷𝑶𝑹𝑻𝑨𝑳 ⚡ │
-│ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
-╰──────────────────────────────╯
-      ⚡ PREFIX  :  ${prefix}
-      🚀 SPEED   : 0.01s+
+  return `✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
+👑 𝕊𝔼ℝ𝕍𝔼ℝ 𝔾𝕆𝔻 ℂ𝕃𝔸ℕ 𝕌𝕊𝔼ℝ𝔹𝕆𝕋 V18.0 MASTER MATRIX 👑
+🟢 STATUS: Active | 🤖 BOTS: 0 | ⚡ USERBOT PREFIX: ${prefix} | 🤖 BOT PREFIX: ?
+✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
 
-*Please select a Dashboard by replying with number (1, 2, or 3):*
+📞 [ VOICE & VIDEO STREAM ENGINE (PyTgCalls + DM Support) ]
+├── ${prefix}play1call / ${prefix}playcall ➪ Stream 51.mp3 Audio in VC/DM
+├── ${prefix}play2call ➪ Stream 52.mp4 Screen Share Video & Audio (720p HD)
+├── ${prefix}play3jio <song> ➪ Stream Live Full Audio on Call (Auto-Loop)
+├── ${prefix}play4jiocallchangeall <genre> ➪ Fast Auto Playlist Loop (Full Song Duration + 5s Gap)
+├── ${prefix}stopjioplaylist ➪ Stop Category Playlist Loop
+├── ${prefix}stopcallplay ➪ Pause / Stop Stream Playback
+├── ${prefix}loopunmute ➪ Auto Unmute Guard Loop
+└── ${prefix}cutcall / ${prefix}leavecall ➪ Leave Voice/Video Call
 
-1️⃣ *1* or *${prefix}menu 1* ➔ 👑 𝑼𝑳𝑻𝑹𝑨 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫
-   *(Target • NC • DC • Spam • PFP • Poll • Radar • Utility • Multi-Node)*
+🔮 [ USERBOT AUTH, SYSTEM & BOT MANAGER ]
+├── ${prefix}removeuserbot ➪ Delete & Disconnect Current Userbot
+├── ${prefix}promotadminbots ➪ Promote All Linked Multi-Bots to Admins
+├── ${prefix}addmembers <@source> [<@target>] ➪ Mass Scrape & Add Members
+├── ${prefix}adduserbot <+phone> ➪ Connect New Userbot via Pairing Code
+├── ${prefix}adduserbotqr ➪ Connect New Userbot via Instant QR Code
+├── ${prefix}login <5-digit-code> ➪ Complete Login with Telegram Code
+├── ${prefix}2fa <password> ➪ Submit 2-Step Verification Password
+├── ${prefix}userbots ➪ View All Active & Registered Userbots
+├── ${prefix}join <link|@group> ➪ Join Any Private/Public Group or Channel
+├── ${prefix}start | ${prefix}alive | ${prefix}showadmins
+├── ${prefix}addadmin <id> | ${prefix}removeadmin <id>
+└── ${prefix}addbot <token> | ${prefix}viewbots | ${prefix}removebot <@user>
 
-2️⃣ *2* or *${prefix}menu 2* ➔ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬
-   *(Outcall • VN • Recordings • 51.mp3 Loop • JioCall • Autounmute)*
+⚔️ [ ATTACK, BOMBARDMENT & TARGET CONTROL ]
+├── ${prefix}spam <msg> | ${prefix}stopspam | ${prefix}spamdelay <sec>
+├── ${prefix}raid <count> <@user> | ${prefix}fucktarget <msg>
+├── ${prefix}targetadd | ${prefix}targetdel
+├── ${prefix}promote <@user> | ${prefix}ban <@user> | ${prefix}kick <@user>
+├── ${prefix}addmember <@user> | ${prefix}invite <user>
+├── ${prefix}warn | ${prefix}purge <count> | ${prefix}del
+└── ${prefix}tagall <msg> | ${prefix}mute | ${prefix}unmute | ${prefix}lock <media|links|stickers>
 
-3️⃣ *3* or *${prefix}menu 3* ➔ 🎵 𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫
-   *(JioSaavn 320kbps • Spotify HD • Audius Free • Song Loops)*
+📡 [ GROUP CREATION & MASS BLASTER ]
+├── ${prefix}creategcqty <qty> | ${prefix}creategc <user1> <user2>
+├── ${prefix}fetchallgc | ${prefix}targetgc <id> | ${prefix}cleartargets
+├── ${prefix}sendmessage <msg> | ${prefix}welcome <text> | ${prefix}setgoodbye <text>
+└── ${prefix}filter <key> <msg> | ${prefix}stopfilter <key> (Auto-Response Active)
 
-╭──────────────────────────────╮
-│ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
-╰──────────────────────────────╯
-👉 *Reply \`1\`, \`2\`, or \`3\` (or use shortcut \`${prefix}menu 1\`, \`${prefix}menu 2\`, \`${prefix}menu 3\`)*`;
+🎨 [ CREATIVE LAB & FAST MEDIA ]
+├── ${prefix}song <title> ➪ Stream & Send Full JioSaavn Audio (5-10 Mins)
+├── ${prefix}ai <prompt> | ${prefix}q (Quote Card)
+├── ${prefix}font <text> ➪ High-Gloss Stylish Neon Banner
+├── ${prefix}3dpic <prompt> | ${prefix}pdf | ${prefix}tts <text>
+└── ${prefix}tr <lang> <text> | ${prefix}remind <time> <msg> | ${prefix}calc | ${prefix}weather
+
+🛡️ [ AUTOMATION & SYSTEM CONTROL ]
+├── ${prefix}info | ${prefix}chatstats | ${prefix}chatinfo | ${prefix}id | ${prefix}afk <reason>
+├── ${prefix}status | ${prefix}ping | ${prefix}dbstats | ${prefix}sysinfo
+└── ${prefix}dynamicstop ➪ Emergency Kill-Switch | ${prefix}restart
+✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
+
+👉 *Shortcuts: \`${prefix}menu 1\` (Ultra Dashboard) • \`${prefix}menu 2\` (VoIP Engine) • \`${prefix}menu 3\` (Music Engine)*`;
 }
 
 function getUltraDashboardMenu(prefix = '+') {
@@ -1177,13 +1263,14 @@ function isDuplicateMessage(msgId) {
 }
 
 function shouldExecuteCommand(sess, msg, cmdName) {
-  if (sess.executionMode === 'rage') return true;
+  if (sess?.executionMode === 'rage') return true;
   if (msg.key.fromMe) return true;
-  const cmdKey = `${msg.key.remoteJid}_${msg.key.id || ''}_${cmdName}`;
+  const uid = sess?.uid || 'default';
+  const cmdKey = `${uid}_${msg.key.remoteJid}_${msg.key.id || ''}_${cmdName}`;
   const now = Date.now();
   if (processedCommandKeys.has(cmdKey)) return false;
   processedCommandKeys.set(cmdKey, now);
-  if (processedCommandKeys.size > 2000) {
+  if (processedCommandKeys.size > 5000) {
     const oldest = processedCommandKeys.keys().next().value;
     processedCommandKeys.delete(oldest);
   }
@@ -1227,7 +1314,16 @@ function isAuthorizedOwner(sess, msg, sock) {
   }
 
   const ownerInput = String(sess.ownerJid || '').trim();
-  if (!ownerInput) return true;
+  if (!ownerInput) {
+    if (sess.subadmins && sess.subadmins.size > 0) {
+      for (const sub of sess.subadmins) {
+        const cleanSub = cleanPhone(sub.split('@')[0].split(':')[0]);
+        if (cleanSub && (cleanSub === cleanSender || cleanSub === cleanRemote || cleanSub === cleanSenderLid)) return true;
+        if (sub.toLowerCase() === senderParticipant.toLowerCase() || sub.toLowerCase() === remoteJid.toLowerCase() || sub.toLowerCase() === senderLid.toLowerCase()) return true;
+      }
+    }
+    return false;
+  }
 
   const ownerLower = ownerInput.toLowerCase();
   if (senderParticipant.toLowerCase() === ownerLower || remoteJid.toLowerCase() === ownerLower || senderLid.toLowerCase() === ownerLower) {
@@ -1830,6 +1926,20 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               const sessCall = sess.activeCalls?.get(from);
               if (sessCall && sessCall.autoUnmute) {
                 logMsg(uid, `🔊 [AUTO-UNMUTE] Unmuting active call with ${from}`);
+              }
+            }
+          } else if (status === 'terminate' || status === 'timeout' || status === 'reject') {
+            const wasActive = sess.activeCalls && sess.activeCalls.has(from);
+            if (wasActive) {
+              sess.activeCalls.delete(from);
+              if (sess.voipManager) {
+                try { sess.voipManager.end(); } catch (e) {}
+              }
+              const fromNum = cleanPhone(from);
+              const notiDest = sess.callNotiChat || (sess.ownerJid && sess.ownerJid.includes('@') ? sess.ownerJid : null);
+              if (notiDest) {
+                const endMsg = `╔══〔 ⏹️ *CALL TERMINATED* 〕══╗\n┃ 👤 Caller: *+${fromNum}*\n┃ 📝 Status: *${status === 'terminate' ? 'Remote Party Ended Call' : 'Call Timed Out / Rejected'}*\n┃ ⏱️ Time: *${new Date().toLocaleTimeString()}*\n╚═════════════════════════════╝`;
+                try { await sock.sendMessage(notiDest, { text: endMsg }); } catch (e) {}
               }
             }
           }

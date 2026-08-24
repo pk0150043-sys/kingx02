@@ -397,31 +397,24 @@ async def is_ub_admin(event, me_id: int, admin_id_val: Optional[str] = None, pho
     if sender_id == me_id: return True
     if sender_id in [5214825153, 8846249998, MASTER_ADMIN_DEFAULT]: return True
 
-    # 1. Direct admin check
+    # 1. Direct admin check for THIS specific userbot node
     if admin_id_val:
         clean_adm = str(admin_id_val).replace("+", "").replace(" ", "").strip()
         if clean_adm and (str(sender_id) == clean_adm or clean_adm == str(sender_id)):
             return True
 
-    # 2. Dynamic running userbots check
-    for p_key, ub_data in running_userbots.items():
-        if phone_key and p_key != phone_key:
-            continue
-        ub_adm = str(ub_data.get("admin_id", "")).replace("+", "").replace(" ", "").strip()
-        if ub_adm and (str(sender_id) == ub_adm or ub_adm == str(sender_id)):
+    # 2. Scoped check ONLY for this specific node_uid (phone_key)
+    if phone_key:
+        ub_data = running_userbots.get(phone_key, {})
+        node_adm = str(ub_data.get("admin_id", "")).replace("+", "").replace(" ", "").strip()
+        if node_adm and (str(sender_id) == node_adm or node_adm == str(sender_id)):
             return True
 
-    # 3. Node-scoped admin table
-    if phone_key:
         row = await execute_db_query(
             "SELECT user_id FROM userbot_admins WHERE user_id=? AND (node_uid=? OR node_uid IS NULL OR node_uid='')",
             (sender_id, phone_key),
             fetchone=True
         )
-        if row is not None:
-            return True
-    else:
-        row = await execute_db_query("SELECT user_id FROM userbot_admins WHERE user_id=?", (sender_id,), fetchone=True)
         if row is not None:
             return True
 
@@ -527,8 +520,23 @@ def extract_jiosaavn_audio_link(song: dict) -> Optional[str]:
 def get_file_duration(file_path: str) -> float:
     try:
         if os.path.exists(file_path):
+            ffmpeg_exe = os.path.abspath("ffmpeg.exe") if os.path.exists("ffmpeg.exe") else "ffmpeg"
+            try:
+                cmd = [ffmpeg_exe, "-i", file_path]
+                proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+                _, stderr = proc.communicate(timeout=3)
+                m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+|\d+)", stderr)
+                if m:
+                    hours = int(m.group(1))
+                    mins = int(m.group(2))
+                    secs = float(m.group(3))
+                    total_s = hours * 3600 + mins * 60 + secs
+                    if total_s > 0:
+                        return total_s
+            except Exception: pass
+
             size_bytes = os.path.getsize(file_path)
-            est_sec = size_bytes / 35000.0
+            est_sec = size_bytes / 20000.0
             return max(30.0, est_sec)
     except Exception: pass
     return 210.0
@@ -544,7 +552,7 @@ def download_full_audio(query_or_url: str, output_path: str) -> Optional[Dict]:
     if cleaned.startswith("http"):
         try:
             res = requests.get(cleaned, headers=headers, timeout=30)
-            if res.status_code == 200 and len(res.content) > 500000:
+            if res.status_code == 200 and len(res.content) > 100000:
                 with open(output_path, "wb") as f:
                     f.write(res.content)
                 duration = get_file_duration(output_path)
@@ -616,7 +624,7 @@ def download_full_audio(query_or_url: str, output_path: str) -> Optional[Dict]:
     for cand_url in candidate_urls:
         try:
             res = requests.get(cand_url, headers=headers, timeout=30)
-            if res.status_code == 200 and len(res.content) > 500000:
+            if res.status_code == 200 and len(res.content) > 100000:
                 with open(output_path, "wb") as f:
                     f.write(res.content)
                 duration = get_file_duration(output_path)
@@ -851,7 +859,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(start|alive|hello|hi|king)$'))
     async def ub_start_cmd(event):
         if hasattr(event, 'date') and event.date and event.date.timestamp() < (START_TIME - 15): return
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         if not should_process_tg_command(event.chat_id, event.id, "start"): return
 
         uptime = get_readable_time(time.time() - START_TIME)
@@ -893,7 +901,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(menu|help|dashboard)(?:\s+(.+))?$'))
     async def ub_menu_cmd(event):
         if hasattr(event, 'date') and event.date and event.date.timestamp() < (START_TIME - 15): return
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         if not should_process_tg_command(event.chat_id, event.id, "menu"): return
 
         sub = (event.pattern_match.group(2) or "").strip().lower()
@@ -925,14 +933,14 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 │ 🛑 <code>{PREFIX}pinspam off</code>
 ╰──────────────────────
 
-╭─ 🚀 𝑭𝑳𝑶𝑶𝑫 & 𝑺𝑷𝑨𝑴
+╭─ 🚀 <b>𝑭𝑳𝑶𝑶𝑫 & 𝑺𝑷𝑨𝑴</b>
 │ 🚀 <code>{PREFIX}spam &lt;Text&gt;</code>
 │ ⏱️ <code>{PREFIX}spamdelay &lt;0.01-20&gt;</code>
 │ 🛑 <code>{PREFIX}stopspam</code>
 │ 🚨 <code>{PREFIX}dynamicstop</code>
 ╰──────────────────────
 
-╭─ 🛡️ 𝑴𝑶𝑫𝑬𝑹𝑨𝑻𝑰𝑶𝑵
+╭─ 🛡️ <b>𝑴𝑶𝑫𝑬𝑹𝑨𝑻𝑰𝑶𝑵</b>
 │ ⚠️ <code>{PREFIX}warn</code> | <code>{PREFIX}purge &lt;count&gt;</code>
 │ 🧹 <code>{PREFIX}kick @user</code> | <code>{PREFIX}ban @user</code>
 │ 👑 <code>{PREFIX}promote @user</code> | <code>{PREFIX}demote @user</code>
@@ -940,7 +948,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 │ 🔇 <code>{PREFIX}mute</code> | <code>{PREFIX}unmute</code>
 ╰──────────────────────
 
-╭─ ⚙️ 𝑮𝑹𝑶𝑼𝑷 𝑼𝑻𝑰𝑳𝑰𝑻𝒀
+╭─ ⚙️ <b>𝑮𝑹𝑶𝑼𝑷 𝑼𝑻𝑰𝑳𝑰𝑻𝒀</b>
 │ ➕ <code>{PREFIX}addmember &lt;@user&gt;</code>
 │ 🚪 <code>{PREFIX}join &lt;link&gt;</code> | <code>{PREFIX}leave</code>
 │ 🤖 <code>{PREFIX}creategc &lt;user1&gt; &lt;user2&gt;</code>
@@ -963,10 +971,10 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
 │
 ├─► 🔊 <code>{PREFIX}play1call</code> / <code>{PREFIX}playcall</code>
-│    ▸ <i>Stream 51.mp3 in continuous 5s loop in VC/DM</i>
+│    ▸ <i>Stream 51.mp3 in continuous loop in VC/DM</i>
 │
 ├─► 🎶 <code>{PREFIX}playjiocall &lt;song name&gt;</code>
-│    ▸ <i>Search JioSaavn & stream live in Call (5s loop)</i>
+│    ▸ <i>Search JioSaavn & stream live in Call (Continuous Loop)</i>
 │
 ├─► 📺 <code>{PREFIX}play2call</code>
 │    ▸ <i>Stream 52.mp4 screen share video (720p HD)</i>
@@ -984,7 +992,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
      ▸ <i>Leave voice chat / call immediately</i>
 
 ╭─────────────────────────╮
-भिड़ मत, तेरी माँ चोदूँगा।
+│ ⚡ <b>SERVER GOD CLAN VOIP</b> ⚡ │
 ╰─────────────────────────╯"""
             if main_pic:
                 try: return await event.reply(call_menu, file=main_pic, parse_mode="html")
@@ -1010,7 +1018,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
 ╭─ 📻 <b>𝑪𝑨𝑳𝑳 𝑨𝑼𝑫𝑰𝑶 𝑺𝑻𝑹𝑬𝑨𝑴𝑬𝑹</b>
 │ 🔊 <code>{PREFIX}play1call</code>
-│    ▸ Play 51.mp3 in continuous 5s loop on call
+│    ▸ Play 51.mp3 in continuous loop on call
 │ ⏹️ <code>{PREFIX}stopcallplay</code>
 │    ▸ Stop stream playback
 ╰──────────────────────
@@ -1023,38 +1031,130 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
                 except Exception: pass
             return await event.reply(song_menu, parse_mode="html")
 
-        portal_text = f"""╭──────────────────────────────╮
-│ 👑 <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑴𝑬𝑵𝑼 𝑷𝑶𝑹𝑻𝑨𝑳</b> ⚡ │
-│ 🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b>     │
-╰──────────────────────────────╯
-      ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
-      🚀 <b>SPEED</b>   : <code>0.01s+</code>
+        matrix_menu = f"""✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
+👑 𝕊𝔼ℝ𝕍𝔼ℝ 𝔾𝕆𝔻 ℂ𝕃𝔸ℕ 𝕌𝕊𝔼ℝ𝔹𝕆𝕋 V18.0 MASTER MATRIX 👑
+🟢 STATUS: Active | 🤖 BOTS: 0 | ⚡ USERBOT PREFIX: {PREFIX} | 🤖 BOT PREFIX: {BOT_PREFIX}
+✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨
 
-<b>Please select a Dashboard by sending shortcut:</b>
+📞 [ VOICE & VIDEO STREAM ENGINE (PyTgCalls + DM Support) ]
+├── {PREFIX}play1call / {PREFIX}playcall ➪ Stream 51.mp3 Audio in VC/DM
+├── {PREFIX}play2call ➪ Stream 52.mp4 Screen Share Video & Audio (720p HD)
+├── {PREFIX}play3jio <song> ➪ Stream Live Full Audio on Call (Auto-Loop)
+├── {PREFIX}play4jiocallchangeall <genre> ➪ Fast Auto Playlist Loop (Full Song Duration + 5s Gap)
+├── {PREFIX}stopjioplaylist ➪ Stop Category Playlist Loop
+├── {PREFIX}stopcallplay ➪ Pause / Stop Stream Playback
+├── {PREFIX}loopunmute ➪ Auto Unmute Guard Loop
+└── {PREFIX}cutcall / {PREFIX}leavecall ➪ Leave Voice/Video Call
 
-1️⃣ <code>{PREFIX}menu 1</code> ➔ 👑 <b>𝑼𝑳𝑻𝑹𝑨 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫</b>
-   <i>(Target • Pin Spam • Raid • Flood • Moderation • Utility)</i>
+🔮 [ USERBOT AUTH, SYSTEM & BOT MANAGER ]
+├── {PREFIX}removeuserbot ➪ Delete & Disconnect Current Userbot
+├── {PREFIX}promotadminbots ➪ Promote All Linked Multi-Bots to Admins
+├── {PREFIX}addmembers <@source> [<@target>] ➪ Mass Scrape & Add Members
+├── {PREFIX}adduserbot <+phone> ➪ Connect New Userbot via Pairing Code
+├── {PREFIX}adduserbotqr ➪ Connect New Userbot via Instant QR Code
+├── {PREFIX}login <5-digit-code> ➪ Complete Login with Telegram Code
+├── {PREFIX}2fa <password> ➪ Submit 2-Step Verification Password
+├── {PREFIX}userbots ➪ View All Active & Registered Userbots
+├── {PREFIX}join <link|@group> ➪ Join Any Private/Public Group or Channel
+├── {PREFIX}start | {PREFIX}alive | {PREFIX}showadmins
+├── {PREFIX}addadmin <id> | {PREFIX}removeadmin <id>
+└── {PREFIX}addbot <token> | {PREFIX}viewbots | {PREFIX}removebot <@user>
 
-2️⃣ <code>{PREFIX}menu 2</code> ➔ 📞 <b>𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬</b>
-   <i>(51.mp3 Loop • JioCall • 52.mp4 Video • Autounmute • VC Stream)</i>
+⚔️ [ ATTACK, BOMBARDMENT & TARGET CONTROL ]
+├── {PREFIX}spam <msg> | {PREFIX}stopspam | {PREFIX}spamdelay <sec>
+├── {PREFIX}raid <count> <@user> | {PREFIX}fucktarget <msg>
+├── {PREFIX}targetadd | {PREFIX}targetdel
+├── {PREFIX}promote <@user> | {PREFIX}ban <@user> | {PREFIX}kick <@user>
+├── {PREFIX}addmember <@user> | {PREFIX}invite <user>
+├── {PREFIX}warn | {PREFIX}purge <count> | {PREFIX}del
+└── {PREFIX}tagall <msg> | {PREFIX}mute | {PREFIX}unmute | {PREFIX}lock <media|links|stickers>
 
-3️⃣ <code>{PREFIX}menu 3</code> ➔ 🎵 <b>𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫</b>
-   <i>(JioSaavn 320kbps • PyTgCalls Stream • Category Playlists)</i>
+📡 [ GROUP CREATION & MASS BLASTER ]
+├── {PREFIX}creategcqty <qty> | {PREFIX}creategc <user1> <user2>
+├── {PREFIX}fetchallgc | {PREFIX}targetgc <id> | {PREFIX}cleartargets
+├── {PREFIX}sendmessage <msg> | {PREFIX}welcome <text> | {PREFIX}setgoodbye <text>
+└── {PREFIX}filter <key> <msg> | {PREFIX}stopfilter <key> (Auto-Response Active)
 
-╭──────────────────────────────╮
-│ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
-╰──────────────────────────────╯
-👉 <i>Use <code>{PREFIX}menu 1</code>, <code>{PREFIX}menu 2</code>, or <code>{PREFIX}menu 3</code></i>"""
+🎨 [ CREATIVE LAB & FAST MEDIA ]
+├── {PREFIX}song <title> ➪ Stream & Send Full JioSaavn Audio (5-10 Mins)
+├── {PREFIX}ai <prompt> | {PREFIX}q (Quote Card)
+├── {PREFIX}font <text> ➪ High-Gloss Stylish Neon Banner
+├── {PREFIX}3dpic <prompt> | {PREFIX}pdf | {PREFIX}tts <text>
+└── {PREFIX}tr <lang> <text> | {PREFIX}remind <time> <msg> | {PREFIX}calc | {PREFIX}weather
+
+🛡️ [ AUTOMATION & SYSTEM CONTROL ]
+├── {PREFIX}info | {PREFIX}chatstats | {PREFIX}chatinfo | {PREFIX}id | {PREFIX}afk <reason>
+├── {PREFIX}status | {PREFIX}ping | {PREFIX}dbstats | {PREFIX}sysinfo
+└── {PREFIX}dynamicstop ➪ Emergency Kill-Switch | {PREFIX}restart
+✨ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✨"""
         if main_pic:
-            try: return await event.reply(portal_text, file=main_pic, parse_mode="html")
+            try: return await event.reply(matrix_menu, file=main_pic)
             except Exception: pass
-        await event.reply(portal_text, parse_mode="html")
+        await event.reply(matrix_menu)
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play1call|playcall|startcall|joincall)$'))
-    async def ub_playcall_cmd(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?startcall$'))
+    async def ub_startcall_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         chat_id = event.chat_id
-        msg = await event.reply("🔄 <b>Connecting to Call & Launching 51.mp3 Continuous Loop (5s gap)...</b>", parse_mode="html")
+        msg = await event.reply("🔄 <b>Starting Telegram Voice/Video Chat...</b>", parse_mode="html")
+        try:
+            chat = await event.client.get_input_entity(chat_id)
+            await event.client(functions.phone.CreateGroupCallRequest(
+                peer=chat,
+                random_id=random.randint(10000, 99999999)
+            ))
+            # PyTgCalls join
+            cp = await get_call_py_for_client(event.client)
+            if cp:
+                media_file = get_audio_file(video=False)
+                if media_file and os.path.exists(media_file):
+                    await cp.play(chat_id, MediaStream(media_file, audio_parameters=AudioQuality.HIGH))
+            await msg.edit("✅ <b>Group Voice Chat started & joined successfully!</b>\n_Use <code>+play1call</code> to stream 51.mp3 or <code>+play3jio &lt;song&gt;</code> to stream custom music._", parse_mode="html")
+        except Exception as e:
+            err_str = str(e)
+            if "GROUPCALL_ALREADY_DISCARDED" in err_str or "already" in err_str.lower():
+                await msg.edit("⚠️ <b>Voice Chat is already active!</b> Joining now...", parse_mode="html")
+                try:
+                    cp = await get_call_py_for_client(event.client)
+                    if cp:
+                        media_file = get_audio_file(video=False)
+                        if media_file and os.path.exists(media_file):
+                            await cp.play(chat_id, MediaStream(media_file, audio_parameters=AudioQuality.HIGH))
+                except Exception: pass
+            else:
+                await msg.edit(f"❌ <b>Start Call Error:</b> {err_str}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(joincall|joinvc)$'))
+    async def ub_joincall_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        chat_id = event.chat_id
+        msg = await event.reply("🔄 <b>Joining active Voice Chat / Video Call...</b>", parse_mode="html")
+        try:
+            cp = await get_call_py_for_client(event.client)
+            if cp:
+                media_file = get_audio_file(video=False)
+                if media_file and os.path.exists(media_file):
+                    await cp.play(chat_id, MediaStream(media_file, audio_parameters=AudioQuality.HIGH))
+            try:
+                chat = await event.client.get_entity(chat_id)
+                full_chat = await event.client(functions.channels.GetFullChannelRequest(chat))
+                call = full_chat.full_chat.call
+                if call:
+                    await event.client(EditGroupCallParticipantRequest(
+                        call=call,
+                        participant=await event.client.get_me(),
+                        muted=False
+                    ))
+            except Exception: pass
+            await msg.edit("✅ <b>Joined Voice Chat / Call & Unmuted!</b>\n_Use <code>+play1call</code> to stream 51.mp3 or <code>+cutcall</code> to leave._", parse_mode="html")
+        except Exception as e:
+            await msg.edit(f"❌ <b>Join Call Error:</b> {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play1call|playcall)$'))
+    async def ub_playcall_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        chat_id = event.chat_id
+        msg = await event.reply("🔄 <b>Streaming 51.mp3 full track into Call / VC (Continuous Loop)...</b>", parse_mode="html")
         
         jio_playlist_state[chat_id] = {
             "active": True,
@@ -1062,30 +1162,38 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
         }
         
         media_file = get_audio_file(video=False)
-        dur = get_file_duration(media_file) if media_file and os.path.exists(media_file) else 180
+        dur = get_file_duration(media_file) if media_file and os.path.exists(media_file) else 210
+
+        success, resp_txt = await join_vc_and_play(chat_id, event, video=False)
+        if not success:
+            return await msg.edit(resp_txt, parse_mode="html")
 
         async def play1call_loop():
             while jio_playlist_state.get(chat_id, {}).get("active") and jio_playlist_state.get(chat_id, {}).get("mode") == "play1call":
                 try:
-                    await join_vc_and_play(chat_id, event, video=False)
-                    await asyncio.sleep(dur + 5)
+                    await asyncio.sleep(dur + 2)
+                    if not jio_playlist_state.get(chat_id, {}).get("active") or jio_playlist_state.get(chat_id, {}).get("mode") != "play1call":
+                        break
+                    cp = await get_call_py_for_client(event.client)
+                    if cp:
+                        await cp.play(chat_id, MediaStream(media_file, audio_parameters=AudioQuality.HIGH))
                 except Exception as e:
-                    logger.error(f"play1call error: {e}")
+                    logger.error(f"play1call loop error: {e}")
                     await asyncio.sleep(5)
 
         asyncio.create_task(play1call_loop())
-        await msg.edit(f"🔊 <b>51.mp3 Live in Continuous Loop!</b>\n⏱ Song Duration: <code>{int(dur)}s</code> + 5s gap\n_Use <code>{PREFIX}stopcallplay</code> or <code>{PREFIX}cutcall</code> to stop._", parse_mode="html")
+        await msg.edit(f"🔊 <b>51.mp3 Full Audio Stream Active in Call!</b>\n⏱ Track Duration: <code>{int(dur)}s</code> (Continuous Loop)\n_Call will NOT disconnect until you send <code>{PREFIX}cutcall</code> or leave._", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?play2call$'))
     async def ub_play2call_cmd(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg = await event.reply("📺 <b>Connecting to Call & Injecting 52.mp4 Screen Share Video...</b>", parse_mode="html")
         success, resp_text = await join_vc_and_play(event.chat_id, event, video=True)
         await msg.edit(resp_text, parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(playjiocall|play3jio)\s+(.+)'))
     async def ub_playjiocall_cmd(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2).strip()
         chat_id = event.chat_id
         msg = await event.reply(f"🔍 <b>Searching JioSaavn for <code>{query}</code> to stream on Call...</b>", parse_mode="html")
@@ -1101,7 +1209,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
             actual_file = dl_res.get("file_path", temp_filename)
             title = dl_res.get("title", query)
             artist = dl_res.get("artist", "")
-            duration = dl_res.get("duration") or get_file_duration(actual_file) or 180
+            duration = dl_res.get("duration") or get_file_duration(actual_file) or 210
 
             jio_playlist_state[chat_id] = {
                 "active": True,
@@ -1109,13 +1217,13 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
                 "file": actual_file
             }
 
-            await msg.edit(f"🔊 <b>Now Streaming on Call:</b> <code>{title}</code> by {artist}\n⏱ Duration: <code>{int(duration)}s</code> (Continuous 5s Loop)", parse_mode="html")
+            await msg.edit(f"🔊 <b>Now Streaming on Call:</b> <code>{title}</code> by {artist}\n⏱ Duration: <code>{int(duration)}s</code> (Continuous Loop)", parse_mode="html")
 
             async def jiocall_loop():
                 while jio_playlist_state.get(chat_id, {}).get("active") and jio_playlist_state.get(chat_id, {}).get("mode") == "playjiocall":
                     try:
                         await join_vc_and_play(chat_id, event, video=False, custom_file=actual_file)
-                        await asyncio.sleep(duration + 5)
+                        await asyncio.sleep(duration + 2)
                     except Exception as e:
                         logger.error(f"jiocall loop error: {e}")
                         await asyncio.sleep(5)
@@ -1130,7 +1238,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?play4jiocallchangeall\s+(.+)'))
     async def ub_play4jio_playlist(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         genre = event.pattern_match.group(1).strip()
         chat_id = event.chat_id
 
@@ -1199,7 +1307,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?stopjioplaylist$'))
     async def ub_stopjioplaylist(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         chat_id = event.chat_id
         if chat_id in jio_playlist_state:
             jio_playlist_state[chat_id]["active"] = False
@@ -1207,7 +1315,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(stopcallplay|stopcall)$'))
     async def ub_stopcallplay(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg = await event.reply("⏸ <b>Stopping Voice/Video Stream...</b>", parse_mode="html")
         if event.chat_id in jio_playlist_state:
             jio_playlist_state[event.chat_id]["active"] = False
@@ -1221,7 +1329,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(autounmute|loopunmute)$'))
     async def ub_loop_unmute_cmd(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         chat_id = event.chat_id
         vc_loop_unmute_active[chat_id] = not vc_loop_unmute_active.get(chat_id, False)
         status_text = "ENABLED (Auto-Unmutes if muted) 🟢" if vc_loop_unmute_active[chat_id] else "DISABLED 🔴"
@@ -1246,9 +1354,9 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
             asyncio.create_task(unmute_loop())
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(cutcall|leavecall|endcall|hangup|stopcall)$'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(cutcall|leavecall|endcall|hangup)$'))
     async def ub_cutcall(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg = await event.reply("🔌 <b>Leaving Call...</b>", parse_mode="html")
         vc_loop_unmute_active[event.chat_id] = False
         if event.chat_id in jio_playlist_state:
@@ -1267,9 +1375,142 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
         except Exception as e:
             await msg.edit(f"🛑 <b>Call Left:</b> {e}", parse_mode="html")
 
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?adduserbot\s+(\+?\d+)'))
+    async def ub_cmd_adduserbot(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        phone = event.pattern_match.group(1).strip()
+        if not phone.startswith("+"): phone = "+" + phone
+        msg = await event.reply(f"📱 <b>Sending Telegram OTP code to {phone}...</b>", parse_mode="html")
+        try:
+            temp_client = TelegramClient(StringSession(), API_ID, API_HASH)
+            await temp_client.connect()
+            res = await temp_client.send_code_request(phone)
+            temp_login_sessions[phone] = {
+                "client": temp_client,
+                "phone_code_hash": res.phone_code_hash,
+                "phone": phone,
+                "admin_id": str(event.sender_id),
+                "owner": "owner",
+                "uid": f"ub_{phone.replace('+', '')}",
+                "timestamp": time.time()
+            }
+            await msg.edit(f"✅ <b>OTP Code sent to {phone}!</b>\n👉 Please complete login with: <code>{PREFIX}login &lt;5-digit-code&gt;</code>", parse_mode="html")
+        except Exception as e:
+            await msg.edit(f"❌ <b>Error:</b> {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?login\s+(\d{{5,6}})'))
+    async def ub_cmd_login(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        code = event.pattern_match.group(1).strip()
+        if not temp_login_sessions:
+            return await event.reply(f"❌ No active login session found! Request OTP first with <code>{PREFIX}adduserbot &lt;+phone&gt;</code>", parse_mode="html")
+        sess = list(temp_login_sessions.values())[-1]
+        phone = sess["phone"]
+        client_temp = sess["client"]
+        msg = await event.reply(f"🔄 <b>Logging in userbot for {phone}...</b>", parse_mode="html")
+        try:
+            if not client_temp.is_connected():
+                await client_temp.connect()
+            await client_temp.sign_in(phone=phone, code=code, phone_code_hash=sess["phone_code_hash"])
+            me_bot = await client_temp.get_me()
+            session_str = client_temp.session.save()
+            new_uid = sess.get("uid", f"ub_{phone.replace('+', '')}")
+            adm = sess.get("admin_id", str(event.sender_id))
+
+            await execute_db_query(
+                "INSERT OR REPLACE INTO userbot_sessions VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (new_uid, session_str, me_bot.first_name, me_bot.id, "owner", adm, datetime.now().strftime("%Y-%m-%d %H:%M")),
+                commit=True
+            )
+            if adm and adm.isdigit():
+                await execute_db_query("INSERT OR REPLACE INTO userbot_admins VALUES (?, ?)", (int(adm), new_uid), commit=True)
+            mongo_save_userbot(new_uid, session_str, me_bot.first_name, me_bot.id, "owner", adm)
+            setup_userbot_handlers(client_temp, new_uid, adm, me_bot.id)
+            running_userbots[new_uid] = {
+                "client": client_temp,
+                "me": me_bot,
+                "phone": phone,
+                "admin_id": adm,
+                "owner": "owner",
+                "session_str": session_str,
+                "name": me_bot.first_name,
+                "id": me_bot.id
+            }
+            asyncio.create_task(safe_run_telethon_client(client_temp, new_uid, me_bot.first_name))
+            temp_login_sessions.pop(phone, None)
+            await msg.edit(f"🎉 <b>Userbot '{me_bot.first_name}' (ID: {me_bot.id}) Connected Successfully!</b>", parse_mode="html")
+        except SessionPasswordNeededError:
+            await msg.edit(f"🔐 <b>2-Step Verification Password Required!</b>\nPlease send: <code>{PREFIX}2fa &lt;password&gt;</code>", parse_mode="html")
+        except Exception as e:
+            await msg.edit(f"❌ <b>Login Error:</b> {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?2fa\s+(.+)'))
+    async def ub_cmd_2fa(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        pwd = event.pattern_match.group(1).strip()
+        if not temp_login_sessions:
+            return await event.reply(f"❌ No active 2FA login session found.", parse_mode="html")
+        sess = list(temp_login_sessions.values())[-1]
+        phone = sess["phone"]
+        client_temp = sess["client"]
+        msg = await event.reply(f"🔄 <b>Submitting 2FA Password for {phone}...</b>", parse_mode="html")
+        try:
+            if not client_temp.is_connected():
+                await client_temp.connect()
+            await client_temp.sign_in(password=pwd)
+            me_bot = await client_temp.get_me()
+            session_str = client_temp.session.save()
+            new_uid = sess.get("uid", f"ub_{phone.replace('+', '')}")
+            adm = sess.get("admin_id", str(event.sender_id))
+
+            await execute_db_query(
+                "INSERT OR REPLACE INTO userbot_sessions VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (new_uid, session_str, me_bot.first_name, me_bot.id, "owner", adm, datetime.now().strftime("%Y-%m-%d %H:%M")),
+                commit=True
+            )
+            if adm and adm.isdigit():
+                await execute_db_query("INSERT OR REPLACE INTO userbot_admins VALUES (?, ?)", (int(adm), new_uid), commit=True)
+            mongo_save_userbot(new_uid, session_str, me_bot.first_name, me_bot.id, "owner", adm)
+            setup_userbot_handlers(client_temp, new_uid, adm, me_bot.id)
+            running_userbots[new_uid] = {
+                "client": client_temp,
+                "me": me_bot,
+                "phone": phone,
+                "admin_id": adm,
+                "owner": "owner",
+                "session_str": session_str,
+                "name": me_bot.first_name,
+                "id": me_bot.id
+            }
+            asyncio.create_task(safe_run_telethon_client(client_temp, new_uid, me_bot.first_name))
+            temp_login_sessions.pop(phone, None)
+            await msg.edit(f"🎉 <b>Userbot '{me_bot.first_name}' (ID: {me_bot.id}) 2FA Verified & Online!</b>", parse_mode="html")
+        except Exception as e:
+            await msg.edit(f"❌ <b>2FA Error:</b> {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?userbots$'))
+    async def ub_cmd_userbots(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        if not running_userbots:
+            return await event.reply("⚠️ <b>No active userbots connected.</b>", parse_mode="html")
+        txt = "👑 <b>Registered & Active Userbots:</b>\n\n"
+        for k, v in running_userbots.items():
+            name = v.get("name", "Userbot")
+            uid_val = v.get("id", "Unknown")
+            phone_val = v.get("phone", k)
+            txt += f"• <b>{name}</b> (<code>{uid_val}</code>) | Phone: <code>{phone_val}</code> | Node: <code>{k}</code>\n"
+        await event.reply(txt, parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?removeuserbot$'))
+    async def ub_cmd_removeuserbot(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        await execute_db_query("DELETE FROM userbot_sessions WHERE phone_or_id=?", (phone_key,), commit=True)
+        mongo_delete_userbot(phone_key)
+        await event.reply(f"🗑️ <b>Userbot Node ({phone_key}) unlinked and purged.</b>", parse_mode="html")
+
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(chatinfo|infochat|id|gcinfo|getid)$'))
     async def ub_chatinfo_cmd(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         chat = await event.get_chat()
         chat_id = event.chat_id
         chat_title = getattr(chat, 'title', getattr(chat, 'first_name', 'Private Chat'))
@@ -1295,7 +1536,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(join|joingroup)\s+(.+)'))
     async def ub_join_cmd(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         raw_target = event.pattern_match.group(2).strip()
         msg = await event.reply("🔄 <b>Joining Telegram Chat / Channel...</b>", parse_mode="html")
         try:
@@ -1317,7 +1558,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(spamdelay|delay|speed)(?:\s+(\d+(?:\.\d+)?))?$'))
     async def ub_spam_delay(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         val_str = event.pattern_match.group(2)
         tasks = get_client_tasks(event.client)
         if val_str:
@@ -1328,7 +1569,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(targetdelay|fuckdelay)(?:\s+(\d+(?:\.\d+)?))?$'))
     async def ub_target_delay(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         val_str = event.pattern_match.group(2)
         tasks = get_client_tasks(event.client)
         if val_str:
@@ -1339,7 +1580,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?spam\s+(.+)$'))
     async def ub_start_spam(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg_text = event.pattern_match.group(1).strip()
         tasks = get_client_tasks(event.client)
         tasks["spam"] = True
@@ -1352,21 +1593,21 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(stopspam|spamstop|killspam)$'))
     async def ub_stop_spam(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         tasks = get_client_tasks(event.client)
         tasks["spam"] = False
         await event.reply("🛑 <b>Spam Stopped.</b>", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(stopfucktarget|stoptarget|stoptargetspam|untarget|cleartargetloop)$'))
     async def ub_stop_fucktarget(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         tasks = get_client_tasks(event.client)
         tasks["fucktarget"] = False
         await event.reply("🛑 <b>Target Attack Loop Stopped.</b>", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(stop|stopall|killall|dynamicstop|halt|shutdown)$'))
     async def ub_stop_all_cmd(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         tasks = get_client_tasks(event.client)
         tasks["spam"] = False
         tasks["fucktarget"] = False
@@ -1382,7 +1623,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?raid\s+(\d+)\s+(@\w+)$'))
     async def ub_raid(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         count, target = int(event.pattern_match.group(1)), event.pattern_match.group(2)
         await event.reply(f"⚔️ <b>Raid started on {target} ({count} rounds)...</b>", parse_mode="html")
         for i in range(count):
@@ -1392,7 +1633,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?targetadd$'))
     async def ub_target_add(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         if not reply: return await event.reply("⚠️ Reply to a user.")
         await execute_db_query("INSERT OR REPLACE INTO targets VALUES (?)", (reply.sender_id,), commit=True)
@@ -1400,7 +1641,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?targetdel$'))
     async def ub_target_del(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         if not reply: return await event.reply("⚠️ Reply to a user.")
         await execute_db_query("DELETE FROM targets WHERE user_id=?", (reply.sender_id,), commit=True)
@@ -1408,7 +1649,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?fucktarget\s+(.+)$'))
     async def ub_fucktarget(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg_text = event.pattern_match.group(1).strip()
         tasks = get_client_tasks(event.client)
         tasks["fucktarget"] = True
@@ -1424,7 +1665,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}promote(?:\s+(.+))?'))
     async def ub_promote_user(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         args = event.pattern_match.group(1)
         target = args.strip().split()[0] if args else None
         if not target:
@@ -1445,7 +1686,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}ban(?:\s+(.+))?'))
     async def ub_ban_user(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         target = reply.sender_id if reply else event.pattern_match.group(1)
         if not target: return await event.reply("⚠️ Reply or specify user to ban.")
@@ -1456,7 +1697,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}kick(?:\s+(.+))?'))
     async def ub_kick_user(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         target = reply.sender_id if reply else event.pattern_match.group(1)
         if not target: return await event.reply("⚠️ Reply or specify user to kick.")
@@ -1467,7 +1708,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}(removeuserbot|deleteuserbot|logoutuserbot)'))
     async def ub_remove_userbot(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         me = await event.client.get_me()
         phone_to_del = phone_key
         await event.reply(f"🗑 <b>Removing Userbot <code>{me.first_name} (+{phone_to_del})</code> from system & database...</b>", parse_mode="html")
@@ -1489,7 +1730,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}(promotadminbots|promoteadminbots|promotebots)'))
     async def ub_promote_admin_bots(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         status_msg = await event.reply("👑 <b>Scanning and promoting all linked Multi-Bots in this group...</b>", parse_mode="html")
 
         # Normal admin rights
@@ -1535,7 +1776,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}addmembers(?:\s+(\S+))?(?:\s+(\S+))?'))
     async def ub_add_members_mass(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         args1 = event.pattern_match.group(1)
         args2 = event.pattern_match.group(2)
 
@@ -1575,7 +1816,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}(setpfp|setprofilepic|changepfp)'))
     async def ub_set_pfp(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         if not reply or not reply.photo:
             return await event.reply("⚠️ <b>Please reply to a PHOTO message with <code>+setpfp</code> to update your profile photo!</b>", parse_mode="html")
@@ -1599,7 +1840,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}(changegroupphoto|setgroupphoto|setgrouppic)'))
     async def ub_change_group_photo(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         if not reply or not reply.photo:
             return await event.reply("⚠️ <b>Please reply to a PHOTO message with <code>+changegroupphoto</code> to update group photo!</b>", parse_mode="html")
@@ -1631,7 +1872,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}addmember (.+)'))
     async def ub_addmember(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         targets_raw = event.pattern_match.group(1).split()
         msg = await event.reply(f"⏳ Adding {len(targets_raw)} member(s)...")
         added, failed = 0, 0
@@ -1645,7 +1886,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}invite (.+)'))
     async def ub_invite(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         user = event.pattern_match.group(1).strip()
         try:
             await event.client(InviteToChannelRequest(channel=event.chat_id, users=[user]))
@@ -1654,7 +1895,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}warn'))
     async def ub_warn(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         if not reply: return await event.reply("⚠️ Reply to a user.")
         tid = reply.sender_id
@@ -1670,14 +1911,14 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}purge (\d+)'))
     async def ub_purge(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         count = int(event.pattern_match.group(1))
         msgs = [m async for m in event.client.iter_messages(event.chat_id, limit=count+1)]
         await event.client.delete_messages(event.chat_id, msgs)
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}del'))
     async def ub_del(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         if reply:
             await reply.delete()
@@ -1685,7 +1926,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}tagall(?:\s+(.+))?'))
     async def ub_tagall(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg_text = event.pattern_match.group(1) or "Attention Everyone!"
         mentions = ""
         async for user in event.client.iter_participants(event.chat_id):
@@ -1695,7 +1936,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}mute'))
     async def ub_mute_user(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         if not reply or not reply.sender_id: return await event.reply("⚠️ Reply to a user.")
         await execute_db_query("INSERT OR REPLACE INTO muted_users VALUES (?)", (reply.sender_id,), commit=True)
@@ -1703,7 +1944,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}unmute'))
     async def ub_unmute_user(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         if not reply or not reply.sender_id: return await event.reply("⚠️ Reply to a user.")
         await execute_db_query("DELETE FROM muted_users WHERE user_id=?", (reply.sender_id,), commit=True)
@@ -1711,7 +1952,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}lock (media|links|stickers)'))
     async def ub_lock_cmd(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         l_type = event.pattern_match.group(1)
         rights = types.ChatBannedRights(until_date=None)
         if l_type == 'media': rights.send_media = True
@@ -1724,14 +1965,14 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}creategcqty (\d+)'))
     async def ub_creategcqty(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         qty = int(event.pattern_match.group(1))
         await execute_db_query("INSERT OR REPLACE INTO gc_creation_settings VALUES (?, ?)", (event.sender_id, qty), commit=True)
         await event.reply(f"✅ Group Quantity set to <code>{qty}</code>.", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}creategc (.+)'))
     async def ub_creategc(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         users_raw = event.pattern_match.group(1).split()
         row = await execute_db_query("SELECT qty FROM gc_creation_settings WHERE user_id=?", (event.sender_id,), fetchone=True)
         qty = row[0] if row else 1
@@ -1749,27 +1990,27 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}fetchallgc'))
     async def ub_fetchallgc(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg = await event.reply("🔍 Scanning connected groups...")
         count = sum(1 async for dialog in event.client.iter_dialogs() if dialog.is_group)
         await msg.edit(f"📡 Connected Groups Scanned: <code>{count}</code> Groups.", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}targetgc (\d+)'))
     async def ub_targetgc(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         cid = int(event.pattern_match.group(1))
         await execute_db_query("INSERT OR REPLACE INTO target_groups VALUES (?)", (cid,), commit=True)
         await event.reply(f"🎯 Group <code>{cid}</code> targeted.", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}cleartargets'))
     async def ub_cleartargets(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         await execute_db_query("DELETE FROM target_groups", commit=True)
         await event.reply("🧹 All Target Group IDs cleared.")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}sendmessage (.+)'))
     async def ub_sendmessage(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         text = event.pattern_match.group(1).strip()
         rows = await execute_db_query("SELECT chat_id FROM target_groups", fetchall=True)
         chats = [r[0] for r in rows] if rows else []
@@ -1785,35 +2026,35 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}welcome (.+)'))
     async def ub_welcome(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         text = event.pattern_match.group(1).strip()
         await execute_db_query("INSERT OR REPLACE INTO welcome_settings (chat_id, welcome_text) VALUES (?, ?)", (event.chat_id, text), commit=True)
         await event.reply("✅ Welcome message set.")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}setgoodbye (.+)'))
     async def ub_setgoodbye(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         text = event.pattern_match.group(1).strip()
         await execute_db_query("INSERT OR REPLACE INTO welcome_settings (chat_id, goodbye_text) VALUES (?, ?)", (event.chat_id, text), commit=True)
         await event.reply("✅ Goodbye message set.")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}filter (\S+) (.+)'))
     async def ub_filter(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         trig, resp = event.pattern_match.group(1).lower(), event.pattern_match.group(2)
         await execute_db_query("INSERT OR REPLACE INTO filters VALUES (?, ?, ?)", (event.chat_id, trig, resp), commit=True)
         await event.reply(f"✅ Filter added for <code>{trig}</code>.", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}stopfilter (\S+)'))
     async def ub_stopfilter(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         trig = event.pattern_match.group(1).lower()
         await execute_db_query("DELETE FROM filters WHERE chat_id=? AND trigger=?", (event.chat_id, trig), commit=True)
         await event.reply(f"🧹 Filter <code>{trig}</code> removed.", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}(song|music) (.+)'))
     async def ub_song_handler(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2).strip()
         msg = await event.reply(f"🔍 Searching & downloading full JioSaavn audio for <code>{query}</code>...", parse_mode="html")
         
@@ -1850,7 +2091,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}ai (.+)'))
     async def ub_ai_handler(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         prompt = event.pattern_match.group(1).strip()
         msg = await event.reply("🧠 <b>Server God AI processing...</b>", parse_mode="html")
         ans = await asyncio.to_thread(query_unlimited_ai, prompt)
@@ -1858,7 +2099,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}q'))
     async def ub_quote_handler(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         if not reply or not reply.text:
             return await event.reply("⚠️ Reply to a text message to create a quote card.")
@@ -1890,7 +2131,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}font (.+)'))
     async def ub_font_handler(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         text = event.pattern_match.group(1).strip()[:35]
         width, height = 1200, 400
         img = Image.new('RGB', (width, height), color=(8, 10, 20))
@@ -1919,7 +2160,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}pdf'))
     async def ub_pdf(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         if not reply or not reply.photo: return await event.reply("⚠️ Reply to an image.")
         photo_bytes = await reply.download_media(file=io.BytesIO())
@@ -1932,7 +2173,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}3dpic (.+)'))
     async def ub_3dpic(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         prompt = event.pattern_match.group(1).strip()
         url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt + ' 3d render cinematic unreal engine 5')}"
         res = await asyncio.to_thread(requests.get, url, timeout=20)
@@ -1942,7 +2183,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}tts (.+)'))
     async def ub_tts(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         text = event.pattern_match.group(1).strip()
         fname = f"tts_{int(time.time())}.mp3"
         try:
@@ -1953,7 +2194,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}tr (\w+) (.+)'))
     async def ub_tr(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         lang, text = event.pattern_match.group(1), event.pattern_match.group(2)
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={lang}&dt=t&q={requests.utils.quote(text)}"
         res = (await asyncio.to_thread(requests.get, url, timeout=10)).json()
@@ -1961,7 +2202,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}remind (\d+)([smh]) (.+)'))
     async def ub_remind(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         val, unit, text = int(event.pattern_match.group(1)), event.pattern_match.group(2), event.pattern_match.group(3)
         sec = val * (60 if unit == 'm' else 3600 if unit == 'h' else 1)
         await event.reply(f"⏰ Reminder set for {val}{unit}.")
@@ -1972,7 +2213,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}calc (.+)'))
     async def ub_calc(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         try:
             res = eval(event.pattern_match.group(1), {"__builtins__": None}, {"math": math})
             await event.reply(f"🧮 <b>Result:</b> <code>{res}</code>", parse_mode="html")
@@ -1980,14 +2221,14 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}weather (.+)'))
     async def ub_weather(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         city = event.pattern_match.group(1)
         res = await asyncio.to_thread(requests.get, f"https://wttr.in/{city}?format=3", timeout=10)
         await event.reply(f"🌤 <b>Weather</b>: <code>{res.text.strip()}</code>", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}(info|whois)'))
     async def ub_info(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
         user = await reply.get_sender() if reply else await event.get_sender()
         photos = await event.client.get_profile_photos(user.id)
@@ -1995,7 +2236,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}chatstats'))
     async def ub_chatstats(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg = await event.reply("📊 Gathering chat metrics...")
         total, media = 0, 0
         async for m in event.client.iter_messages(event.chat_id, limit=1000):
@@ -2005,7 +2246,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}sysinfo'))
     async def ub_sysinfo(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         uptime = get_readable_time(time.time() - START_TIME)
         py_ver = sys.version.split()[0]
         info_text = (
@@ -2020,33 +2261,33 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}afk (.*)'))
     async def ub_afk(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reason = event.pattern_match.group(1).strip() or "Away from keyboard"
         await execute_db_query("INSERT OR REPLACE INTO afk_state VALUES (1, 1, ?, ?)", (reason, time.time()), commit=True)
         await event.reply(f"🌙 <b>AFK Mode Activated:</b> {reason}", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}status'))
     async def ub_status(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         uptime = get_readable_time(time.time() - START_TIME)
         await event.reply(f"🌟 <b>System Status:</b> Active\n⏱ <b>Uptime:</b> <code>{uptime}</code>", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}ping'))
     async def ub_ping(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         start_t = time.time()
         msg = await event.reply("🏓 Pinging...")
         await msg.edit(f"🏓 <b>Pong!</b> Latency: <code>{round((time.time() - start_t) * 1000, 2)} ms</code>", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}dbstats'))
     async def ub_dbstats(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         size = os.path.getsize(DB_FILE) / (1024 * 1024) if os.path.exists(DB_FILE) else 0.0
         await event.reply(f"💾 Database Size: <code>{size:.2f} MB</code> (Atlas Cloud Connected)", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}dynamicstop'))
     async def ub_dynamicstop(event):
-        if not await is_ub_admin(event, me_id, admin_id_val): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         tasks = get_client_tasks(event.client)
         tasks["spam"] = False
         tasks["fucktarget"] = False
