@@ -856,20 +856,23 @@ class SessionVoipManager {
       try { this.activeCall.end(); } catch {}
     }
 
+    const isDirectLid = String(phoneNumber).includes('@lid');
     let targetNumber = phoneNumber.replace(/\D/g, '');
-    if (targetNumber.length === 10) targetNumber = '91' + targetNumber;
-    if (targetNumber.startsWith('0') && targetNumber.length === 11) targetNumber = '91' + targetNumber.slice(1);
-    if (!targetNumber || targetNumber.length < 7) {
-      throw new Error(`Invalid phone number: ${phoneNumber}`);
+    if (!isDirectLid) {
+      if (targetNumber.length === 10) targetNumber = '91' + targetNumber;
+      if (targetNumber.startsWith('0') && targetNumber.length === 11) targetNumber = '91' + targetNumber.slice(1);
+      if (!targetNumber || targetNumber.length < 7) {
+        throw new Error(`Invalid phone number: ${phoneNumber}`);
+      }
     }
 
-    const targetPnJid = `${targetNumber}@s.whatsapp.net`;
+    const targetPnJid = isDirectLid ? phoneNumber : `${targetNumber}@s.whatsapp.net`;
     const durationMs = opts.durationMs ?? 86400000;
     const audioSource = opts.audioSource ?? (fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence');
 
     // 1. Resolve LID with multiple strategies
-    let peerLid = await this.signaling.resolveLid(targetPnJid);
-    if (!peerLid) {
+    let peerLid = isDirectLid ? phoneNumber : await this.signaling.resolveLid(targetPnJid);
+    if (!peerLid && !isDirectLid) {
       try {
         const checkResults = await currentSock.onWhatsApp(targetNumber);
         if (Array.isArray(checkResults) && checkResults.length > 0 && checkResults[0]?.lid) {
@@ -877,7 +880,7 @@ class SessionVoipManager {
         }
       } catch (e) {}
     }
-    if (!peerLid) {
+    if (!peerLid && !isDirectLid) {
       try {
         const checkResults = await currentSock.onWhatsApp(targetPnJid);
         if (Array.isArray(checkResults) && checkResults.length > 0 && checkResults[0]?.lid) {
@@ -893,7 +896,7 @@ class SessionVoipManager {
     for (const jid of [targetPnJid, targetPeer]) {
       try { await currentSock.presenceSubscribe(jid); } catch {}
     }
-    await sleep(500);
+    await sleep(400);
 
     // 3. Discover peer devices
     let peerDeviceJids = [];
@@ -918,8 +921,10 @@ class SessionVoipManager {
     const deviceList = safeDeviceList.length ? safeDeviceList : [toBareJid(targetPeer)];
 
     // 4. Ensure Signal sessions for peer devices
-    await this.signaling.ensureSessionsForPeers(deviceList);
-    await sleep(400);
+    try {
+      await this.signaling.ensureSessionsForPeers(deviceList);
+    } catch (e) {}
+    await sleep(300);
 
     // 5. Issue & ensure TC Token
     try { await this.signaling.issueTcToken(targetPeer); } catch {}
@@ -2669,32 +2674,44 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           // 4. VOIP CALL ENGINE (SheIITear/baileys-caller style + 51.mp3 Loop)
           // ==================================================================
 
-          // +outcall <number> [recording/file] or [vn <text>] or [<song name>]
-          if (cmd === 'outcall' || cmd === 'call') {
-            const rawTarget = (parts[1] || '').trim();
+          // +outcall <number/@tag> [recording/file] or [vn <text>] or [<song name>] or +outcalltag @tag
+          if (cmd === 'outcall' || cmd === 'call' || cmd === 'outcalltag' || cmd === 'calltag') {
+            const ctx = msg.message?.extendedTextMessage?.contextInfo;
+            const mentioned = ctx?.mentionedJid || [];
+            let rawTarget = (parts[1] || '').trim();
+
+            if ((!rawTarget || rawTarget.startsWith('@') || cmd === 'outcalltag' || cmd === 'calltag') && mentioned.length > 0) {
+              rawTarget = mentioned[0];
+            } else if (!rawTarget && ctx?.participant) {
+              rawTarget = ctx.participant;
+            }
+
             let cleanNum = cleanPhone(rawTarget);
-            if (!cleanNum) {
+            if (rawTarget && rawTarget.includes('@lid')) {
+              cleanNum = rawTarget;
+            } else if (cleanNum && cleanNum.length === 10) {
+              cleanNum = '91' + cleanNum;
+            }
+
+            if (!cleanNum || (typeof cleanNum === 'string' && cleanNum.length < 7 && !cleanNum.includes('@lid'))) {
               await sock.sendMessage(jid, {
-                text: `❌ *Usage:* \`${sess.prefix}outcall <CountryCode+PhoneNumber> [track/song]\`\n\n*Examples:*\n• \`${sess.prefix}outcall 919942292068\`\n• \`${sess.prefix}outcall 919942292068 51.mp3\`\n• \`${sess.prefix}outcall 919942292068 Tum Hi Ho\`\n• \`${sess.prefix}outcall 14155552671 51.mp3\``
+                text: `❌ *Usage:* \`${sess.prefix}outcall <PhoneNumber / @tag> [track/song]\`\n\n*Examples:*\n• \`${sess.prefix}outcall 919942292068\`\n• \`${sess.prefix}outcall @mention\`\n• \`${sess.prefix}outcalltag @mention 51.mp3\`\n• Reply to any message with \`${sess.prefix}outcall\``
               }, { quoted: msg });
               continue;
             }
-            if (cleanNum.length === 10) {
-              cleanNum = '91' + cleanNum;
-            }
             const targetPhone = cleanNum;
-
             const targetJid = normalizeJid(targetPhone);
             let audioSource = fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence';
             let trackName = '51.mp3';
 
             // Resolve audio source if specified
-            if (parts[2]?.toLowerCase() === 'vn' && parts[3]) {
-              const vnText = parts.slice(3).join(' ');
+            const audioArgStart = (mentioned.length > 0 && parts[1]?.startsWith('@')) ? 2 : 2;
+            if (parts[audioArgStart]?.toLowerCase() === 'vn' && parts[audioArgStart + 1]) {
+              const vnText = parts.slice(audioArgStart + 1).join(' ');
               trackName = `Live VN (${vnText.slice(0, 20)}...)`;
               await sock.sendMessage(targetJid, { text: `🎙️ [LIVE VOICE NOTE IN CALL]: ${vnText}` }).catch(() => {});
-            } else if (parts[2]) {
-              const argRest = parts.slice(2).join(' ');
+            } else if (parts[audioArgStart]) {
+              const argRest = parts.slice(audioArgStart).join(' ');
               const recName = argRest.toLowerCase().endsWith('.mp3') ? argRest : `${argRest}.mp3`;
               const recPath = path.join(RECORDINGS_DIR, recName);
               if (fs.existsSync(recPath)) {
@@ -2718,7 +2735,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               }
             }
 
-            logMsg(uid, `📞 Initiating WhatsApp Web VoIP Call to +${targetPhone} (Audio: ${trackName})...`);
+            logMsg(uid, `📞 Initiating WhatsApp Web VoIP Call to ${targetPhone} (Audio: ${trackName})...`);
 
             try {
               if (!sess.voipManager) {
