@@ -610,26 +610,45 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
         ext = 'mp4' if media_type == 'video' else 'mp3'
         output_path = f"yt_{media_type}_{int(time.time())}.{ext}"
     if yt_dlp:
+        fmt = 'best[ext=mp4]/best' if media_type == 'video' else 'bestaudio/best'
+        target = query_or_url if query_or_url.startswith('http') else f"ytsearch1:{query_or_url}"
+        
+        # 1. First attempt (with cookies if available)
         try:
-            fmt = 'b[ext=mp4]/best[ext=mp4]/best' if media_type == 'video' else 'ba/b'
             ydl_opts = {
                 'format': fmt,
                 'outtmpl': output_path,
                 'quiet': True,
                 'no_warnings': True,
-                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
+                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
             }
             cookie_file = os.path.abspath("cookies.txt")
             if os.path.exists(cookie_file):
                 ydl_opts['cookiefile'] = cookie_file
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                target = query_or_url if query_or_url.startswith('http') else f"ytsearch1:{query_or_url}"
                 ydl.download([target])
             if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
                 return output_path
         except Exception as e:
-            logger.error(f"download_youtube_media_py error: {e}")
+            logger.warning(f"yt_dlp attempt 1 error: {e}")
+
+        # 2. Second attempt (without cookies)
+        try:
+            ydl_opts2 = {
+                'format': fmt,
+                'outtmpl': output_path,
+                'quiet': True,
+                'no_warnings': True,
+                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+            }
+            with yt_dlp.YoutubeDL(ydl_opts2) as ydl2:
+                ydl2.download([target])
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                return output_path
+        except Exception as e2:
+            logger.error(f"yt_dlp attempt 2 error: {e2}")
+
     # Fallback audio download via JioSaavn
     if media_type == 'audio':
         res = download_full_audio(query_or_url, output_path)

@@ -129,13 +129,13 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
   return new Promise((resolve) => {
     const isUrl = queryOrUrl.startsWith('http://') || queryOrUrl.startsWith('https://');
     const target = isUrl ? queryOrUrl : `ytsearch1:${queryOrUrl}`;
-    const format = type === 'video' ? 'b[ext=mp4]/best[ext=mp4]/best' : 'ba/b';
+    const format = type === 'video' ? 'best[ext=mp4]/best' : 'bestaudio/best';
     
     const cookiePath = path.join(__dirname, 'cookies.txt');
     const spawnArgs = [
       '-m', 'yt_dlp',
       '-f', format,
-      '--extractor-args', 'youtube:player_client=android,ios',
+      '--extractor-args', 'youtube:player_client=android,web',
       '-o', outputPath,
       '--no-warnings'
     ];
@@ -154,7 +154,25 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       if (fs.existsSync(outputPath)) {
         resolve({ success: true, filePath: outputPath });
       } else {
-        resolve({ success: false, error: errData });
+        // Retry without cookies if cookie failed
+        const retryProc = spawn('python', [
+          '-m', 'yt_dlp',
+          '-f', format,
+          '--extractor-args', 'youtube:player_client=android,web',
+          '-o', outputPath,
+          '--no-warnings',
+          target
+        ]);
+        retryProc.on('close', () => {
+          if (fs.existsSync(outputPath)) {
+            resolve({ success: true, filePath: outputPath });
+          } else {
+            resolve({ success: false, error: errData });
+          }
+        });
+        retryProc.on('error', () => {
+          resolve({ success: false, error: errData });
+        });
       }
     });
     proc.on('error', (err) => {
