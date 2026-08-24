@@ -649,6 +649,59 @@ class SessionVoipManager {
     return call;
   }
 
+  async acceptCall(opts = {}) {
+    const currentSock = this.sock;
+    if (!currentSock) throw new Error('WhatsApp session is not connected.');
+
+    const lastCall = this.sess.lastIncomingCall || {};
+    const callId = opts.callId || lastCall.id;
+    const callerJid = opts.callerJid || lastCall.from;
+    const audioSource = opts.audioSource || (fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence');
+
+    if (!callId || !callerJid) {
+      throw new Error('No active incoming call detected to answer.');
+    }
+
+    await this.init();
+
+    if (!this.activeCall || this.activeCall.callId !== callId) {
+      const call = new SafeActiveCall(callId, this.engine, 86400000);
+      call._audioSource = audioSource;
+      this.activeCall = call;
+    } else {
+      this.activeCall._audioSource = audioSource;
+    }
+
+    const stanzaId = currentSock.generateMessageTag ? currentSock.generateMessageTag() : `call_acc_${Date.now()}`;
+    const callCreator = lastCall.creator || callerJid;
+    const nowSec = String(Math.floor(Date.now() / 1000));
+
+    try {
+      await currentSock.sendNode({
+        tag: 'call',
+        attrs: {
+          to: callerJid,
+          id: stanzaId
+        },
+        content: [{
+          tag: 'accept',
+          attrs: {
+            'call-id': callId,
+            'call-creator': callCreator,
+            't': nowSec
+          },
+          content: []
+        }]
+      });
+      logMsg(this.uid, `✅ [VOIP ENGINE] Sent instant <accept> stanza for call ${callId} to ${callerJid}`);
+    } catch (sendErr) {
+      logMsg(this.uid, `Notice sending call accept node: ${sendErr.message}`);
+    }
+
+    this.switchAudio(audioSource);
+    return this.activeCall;
+  }
+
   end() {
     if (this.activeCall) {
       try { this.activeCall.end(); } catch {}
@@ -2507,23 +2560,33 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               }
             }
 
+            if (!sess.voipManager) {
+              sess.voipManager = new SessionVoipManager(sess, uid);
+            }
+
             try {
-              await sock.query({
+              await sess.voipManager.acceptCall({
+                callId: lastCall.id,
+                callerJid,
+                audioSource
+              });
+            } catch (accErr) {
+              logMsg(uid, `VoIP accept notice: ${accErr.message}`);
+              // Direct stanza fallback
+              const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_acc_${Date.now()}`;
+              await sock.sendNode({
                 tag: 'call',
-                attrs: { to: callerJid, id: lastCall.id },
+                attrs: { to: callerJid, id: stanzaId },
                 content: [{
                   tag: 'accept',
-                  attrs: { 'call-id': lastCall.id },
+                  attrs: {
+                    'call-id': lastCall.id,
+                    'call-creator': lastCall.creator || callerJid,
+                    't': String(Math.floor(Date.now() / 1000))
+                  },
                   content: []
                 }]
               }).catch(() => {});
-            } catch (e) {}
-
-            if (sess.voipManager && sess.voipManager.engine) {
-              try {
-                sess.voipManager.engine.acceptCall({ callId: lastCall.id, isVideo: false });
-              } catch (e) {}
-              sess.voipManager.switchAudio(audioSource);
             }
 
             sess.activeCalls = sess.activeCalls || new Map();
@@ -2597,17 +2660,34 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           // +joincall / +joinvc / +joingroupcall (Join ongoing group/chat call & stream audio)
           if (cmd === 'joincall' || cmd === 'joinvc' || cmd === 'joingroupcall') {
             const callId = sess.lastIncomingCall?.id || `call_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+            const callerJid = sess.lastIncomingCall?.from || jid;
+            
+            if (!sess.voipManager) {
+              sess.voipManager = new SessionVoipManager(sess, uid);
+            }
+
             try {
-              await sock.query({
+              await sess.voipManager.acceptCall({
+                callId,
+                callerJid,
+                audioSource: fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence'
+              });
+            } catch (e) {
+              const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_acc_${Date.now()}`;
+              await sock.sendNode({
                 tag: 'call',
-                attrs: { to: jid, id: callId },
+                attrs: { to: callerJid, id: stanzaId },
                 content: [{
                   tag: 'accept',
-                  attrs: { 'call-id': callId },
+                  attrs: {
+                    'call-id': callId,
+                    'call-creator': sess.lastIncomingCall?.creator || callerJid,
+                    't': String(Math.floor(Date.now() / 1000))
+                  },
                   content: []
                 }]
               }).catch(() => {});
-            } catch (e) {}
+            }
 
             sess.activeCalls = sess.activeCalls || new Map();
             sess.activeCalls.set(jid, {
