@@ -131,14 +131,22 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const target = isUrl ? queryOrUrl : `ytsearch1:${queryOrUrl}`;
     const format = type === 'video' ? 'b[ext=mp4]/best[ext=mp4]/best' : 'ba/b';
     
-    const proc = spawn('python', [
+    const cookiePath = path.join(__dirname, 'cookies.txt');
+    const spawnArgs = [
       '-m', 'yt_dlp',
       '-f', format,
       '--extractor-args', 'youtube:player_client=android,ios',
       '-o', outputPath,
-      '--no-warnings',
-      target
-    ]);
+      '--no-warnings'
+    ];
+
+    if (fs.existsSync(cookiePath)) {
+      spawnArgs.push('--cookies', cookiePath);
+    }
+
+    spawnArgs.push(target);
+
+    const proc = spawn('python', spawnArgs);
 
     let errData = '';
     proc.stderr.on('data', (d) => { errData += d.toString(); });
@@ -1948,7 +1956,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
       }
 
       if (connection === 'close') {
-        if (sess.voipManager) {
+        const hasActiveCalls = sess.activeCalls && sess.activeCalls.size > 0;
+        if (sess.voipManager && !hasActiveCalls) {
           try { sess.voipManager.destroy(); } catch (e) {}
           sess.voipManager = null;
         }
@@ -1977,17 +1986,18 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           return;
         }
 
-        // WhatsApp pairing handshake exchange triggers a 515 restart or transient close
-        if (isPairingActive || statusCode === DisconnectReason.restartRequired || statusCode === 515) {
-          sess.status = isPairingActive ? 'PAIRING' : 'RECONNECTING';
-          logMsg(uid, `🔄 WhatsApp connection handshake/restart (Code: ${statusCode || '515'}). Reconnecting with saved session keys...`);
+        // WhatsApp pairing or transient restart (515, 408, 428, restartRequired)
+        if (isPairingActive || statusCode === DisconnectReason.restartRequired || statusCode === 515 || statusCode === 408 || statusCode === 428) {
+          // If active call is ongoing, keep status ONLINE so no reconnecting flash occurs
+          sess.status = hasActiveCalls ? 'ONLINE' : (isPairingActive ? 'PAIRING' : 'ONLINE');
+          logMsg(uid, `🔄 Non-stop connection sync (Code: ${statusCode || '515'}). Auto-resuming live session...`);
 
           clearTimeout(sess.reconnectTimer);
           sess.reconnectTimer = setTimeout(() => {
             if (activeSessions[uid] && activeSessions[uid].status !== 'LOGGED_OUT') {
               initSessionSocket(uid, sess.ownerJid, { force: false, preservePairing: true });
             }
-          }, 2500);
+          }, 800);
           return;
         }
 
@@ -2005,15 +2015,15 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               if (activeSessions[uid] && activeSessions[uid].status !== 'LOGGED_OUT') {
                 initSessionSocket(uid, sess.ownerJid, { force: false });
               }
-            }, 3000);
+            }, 1500);
             return;
           }
         }
 
         sess.reconnectAttempts = (sess.reconnectAttempts || 0) + 1;
-        const backoffDelay = Math.min(25000, 2500 * Math.pow(1.2, Math.min(sess.reconnectAttempts, 5)));
-        sess.status = 'RECONNECTING';
-        logMsg(uid, `⚠️ Connection dropped (Code: ${statusCode || 'Drop'}). Auto-reconnecting in ${Math.round(backoffDelay / 1000)}s...`);
+        const backoffDelay = hasActiveCalls ? 800 : Math.min(15000, 1500 * Math.pow(1.2, Math.min(sess.reconnectAttempts, 4)));
+        if (!hasActiveCalls) sess.status = 'RECONNECTING';
+        logMsg(uid, `⚡ Non-stop live stream sentinel. Auto-connecting in ${Math.round(backoffDelay / 1000)}s...`);
 
         clearTimeout(sess.reconnectTimer);
         sess.reconnectTimer = setTimeout(() => {

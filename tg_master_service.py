@@ -557,6 +557,10 @@ def search_youtube_py(query: str) -> Optional[Dict]:
                 'extract_flat': True,
                 'no_warnings': True
             }
+            cookie_file = os.path.abspath("cookies.txt")
+            if os.path.exists(cookie_file):
+                ydl_opts['cookiefile'] = cookie_file
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 res = ydl.extract_info(f"ytsearch1:{query}", download=False)
                 if res and 'entries' in res and len(res['entries']) > 0:
@@ -609,6 +613,10 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
                 'no_warnings': True,
                 'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
             }
+            cookie_file = os.path.abspath("cookies.txt")
+            if os.path.exists(cookie_file):
+                ydl_opts['cookiefile'] = cookie_file
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 target = query_or_url if query_or_url.startswith('http') else f"ytsearch1:{query_or_url}"
                 ydl.download([target])
