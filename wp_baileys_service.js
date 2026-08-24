@@ -4369,29 +4369,39 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           }
 
           // ==================================================================
-          // 7. TURBO NC (Clean 0.01s Name Change Loops - No Count Numbers)
+          // 7. TURBO NC (50 Default Emoji Rotation & Clean Loops)
           // ==================================================================
-          if (cmd === 'nc' || cmd === 'nc1' || cmd === 'namechange' || cmd === 'gcname') {
+          const NC_50_EMOJIS = [
+            '⚡', '🔥', '👑', '💀', '🛡️', '⚔️', '🦁', '🦅', '💣', '🩸',
+            '🌪️', '💥', '🔱', '💎', '🚀', '☠️', '👹', '👺', '🥶', '😈',
+            '🦇', '🐉', '☣️', '⚠️', '🚨', '🪐', '🌟', '✨', '🏆', '🎯',
+            '🥇', '💫', '🖤', '🤍', '🤎', '💜', '💙', '💚', '💛', '🧡',
+            '❤️', '🌹', '🐅', '🐆', '🐺', '🦂', '🕷️', '🎲', '🃏', '🚩'
+          ];
+
+          if (cmd === 'nc' || cmd === 'nc1' || cmd === 'namechange' || cmd === 'gcname' || cmd === 'autonc' || cmd === 'emojinc') {
             if (!isGroup) {
               await sock.sendMessage(jid, { text: `❌ NC only works in WhatsApp Groups!` }, { quoted: msg });
               continue;
             }
-            const baseName = fullArg || 'KING BOT ULTRA';
+            const baseName = fullArg || 'KING GOD CLAN';
             sess.chatLoops = sess.chatLoops || {};
             sess.chatLoops[jid] = sess.chatLoops[jid] || {};
             sess.chatLoops[jid].nc = true;
 
             const delayMs = sess.delays?.nc || 50;
             await sock.sendMessage(jid, {
-              text: `╔══〔 🌀 *TURBO NC STARTED* 〕══╗\n┃ Base Name: *${baseName}*\n┃ Speed: *${delayMs}ms (0.01s+)*\n┃ Count Numbers: *HIDDEN / NONE*\n╚══════════════════════════╝\n_Use \`${sess.prefix}stopnc\` to halt._`
+              text: `╔══〔 🌀 *TURBO 50-EMOJI NC STARTED* 〕══╗\n┃ 🏷️ Base Name: *${baseName}*\n┃ 🎭 Emoji Pool: *50 King/Battle Emojis Active*\n┃ ⚡ Speed: *${delayMs}ms (Non-Stop Dynamic)*\n╚════════════════════════════════════╝\n_Use \`${sess.prefix}stopnc\` to halt._`
             }, { quoted: msg });
 
             (async () => {
               const zeroWidths = ['', '\u200B', '\u200C', '\u200D', '\uFEFF', '\u200B\u200C', '\u200D\u200B'];
               let idx = 0;
               while (sess.chatLoops?.[jid]?.nc) {
+                const em1 = NC_50_EMOJIS[idx % NC_50_EMOJIS.length];
+                const em2 = NC_50_EMOJIS[(idx + 1) % NC_50_EMOJIS.length];
                 const zw = zeroWidths[idx % zeroWidths.length];
-                const newTitle = `${baseName}${zw}`.slice(0, 25);
+                const newTitle = `${em1} ${baseName} ${em2}${zw}`.slice(0, 25);
                 try {
                   await sock.groupUpdateSubject(jid, newTitle);
                   sess.sentCount = (sess.sentCount || 0) + 1;
@@ -4406,13 +4416,13 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
           if (cmd === 'triplenc1' || cmd === 'triplenc') {
             if (!isGroup) continue;
-            const baseName = fullArg || 'KING ULTRA RAID';
+            const baseName = fullArg || 'KING GOD RAID';
             sess.chatLoops = sess.chatLoops || {};
             sess.chatLoops[jid] = sess.chatLoops[jid] || {};
             sess.chatLoops[jid].nc = true;
 
             await sock.sendMessage(jid, {
-              text: `╔══〔 ⚡ *TRIPLE NC ULTRA ACTIVE* 〕══╗\n┃ 🌀 3-Lane Rotation (No Numbers/Counts)\n╚════════════════════════════════╝`
+              text: `╔══〔 ⚡ *TRIPLE 50-EMOJI NC ACTIVE* 〕══╗\n┃ 🌀 3-Lane Concurrent 50-Emoji Rotation\n╚════════════════════════════════════╝`
             }, { quoted: msg });
 
             for (let lane = 1; lane <= 3; lane++) {
@@ -4420,9 +4430,10 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const zeroWidths = ['', '\u200B', '\u200C', '\u200D', '\uFEFF', '\u200B\u200C', '\u200D\u200B'];
                 let idx = lane;
                 while (sess.chatLoops?.[jid]?.nc) {
+                  const em = NC_50_EMOJIS[idx % NC_50_EMOJIS.length];
                   const zw = zeroWidths[idx % zeroWidths.length];
                   try {
-                    await sock.groupUpdateSubject(jid, `${baseName}${zw}`.slice(0, 25));
+                    await sock.groupUpdateSubject(jid, `${em} ${baseName}${zw}`.slice(0, 25));
                     sess.sentCount = (sess.sentCount || 0) + 1;
                   } catch (e) {}
                   idx += 3;
