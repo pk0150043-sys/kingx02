@@ -626,14 +626,14 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
         fmt = 'best[ext=mp4]/best' if media_type == 'video' else 'bestaudio/best'
         target = query_or_url if query_or_url.startswith('http') else f"ytsearch1:{query_or_url}"
         
-        # 1. First attempt (with cookies if available)
+        # 1. First attempt (ios, android clients)
         try:
             ydl_opts = {
                 'format': fmt,
                 'outtmpl': outtmpl,
                 'quiet': True,
                 'no_warnings': True,
-                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+                'extractor_args': {'youtube': {'player_client': ['ios', 'android']}}
             }
             cookie_file = os.path.abspath("cookies.txt")
             if os.path.exists(cookie_file):
@@ -647,14 +647,14 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
         except Exception as e:
             logger.warning(f"yt_dlp attempt 1 error: {e}")
 
-        # 2. Second attempt (without cookies)
+        # 2. Second attempt (mweb, android clients)
         try:
             ydl_opts2 = {
                 'format': fmt,
                 'outtmpl': outtmpl,
                 'quiet': True,
                 'no_warnings': True,
-                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+                'extractor_args': {'youtube': {'player_client': ['mweb', 'android']}}
             }
             with yt_dlp.YoutubeDL(ydl_opts2) as ydl2:
                 ydl2.download([target])
@@ -3541,6 +3541,14 @@ class BotSwarmManager:
 
     def _setup_handlers(self, app: Application, token: str):
         mgr = self
+
+        async def ptb_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+            if isinstance(context.error, telegram.error.Conflict):
+                logger.warning(f"⚠️ Bot polling conflict for {token[:10]}... (temporary overlap), retrying.")
+                return
+            logger.error(f"PTB Handler Error: {context.error}")
+
+        app.add_error_handler(ptb_error_handler)
 
         async def auto_manage_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not update.chat_member: return

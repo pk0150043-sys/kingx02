@@ -156,7 +156,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const spawnArgs = [
       '-m', 'yt_dlp',
       '-f', format,
-      '--extractor-args', 'youtube:player_client=android,web',
+      '--extractor-args', 'youtube:player_client=ios,android',
       '-o', outTmpl,
       '--no-warnings'
     ];
@@ -176,11 +176,11 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       if (found) {
         return resolve({ success: true, filePath: found });
       }
-      // Retry without cookies if cookie failed
+      // Retry with mweb,android client
       const retryProc = spawn('python', [
         '-m', 'yt_dlp',
         '-f', format,
-        '--extractor-args', 'youtube:player_client=android,web',
+        '--extractor-args', 'youtube:player_client=mweb,android',
         '-o', outTmpl,
         '--no-warnings',
         target
