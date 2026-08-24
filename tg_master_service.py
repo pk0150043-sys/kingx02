@@ -101,6 +101,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("TGMaster")
 
+# Silence PTB network loop conflict traceback spam from Railway logs
+logging.getLogger("telegram.ext._utils.networkloop").setLevel(logging.CRITICAL)
+logging.getLogger("telegram.ext._updater").setLevel(logging.CRITICAL)
+logging.getLogger("telegram._bot").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 # ==============================================================================
 # CONFIGURATION & GLOBAL SETTINGS
 # ==============================================================================
