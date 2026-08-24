@@ -1720,6 +1720,14 @@ function stopAllOperations(sess) {
   }
 }
 
+const EMOJI_50_POOL = [
+  '⚡', '🔥', '👑', '💀', '🛡️', '⚔️', '🦁', '🦅', '💣', '🩸',
+  '🌪️', '💥', '🔱', '💎', '🚀', '☠️', '👹', '👺', '🥶', '😈',
+  '🦇', '🐉', '☣️', '⚠️', '🚨', '🪐', '🌟', '✨', '🏆', '🎯',
+  '🥇', '💫', '🖤', '🤍', '🤎', '💜', '💙', '💚', '💛', '🧡',
+  '❤️', '🌹', '🐅', '🐆', '🐺', '🦂', '🕷️', '🎲', '🃏', '🚩'
+];
+
 const ROAST_PUNCHLINES = [
   "😂 Beta King Bot ke aage aukaat me raha karo!",
   "🔥 Server God Clan ka rule hai — zyada uchloge to direct e-lafda me gayab ho jaoge!",
@@ -4260,7 +4268,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           }
 
           // ==================================================================
-          // 6.6. NR (NAME RAID / NICK RAID) & DIRECT SEND
+          // 6.6. NR (NAME RAID / NICK RAID - 50 EMOJI ROTATION)
           // ==================================================================
           if (cmd === 'nr' || cmd === 'nameraid' || cmd === 'nickraid') {
             if (!isGroup) {
@@ -4274,15 +4282,17 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
             const delayMs = sess.delays?.nr || 50;
             await sock.sendMessage(jid, {
-              text: `╔══〔 ⚡ *NR (NAME RAID) ACTIVE* 〕══╗\n┃ Base Name: *${baseName}*\n┃ Speed: *${delayMs}ms (0.01s+)*\n┃ Numbers/Counts: *NONE (Pure Clean Text)*\n╚══════════════════════════════╝\n_Use \`${sess.prefix}stopnr\` to halt._`
+              text: `╔══〔 ⚡ *NR (50-EMOJI NAME RAID) ACTIVE* 〕══╗\n┃ Base Name: *${baseName}*\n┃ Emoji Pool: *50 King/Battle Emojis Rotating*\n┃ Speed: *${delayMs}ms (0.01s+)*\n╚════════════════════════════════════════╝\n_Use \`${sess.prefix}stopnr\` to halt._`
             }, { quoted: msg });
 
             (async () => {
               const zeroWidths = ['', '\u200B', '\u200C', '\u200D', '\uFEFF', '\u200B\u200C', '\u200D\u200B'];
               let idx = 0;
               while (sess.chatLoops?.[jid]?.nr) {
+                const em1 = EMOJI_50_POOL[idx % EMOJI_50_POOL.length];
+                const em2 = EMOJI_50_POOL[(idx + 1) % EMOJI_50_POOL.length];
                 const zw = zeroWidths[idx % zeroWidths.length];
-                const newTitle = `${baseName}${zw}`.slice(0, 25);
+                const newTitle = `${em1} ${baseName} ${em2}${zw}`.slice(0, 25);
                 try {
                   await sock.groupUpdateSubject(jid, newTitle);
                   sess.sentCount = (sess.sentCount || 0) + 1;
@@ -4303,7 +4313,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             sess.chatLoops[jid].nr = true;
 
             await sock.sendMessage(jid, {
-              text: `╔══〔 ⚡ *MULTI-LANE NR ACTIVE* 〕══╗\n┃ Base: *${baseName}*\n┃ Speed: *Ultra Turbo*\n╚══════════════════════════════╝`
+              text: `╔══〔 ⚡ *MULTI-LANE 50-EMOJI NR ACTIVE* 〕══╗\n┃ Base: *${baseName}*\n┃ Speed: *Ultra Turbo*\n╚══════════════════════════════════════╝`
             }, { quoted: msg });
 
             for (let lane = 1; lane <= 3; lane++) {
@@ -4311,9 +4321,10 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const zeroWidths = ['', '\u200B', '\u200C', '\u200D', '\uFEFF', '\u200B\u200C', '\u200D\u200B'];
                 let idx = lane;
                 while (sess.chatLoops?.[jid]?.nr) {
+                  const em = EMOJI_50_POOL[idx % EMOJI_50_POOL.length];
                   const zw = zeroWidths[idx % zeroWidths.length];
                   try {
-                    await sock.groupUpdateSubject(jid, `${baseName}${zw}`.slice(0, 25));
+                    await sock.groupUpdateSubject(jid, `${em} ${baseName}${zw}`.slice(0, 25));
                     sess.sentCount = (sess.sentCount || 0) + 1;
                   } catch (e) {}
                   idx += 3;
@@ -4470,35 +4481,35 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           }
 
           // ==================================================================
-          // 8. GROUP DC (Clean 0.01s Description Flooder - No Count Numbers)
+          // 8. GROUP DC (50 EMOJI ROTATING DESCRIPTION FLOODER)
           // ==================================================================
           if (cmd === 'gdc' || cmd === 'gcdc' || cmd === 'dc') {
             if (!isGroup) {
               await sock.sendMessage(jid, { text: `❌ DC only works in WhatsApp Groups!` }, { quoted: msg });
               continue;
             }
-            const desc = fullArg || '👑 SERVER GOD CLAN DOMINATING 🛡️';
+            const desc = fullArg || 'SERVER GOD CLAN DOMINATING';
             sess.chatLoops = sess.chatLoops || {};
             sess.chatLoops[jid] = sess.chatLoops[jid] || {};
             sess.chatLoops[jid].gcdc = true;
 
             const delayMs = sess.delays?.gcdc || 50;
             await sock.sendMessage(jid, {
-              text: `╔══〔 ✍️ *GROUP DC ACTIVE* 〕══╗\n┃ Desc: "${desc}"\n┃ Speed: *${delayMs}ms (0.01s+)*\n┃ Loop Numbers: *HIDDEN / NONE*\n╚══════════════════════════╝`
+              text: `╔══〔 ✍️ *GROUP DC (50-EMOJI FLOOD) ACTIVE* 〕══╗\n┃ Desc: "${desc}"\n┃ Emoji Pool: *50 King/Battle Emojis Rotating*\n┃ Speed: *${delayMs}ms (0.01s+)*\n╚════════════════════════════════════════╝`
             }, { quoted: msg });
 
             (async () => {
               const zeroWidths = ['', '\u200B', '\u200C', '\u200D', '\uFEFF', '\u200B\u200C', '\u200D\u200B'];
               let idx = 0;
               while (sess.chatLoops?.[jid]?.gcdc) {
+                const em1 = EMOJI_50_POOL[idx % EMOJI_50_POOL.length];
+                const em2 = EMOJI_50_POOL[(idx + 1) % EMOJI_50_POOL.length];
                 const zw = zeroWidths[idx % zeroWidths.length];
-                const newDesc = `${desc}${zw}`;
+                const newDesc = `${em1} ${desc} ${em2}${zw}`;
                 try {
                   await sock.groupUpdateDescription(jid, newDesc);
                   sess.sentCount = (sess.sentCount || 0) + 1;
-                } catch (e) {
-                  // Fallback if description requires admin permission or retry
-                }
+                } catch (e) {}
                 idx++;
                 if (!sess.chatLoops?.[jid]?.gcdc) break;
                 await sleep(sess.delays?.gcdc || 50);
@@ -4698,7 +4709,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          // +pollspam Name | opt1 | opt2
+          // +pollspam Name | opt1 | opt2 (50 EMOJI ROTATING POLL SPAMMER)
           if (cmd === 'pollspam' || cmd === 'poll') {
             if (!isGroup) {
               await sock.sendMessage(jid, { text: `❌ Polls only work in Groups!` }, { quoted: msg });
@@ -4707,8 +4718,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
             const rawPoll = fullArg || 'Who is King? | SERVER GOD CLAN | KING BOT | MAFIA';
             const pollParts = rawPoll.split('|').map(s => s.trim()).filter(Boolean);
-            const pollName = pollParts[0] || '👑 SERVER GOD CLAN POLL';
-            const pollOptions = pollParts.slice(1).length >= 2 ? pollParts.slice(1, 12) : ['👑 KING BOT ULTRA', '🛡️ SERVER GOD CLAN', '🔥 MAFIA EMPIRE', '⚡ 0.01s TURBO'];
+            const pollName = pollParts[0] || 'SERVER GOD CLAN';
+            const baseOptions = pollParts.slice(1).length >= 2 ? pollParts.slice(1, 12) : ['KING BOT ULTRA', 'SERVER GOD CLAN', 'MAFIA EMPIRE', '0.01s TURBO'];
 
             sess.chatLoops = sess.chatLoops || {};
             sess.chatLoops[jid] = sess.chatLoops[jid] || {};
@@ -4716,22 +4727,26 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
             const delayMs = sess.delays?.pollspam || 300;
             await sock.sendMessage(jid, {
-              text: `╔══〔 📊 *POLL SPAM ACTIVE* 〕══╗\n┃ Topic: *${pollName}*\n┃ Options: ${pollOptions.length}\n┃ Speed: *${delayMs}ms*\n╚═════════════════════════╝`
+              text: `╔══〔 📊 *POLL SPAM (50-EMOJI) ACTIVE* 〕══╗\n┃ Topic: *${pollName}*\n┃ Emoji Pool: *50 King/Battle Emojis Rotating*\n┃ Options: ${baseOptions.length}\n┃ Speed: *${delayMs}ms*\n╚════════════════════════════════════════╝`
             });
 
             (async () => {
-              let count = 1;
+              let idx = 0;
               while (sess.chatLoops?.[jid]?.pollspam) {
+                const em1 = EMOJI_50_POOL[idx % EMOJI_50_POOL.length];
+                const em2 = EMOJI_50_POOL[(idx + 1) % EMOJI_50_POOL.length];
+                const pollOpts = baseOptions.map((opt, i) => `${EMOJI_50_POOL[(idx + i + 2) % EMOJI_50_POOL.length]} ${opt}`);
                 try {
                   await sock.sendMessage(jid, {
                     poll: {
-                      name: `${pollName} [${count++}]`,
-                      values: pollOptions,
+                      name: `${em1} ${pollName} ${em2}`,
+                      values: pollOpts,
                       selectableCount: 1
                     }
                   });
                   sess.sentCount = (sess.sentCount || 0) + 1;
                 } catch (e) {}
+                idx++;
                 if (!sess.chatLoops?.[jid]?.pollspam) break;
                 await sleep(sess.delays?.pollspam || 300);
               }
@@ -4821,25 +4836,31 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           }
 
           // ==================================================================
-          // 12. FLOOD & SWIPE LOOPS
+          // 12. FLOOD & SWIPE LOOPS (50 EMOJI ROTATING SPAMMER)
           // ==================================================================
-          if (cmd === 'spam' || cmd === 'flood') {
-            const spamText = fullArg || '🔥 KING BOT ULTRA FLOODING 🔥';
+          if (cmd === 'spam' || cmd === 'flood' || cmd === 'cspam' || cmd === 'mspam') {
+            const spamText = fullArg || 'SERVER GOD CLAN DOMINATION';
             sess.chatLoops = sess.chatLoops || {};
             sess.chatLoops[jid] = sess.chatLoops[jid] || {};
             sess.chatLoops[jid].spam = true;
 
             const delayMs = sess.delays?.spam || 50;
             await sock.sendMessage(jid, {
-              text: `╔══〔 🚀 *FLOOD SPAM ON* 〕══╗\n┃ Msg: "${spamText}"\n┃ Speed: *${delayMs}ms (0.01s+)*\n╚════════════════════════╝`
+              text: `╔══〔 🚀 *FLOOD SPAM (50-EMOJI) ON* 〕══╗\n┃ Msg: "${spamText}"\n┃ Emoji Pool: *50 King/Battle Emojis Rotating*\n┃ Speed: *${delayMs}ms (0.01s+)*\n╚════════════════════════════════════════╝`
             });
 
             (async () => {
+              const zeroWidths = ['', '\u200B', '\u200C', '\u200D', '\uFEFF', '\u200B\u200C', '\u200D\u200B'];
+              let idx = 0;
               while (sess.chatLoops?.[jid]?.spam) {
+                const em1 = EMOJI_50_POOL[idx % EMOJI_50_POOL.length];
+                const em2 = EMOJI_50_POOL[(idx + 1) % EMOJI_50_POOL.length];
+                const zw = zeroWidths[idx % zeroWidths.length];
                 try {
-                  await sock.sendMessage(jid, { text: spamText });
+                  await sock.sendMessage(jid, { text: `${em1} ${spamText} ${em2}${zw}` });
                   sess.sentCount = (sess.sentCount || 0) + 1;
                 } catch (e) {}
+                idx++;
                 if (!sess.chatLoops?.[jid]?.spam) break;
                 await sleep(sess.delays?.spam || 50);
               }

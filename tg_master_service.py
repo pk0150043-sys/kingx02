@@ -324,6 +324,97 @@ RAID_TEXTS = [
     "𝙏𝙀𝙍𝘼 𝘽𝘼𝘼𝙋 𝙃𝙐 𝙈𝘼𝙄"
 ]
 
+EMOJI_50_POOL = [
+    "⚡", "🔥", "👑", "💀", "🛡️", "⚔️", "🦁", "🦅", "💣", "🩸",
+    "🌪️", "💥", "🔱", "💎", "🚀", "☠️", "👹", "👺", "🥶", "😈",
+    "🦇", "🐉", "☣️", "⚠️", "🚨", "🪐", "🌟", "✨", "🏆", "🎯",
+    "🥇", "💫", "🖤", "🤍", "🤎", "💜", "💙", "💚", "💛", "🧡",
+    "❤️", "🌹", "🐅", "🐆", "🐺", "🦂", "🕷️", "🎲", "🃏", "🚩"
+]
+
+ROAST_PUNCHLINES = [
+    "😂 Beta King Bot ke aage aukaat me raha karo!",
+    "🔥 Server God Clan ka rule hai — zyada uchloge to direct e-lafda me gayab ho jaoge!",
+    "💀 Tu jis class me padh raha hai na, uska principal King Bot Ultra hai!",
+    "⚡ Aukaat 2 paise ki nahi aur baatein aisi jaise group ke owner ho!",
+    "👑 Chup chap kone me baith, warna group me spam flood aa jayega!",
+    "🤫 Tera baap Server God Clan ka badshah hai, tameez se baat kar!",
+    "💣 King Bot Ultra active hai, ek click me teri puri chat sweep ho jayegi!",
+    "🤡 Shakal dekhi hai apni aaine me? DP lagane layak to hai nahi!",
+    "🌪️ Hawa me mat ud, King Bot ke aage bade bade sher bheegi billi ban jate hain!",
+    "🥀 Jitni teri umar hai, utne to King Bot ke roz ke targets bante hain!",
+    "🎯 Target locked ho chuka hai tera, ab chat chhod ke bhagne ka rasta dhoondh!",
+    "⚡ Server God Clan ke sher jab bolte hain, to kutte apne aap chup ho jate hain!",
+    "🗿 Itna sannata kyu hai bhai? King Bot ka naam sunte hi kaanp gaya kya!",
+    "💩 Tere jaise 36 aate hain roz group me timepass karne, 2 second me kick hote hain!",
+    "🥶 Baraf ki tarah jam gaya na King Bot ki speed dekh ke?",
+    "🔥 0.01s ki speed se typing chalti hai yahan, tu backspace dabate reh jayega!",
+    "🏆 King Bot Ultra se ladne chala tha, khud ki aukaat dekh ke aana pehle!",
+    "🤐 Muh band rakh warna chat me aisi aag lagegi ki paani nahi milega!",
+    "🦴 Kutton ko bhaukne ki aadat hoti hai, par sher shikar hamesha chupchap karta hai!",
+    "🦅 Baaz ki tarah nazar hai King Bot ki, kab tujhe uda le jayega pata bhi nahi chalega!",
+    "🎭 Naatak kam kar, yahan teri acting dekhne koi nahi baitha!",
+    "💀 R.I.P Teri Chat — King Bot Ultra has arrived!",
+    "🔋 Battery low ho gayi teri bolti ki? Abhi to shuruwat hui hai!",
+    "🎪 Circus ka joker lag raha hai tu is group me, thoda tameez me reh!",
+    "💥 Teri aukaat King Bot ke ek notification barabar bhi nahi hai!",
+    "🚶‍♂️ Nikal le chupchap yahan se, warna beizzati ka record ban jayega!",
+    "🛡️ Server God Clan ka danka har platform pe bajta hai, tu kis khet ki mooli hai?",
+    "🩸 Zyada khoon ubaal mat maar, 2 second me thanda kar denge!",
+    "🧹 Kooda saaf karne ke liye King Bot Ultra ka kick button hi kaafi hai!",
+    "👑 Badshah se mukabla karne ke liye aukaat aur dam dono chahiye, jo tere paas nahi!",
+    "🚀 Hamari speed 0.01s hai aur teri soch 2G network se bhi slow hai!",
+    "🥊 Ring me aane se pehle sochna tha, ab maar khane ke liye tayyar reh!",
+    "👀 Aankhein khol ke dekh, samne King Bot Ultra khada hai!",
+    "🧨 Patakha phoot gaya tera? Ab chupchap kone me baith ja!",
+    "🧠 Dimaag bech ke internet pack karwaya tha kya?",
+    "🥱 Teri baatein sunke to neend aane lagi, kuch naya la re bache!",
+    "⚔️ Jung me utarne se pehle talwar pakadna to seekh le!",
+    "🍿 Popcorn leke baitha hoon teri beizzati dekhne, aur bol kuch!",
+    "🏃‍♂️ Speed aisi hai hamari ki tera phone hang ho jayega!",
+    "🔥 Aag lagane ka shauk hai na? Dekh ab pura group jalega!",
+    "🥶 Thand lag rahi hai kya? King Bot ke roast se to sabka pasina chhut jata hai!",
+    "🍼 Ja beta pehle doodh pee ke aa, fir King Bot se panga lena!",
+    "🛸 Dusre planet se aaya hai kya? Aisi faltu baatein earth pe koi nahi karta!",
+    "🎲 Kismat achhi hai teri ki bot offline tha, ab online hai to dekh tamasha!",
+    "🕳️ Gadhhe me gir gaya tera confidence? Ab kyu nahi bol raha?",
+    "👻 Bhoot banake uda denge tujhe group se, chupchap reh!",
+    "🏹 Nishana itna pakka hai ki sidha dil pe lagega roast!",
+    "🤡 Joker banne ka shauk hai to circus join kar le, Telegram pe kyu drama kar raha?",
+    "🛑 Stop bolne ki himmat bhi nahi bachegi ab teri!",
+    "🌊 Flood me beh jayega beta, Server God Clan ka toofan hai ye!",
+    "💤 So ja bache, kal subah school bhi jana hai tujhe!",
+    "🌪️ Toofan ke aage khade hone ki aukaat nahi aur baat karte hain tufan rokne ki!",
+    "⚡ King Bot Ultra 2.0 active hai, ab tera har reply roast banega!",
+    "🛡️ Server God Clan ka hathiyar hai ye bot, bachke rehna!",
+    "📉 Tera graph gir chuka hai, ab tu King Bot ka target ban chuka hai!",
+    "🪓 Kulhadi pe pair khud maara hai tune panga leke!",
+    "👑 King King hota hai, aur tu bas ek chhota sa keyboard warrior!",
+    "🕶️ Swag dekh ke hi darr gaya na? Ab aage dekh hota hai kya!",
+    "💥 Dhamaka aisa hoga ki teri DP bhi ud jayegi!",
+    "🧯 Fire brigade bula le, King Bot ne chat me aag laga di hai!",
+    "🏃‍♀️ Bhagna shuru kar, kyunki raid shuru ho chuki hai!",
+    "🗣️ Zyada mat bol, warna group me spam raid chala denge!",
+    "🔥 Tu jahan khada hota hai na, wahan hum log apni purani chapal bhi nahi chhodte!",
+    "🦁 Sher ke muh me ungli daal ke poochta hai 'kya hua'? Ab dekh kya hota hai!",
+    "💀 Teri personality dekh ke to error 404 bhi sharma jaye!",
+    "⚡ Aukaat se zyada bhaukne walo ko King Bot direct offline bhejta hai!",
+    "🤡 Chat pe don banne se koi gangster nahi ban jata, ja jaake homework kar!",
+    "🩸 Server God Clan ke aage jhukna hi padega, warna chat me dafan ho jaoge!",
+    "🚀 Tere dimaag ki speed 0.001kbps hai aur hamare bot ki 0.01ms!",
+    "🥶 Ro mat bache, Server God Clan me aisi beizzati roz muft me milti hai!",
+    "💣 Agar tere paas dimaag hota na, to tu King Bot se panga nahi leta!",
+    "🦅 Hamari barabari karne me teri saat pushtein nikal jayengi!",
+    "😈 Shaitan bhi jinse darte hain, unhe SERVER GOD CLAN kehte hain!",
+    "💥 Ek line me teri aukaat bata du? Tu bas ek unseen notification hai!",
+    "🏆 Hamare naam se hi group ka mahol garam ho jata hai, tu kya cheez hai!",
+    "🎭 Naariyal jaisi shakal leke group me smart banne chala tha!",
+    "🪓 Jitne tere contact list me log hain, utne to King Bot ke roz ke targets hain!",
+    "⚔️ Sultanat hamari hai, aur tu bas ek paidal sipahi!",
+    "🔥 Zyada overact mat kar, warna screen se bahar nikaal ke dho denge!",
+    "💀 Tu keyboard pe ungliyan ghis raha hai aur hum pura server control karte hain!"
+]
+
 SPAM_TEXTS = [
     "<[{target}]> 𝐓ᴇʀɪ 𝐌ᴀᴀ 𝐊ɪ 𝐊ᴀʟɪ 𝐆ᴀɴᴅ 𝐌ᴇ 𝐂ɪɢɢ 𝐅ᴀsᴀ 𝐃ᴜ 𝐁sᴅᴋ <😝>༻꧂\n <[{target}]> 𝐓ᴇʀɪ 𝐌ᴀᴀ 𝐊ɪ 𝐊ᴀʟɪ 𝐆ᴀɴᴅ 𝐌ᴇ 𝐂ɪɢɢ 𝐅ᴀsᴀ 𝐃ᴜ 𝐁sᴅᴋ <🤖>༻꧂\n <[{target}]> 𝐓ᴇʀɪ 𝐌ᴀᴀ 𝐊ɪ 𝐊ᴀʟɪ 𝐆ᴀɴᴅ 𝐌ᴇ 𝐂ɪɢɢ 𝐅ᴀsᴀ 𝐃ᴜ 𝐁sᴅᴋ <👾>༻꧂\n <[{target}]> 𝐓ᴇʀɪ 𝐌ᴀᴀ 𝐊ɪ 𝐊ᴀʟɪ 𝐆ᴀɴᴅ 𝐌ᴇ 𝐂ɪɢɢ 𝐅ᴀsᴀ 𝐃ᴜ 𝐁sᴅᴋ <🤣>༻꧂",
     "𓍼ֶ˖ܓ 🦈 <[{target}]> ओए तेरी माँ की सलवार मे 𝐈 𝐏ʜᴏɴᴇ 17 फिट कर दू ?? <🌸> ᭄\n 𓍼ֶ˖ܓ 🦈 <[{target}]> ओए तेरी माँ की सलवार मे 𝐈 𝐏ʜᴏɴᴇ 17 फिट कर दू ?? <🌸> ᭄\n 𓍼ֶ˖ܓ 🦈 <[{target}]> ओए तेरी माँ की सलवार मे 𝐈 𝐏ʜᴏɴᴇ 17 फिट कर दू ?? <🌸> ᭄",
@@ -2058,6 +2149,22 @@ Please select a Dashboard by replying with number (1, 2, or 3):
                 await safe_leave_call(cp, event.chat_id)
         except Exception: pass
         await event.reply("🚨 <b>FORCE MASTER STOP: All active userbot spam, target loops, and VC streams halted!</b>", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(roast|hate|insult)(?:\s+(.+))?$'))
+    async def ub_roast_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        target = event.pattern_match.group(2)
+        reply = await event.get_reply_message()
+        target_str = ""
+        if reply and reply.sender_id:
+            target_str = f"[User](tg://user?id={reply.sender_id})"
+        elif target:
+            target_str = target.strip()
+        else:
+            target_str = f"[User](tg://user?id={event.sender_id})"
+
+        punch = random.choice(ROAST_PUNCHLINES)
+        await event.reply(f"💀 {target_str} {punch}")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?raid\s+(\d+)\s+(@\w+)$'))
     async def ub_raid(event):
