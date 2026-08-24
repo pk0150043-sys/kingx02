@@ -131,12 +131,33 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const target = isUrl ? queryOrUrl : `ytsearch1:${queryOrUrl}`;
     const format = type === 'video' ? 'best[ext=mp4]/best' : 'bestaudio/best';
     
+    const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
+    const outTmpl = `${baseWithoutExt}.%(ext)s`;
     const cookiePath = path.join(__dirname, 'cookies.txt');
+
+    const findDownloadedFile = () => {
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) return outputPath;
+      const dir = path.dirname(baseWithoutExt);
+      const baseName = path.basename(baseWithoutExt);
+      try {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          if (file.startsWith(baseName)) {
+            const fullP = path.join(dir, file);
+            if (fs.existsSync(fullP) && fs.statSync(fullP).size > 1000) {
+              return fullP;
+            }
+          }
+        }
+      } catch (e) {}
+      return null;
+    };
+
     const spawnArgs = [
       '-m', 'yt_dlp',
       '-f', format,
       '--extractor-args', 'youtube:player_client=android,web',
-      '-o', outputPath,
+      '-o', outTmpl,
       '--no-warnings'
     ];
 
@@ -150,30 +171,31 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
 
     let errData = '';
     proc.stderr.on('data', (d) => { errData += d.toString(); });
-    proc.on('close', (code) => {
-      if (fs.existsSync(outputPath)) {
-        resolve({ success: true, filePath: outputPath });
-      } else {
-        // Retry without cookies if cookie failed
-        const retryProc = spawn('python', [
-          '-m', 'yt_dlp',
-          '-f', format,
-          '--extractor-args', 'youtube:player_client=android,web',
-          '-o', outputPath,
-          '--no-warnings',
-          target
-        ]);
-        retryProc.on('close', () => {
-          if (fs.existsSync(outputPath)) {
-            resolve({ success: true, filePath: outputPath });
-          } else {
-            resolve({ success: false, error: errData });
-          }
-        });
-        retryProc.on('error', () => {
-          resolve({ success: false, error: errData });
-        });
+    proc.on('close', () => {
+      const found = findDownloadedFile();
+      if (found) {
+        return resolve({ success: true, filePath: found });
       }
+      // Retry without cookies if cookie failed
+      const retryProc = spawn('python', [
+        '-m', 'yt_dlp',
+        '-f', format,
+        '--extractor-args', 'youtube:player_client=android,web',
+        '-o', outTmpl,
+        '--no-warnings',
+        target
+      ]);
+      retryProc.on('close', () => {
+        const retryFound = findDownloadedFile();
+        if (retryFound) {
+          resolve({ success: true, filePath: retryFound });
+        } else {
+          resolve({ success: false, error: errData });
+        }
+      });
+      retryProc.on('error', () => {
+        resolve({ success: false, error: errData });
+      });
     });
     proc.on('error', (err) => {
       resolve({ success: false, error: err.message });
@@ -1328,14 +1350,21 @@ function getCallingEngineMenu(prefix = '+') {
 ╰──────────────────────────────╯
       ⚡ PREFIX  :  ${prefix}
       🚀 SPEED   : 0.01s+
+      🎥 CALLING : 18 Real VoIP Audio & Video Features
 
-╭─ 📞 𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑺
+╭─ 📞 𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 & 𝑽𝑰𝑫𝑬𝑶 𝑪𝑨𝑳𝑳𝑺
 │ 📞 ${prefix}call <Number> [Song/Track]
-│ 📞 ${prefix}outcall <Number> 51.mp3
-│ 🎙️ ${prefix}outcall <Number> vn <Text>
-│ 🎶 ${prefix}playjiocall <Song Name>
-│ 🔊 ${prefix}play1call
+│ 🎥 ${prefix}videocall <Number> [Song/Track]
+│ 🎶 ${prefix}playytcall <Song Name or YouTube Link>
+│ 📹 ${prefix}play2ytcall <Song Name or YouTube Link>
+│ 🔊 ${prefix}play1call / ${prefix}playcall
+│ 📺 ${prefix}play2call
 │ 🚪 ${prefix}joincall [51.mp3/song]
+│ 🔄 ${prefix}audiotovideo / ${prefix}videotoaudio
+│ 👥 ${prefix}addparticipant <Number>
+│ 📺 ${prefix}screenshare
+│ ✋ ${prefix}handraise / ${prefix}callreaction <emoji>
+│ 🚪 ${prefix}waitingroom on/off
 │ ⏹️ ${prefix}endcall / ${prefix}cutcall / ${prefix}hangup
 │ 🔇 ${prefix}callmute / ${prefix}callunmute
 ╰──────────────────────
@@ -3578,8 +3607,10 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const dlRes = await downloadYouTubeMedia(query, 'audio', tempAudioPath);
                 
                 let audioBuf = null;
-                if (dlRes.success && fs.existsSync(tempAudioPath)) {
-                  audioBuf = fs.readFileSync(tempAudioPath);
+                let actualFile = null;
+                if (dlRes.success && dlRes.filePath && fs.existsSync(dlRes.filePath)) {
+                  audioBuf = fs.readFileSync(dlRes.filePath);
+                  actualFile = dlRes.filePath;
                 } else {
                   // Fallback via JioSaavn
                   const jio = await searchJioSaavn(query);
@@ -3602,8 +3633,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 }, { quoted: msg });
 
                 sess.sentCount = (sess.sentCount || 0) + 1;
-                if (fs.existsSync(tempAudioPath)) {
-                  try { fs.unlinkSync(tempAudioPath); } catch (e) {}
+                if (actualFile && fs.existsSync(actualFile)) {
+                  try { fs.unlinkSync(actualFile); } catch (e) {}
                 }
               } catch (e) {
                 logMsg(uid, `play1 error: ${e.message}`);
@@ -3628,11 +3659,11 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const tempVideoPath = path.join(__dirname, `yt_video_${Date.now()}.mp4`);
                 const dlRes = await downloadYouTubeMedia(query, 'video', tempVideoPath);
 
-                if (!dlRes.success || !fs.existsSync(tempVideoPath)) {
+                if (!dlRes.success || !dlRes.filePath || !fs.existsSync(dlRes.filePath)) {
                   return sock.sendMessage(jid, { text: `❌ Could not download video for \`${query}\`!` }, { quoted: msg });
                 }
 
-                const videoBuf = fs.readFileSync(tempVideoPath);
+                const videoBuf = fs.readFileSync(dlRes.filePath);
                 const track = lastSearchedTracks.get(jid);
                 const caption = `🎬 *${track?.title || query}*\n👤 *Channel:* ${track?.author || 'YouTube'}\n⏱️ *Duration:* ${track?.duration || 'Full'}\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
 
@@ -3643,8 +3674,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 }, { quoted: msg });
 
                 sess.sentCount = (sess.sentCount || 0) + 1;
-                if (fs.existsSync(tempVideoPath)) {
-                  try { fs.unlinkSync(tempVideoPath); } catch (e) {}
+                if (dlRes.filePath && fs.existsSync(dlRes.filePath)) {
+                  try { fs.unlinkSync(dlRes.filePath); } catch (e) {}
                 }
               } catch (e) {
                 logMsg(uid, `play2 error: ${e.message}`);
@@ -3670,19 +3701,19 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const tempVideoPath = path.join(__dirname, `yt_clip_${Date.now()}.mp4`);
                 const dlRes = await downloadYouTubeMedia(query, 'video', tempVideoPath);
 
-                if (!dlRes.success || !fs.existsSync(tempVideoPath)) {
+                if (!dlRes.success || !dlRes.filePath || !fs.existsSync(dlRes.filePath)) {
                   return sock.sendMessage(jid, { text: `❌ Could not download video clip for \`${query}\`!` }, { quoted: msg });
                 }
 
-                const videoBuf = fs.readFileSync(tempVideoPath);
+                const videoBuf = fs.readFileSync(dlRes.filePath);
                 await sock.sendMessage(jid, {
                   video: videoBuf,
                   mimetype: 'video/mp4',
                   caption: `✂️ *Video Clip (${secVal}s)*: *${query}*\n🛡️ *SERVER GOD CLAN KING BOT* 👑`
                 }, { quoted: msg });
 
-                if (fs.existsSync(tempVideoPath)) {
-                  try { fs.unlinkSync(tempVideoPath); } catch (e) {}
+                if (dlRes.filePath && fs.existsSync(dlRes.filePath)) {
+                  try { fs.unlinkSync(dlRes.filePath); } catch (e) {}
                 }
               } catch (e) {
                 await sock.sendMessage(jid, { text: `❌ Clip error: ${e.message}` }, { quoted: msg });
@@ -3706,19 +3737,19 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const tempVideoPath = path.join(__dirname, `yt_link_${Date.now()}.mp4`);
                 const dlRes = await downloadYouTubeMedia(ytUrl, 'video', tempVideoPath);
 
-                if (!dlRes.success || !fs.existsSync(tempVideoPath)) {
+                if (!dlRes.success || !dlRes.filePath || !fs.existsSync(dlRes.filePath)) {
                   return sock.sendMessage(jid, { text: `❌ Failed to download video from specified link!` }, { quoted: msg });
                 }
 
-                const videoBuf = fs.readFileSync(tempVideoPath);
+                const videoBuf = fs.readFileSync(dlRes.filePath);
                 await sock.sendMessage(jid, {
                   video: videoBuf,
                   mimetype: 'video/mp4',
                   caption: `🎬 *YouTube Video Downloaded from Link*\n🔗 ${ytUrl}\n🛡️ *SERVER GOD CLAN KING BOT* 👑`
                 }, { quoted: msg });
 
-                if (fs.existsSync(tempVideoPath)) {
-                  try { fs.unlinkSync(tempVideoPath); } catch (e) {}
+                if (dlRes.filePath && fs.existsSync(dlRes.filePath)) {
+                  try { fs.unlinkSync(dlRes.filePath); } catch (e) {}
                 }
               } catch (e) {
                 await sock.sendMessage(jid, { text: `❌ Link download error: ${e.message}` }, { quoted: msg });

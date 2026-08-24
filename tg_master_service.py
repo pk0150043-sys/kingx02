@@ -10,6 +10,7 @@ except Exception:
     os.environ["PATH"] = os.getcwd() + os.pathsep + os.environ.get("PATH", "")
 
 import asyncio
+import glob
 import io
 import json
 import logging
@@ -607,8 +608,20 @@ def search_youtube_py(query: str) -> Optional[Dict]:
 
 def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', output_path: str = '') -> Optional[str]:
     if not output_path:
-        ext = 'mp4' if media_type == 'video' else 'mp3'
-        output_path = f"yt_{media_type}_{int(time.time())}.{ext}"
+        base_name = f"yt_{media_type}_{int(time.time())}_{random.randint(100, 999)}"
+    else:
+        base_name = os.path.splitext(output_path)[0]
+    outtmpl = f"{base_name}.%(ext)s"
+    
+    def find_file():
+        if output_path and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            return output_path
+        matches = glob.glob(f"{base_name}*")
+        for m in matches:
+            if os.path.isfile(m) and os.path.getsize(m) > 1000:
+                return m
+        return None
+
     if yt_dlp:
         fmt = 'best[ext=mp4]/best' if media_type == 'video' else 'bestaudio/best'
         target = query_or_url if query_or_url.startswith('http') else f"ytsearch1:{query_or_url}"
@@ -617,7 +630,7 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
         try:
             ydl_opts = {
                 'format': fmt,
-                'outtmpl': output_path,
+                'outtmpl': outtmpl,
                 'quiet': True,
                 'no_warnings': True,
                 'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
@@ -628,8 +641,9 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([target])
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-                return output_path
+            found = find_file()
+            if found:
+                return found
         except Exception as e:
             logger.warning(f"yt_dlp attempt 1 error: {e}")
 
@@ -637,23 +651,25 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
         try:
             ydl_opts2 = {
                 'format': fmt,
-                'outtmpl': output_path,
+                'outtmpl': outtmpl,
                 'quiet': True,
                 'no_warnings': True,
                 'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
             }
             with yt_dlp.YoutubeDL(ydl_opts2) as ydl2:
                 ydl2.download([target])
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-                return output_path
+            found = find_file()
+            if found:
+                return found
         except Exception as e2:
             logger.error(f"yt_dlp attempt 2 error: {e2}")
 
     # Fallback audio download via JioSaavn
     if media_type == 'audio':
-        res = download_full_audio(query_or_url, output_path)
-        if res and res.get('status') and os.path.exists(output_path):
-            return output_path
+        fallback_path = output_path or f"{base_name}.mp3"
+        res = download_full_audio(query_or_url, fallback_path)
+        if res and res.get('status') and os.path.exists(fallback_path):
+            return fallback_path
     return None
 
 def download_full_audio(query_or_url: str, output_path: str) -> Optional[Dict]:
@@ -1172,7 +1188,11 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
       ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
       🚀 <b>SPEED</b>   : <code>0.01s+</code>
 
-╭─ 📞 <b>𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑺</b>
+╭─ 📞 <b>𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 & 𝑽𝑪 𝑺𝑻𝑹𝑬𝑨𝑴𝑺</b>
+│ 🎶 <code>{PREFIX}playytcall &lt;Song Name or YouTube Link&gt;</code>
+│    ▸ <i>Live Stream YouTube audio in Voice Chat / Call</i>
+│ 📹 <code>{PREFIX}play2ytcall &lt;Song Name or YouTube Link&gt;</code>
+│    ▸ <i>Live Stream YouTube video screen-share in Group VC</i>
 │ 🔊 <code>{PREFIX}play1call</code> / <code>{PREFIX}playcall</code>
 │    ▸ <i>Stream 51.mp3 in continuous loop in VC/DM</i>
 │ 🎶 <code>{PREFIX}playjiocall &lt;Song Name&gt;</code>
@@ -1199,26 +1219,34 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 
         if sub in ["3", "song", "music"]:
             song_menu = f"""╭──────────────────────────────╮
-│ 🎵 <b>𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬</b> 🎶   │
+│ 🎵 <b>𝒀𝑶𝑼𝑻𝑼𝑩𝑬 & 𝑴𝑼𝑺𝑰𝑪 𝑬𝑵𝑮𝑰𝑵𝑬</b> 🎶│
 │ 🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b>     │
 ╰──────────────────────────────╯
       ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
-      🎧 <b>ENGINES</b> : JioSaavn • Spotify • PyTgCalls
+      🎧 <b>ENGINES</b> : YouTube • JioSaavn • Spotify • PyTgCalls
 
-╭─ 🎵 <b>𝑱𝑰𝑶𝑺𝑨𝑨𝑽𝑵 𝑴𝑼𝑺𝑰𝑪</b>
-│ 🎵 <code>{PREFIX}song &lt;Song Name&gt;</code>
-│    ▸ Full 320kbps HD audio track
-│ 🔊 <code>{PREFIX}playjiocall &lt;Song Name&gt;</code>
-│    ▸ Stream song live in Voice Call Loop (5s gap)
-│ 📻 <code>{PREFIX}play4jiocallchangeall &lt;genre&gt;</code>
-│    ▸ Continuous genre auto-playlist
+╭─ 🌟 <b>𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑷𝑳𝑨𝒀𝑩𝑨𝑪𝑲 𝑺𝑼𝑰𝑻𝑬</b>
+│ 🎵 <code>{PREFIX}song &lt;Name or YouTube Link&gt;</code>
+│    ▸ <i>Search track details card & interactive options</i>
+│ 🔊 <code>{PREFIX}play1 [Song Name]</code>
+│    ▸ <i>Send full Audio in chat</i>
+│ 🎥 <code>{PREFIX}play2 [Song Name]</code>
+│    ▸ <i>Send full HD Video in chat</i>
+│ ✂️ <code>{PREFIX}playsec &lt;Seconds&gt; [Song Name]</code>
+│    ▸ <i>Send trimmed video clip (e.g. {PREFIX}playsec 30)</i>
+│ 🔗 <code>{PREFIX}play5video &lt;YouTube Link&gt;</code>
+│    ▸ <i>Download & send video directly from YouTube link</i>
 ╰──────────────────────
 
-╭─ 📻 <b>𝑪𝑨𝑳𝑳 𝑨𝑼𝑫𝑰𝑶 𝑺𝑻𝑹𝑬𝑨𝑴𝑬𝑹</b>
+╭─ 📞 <b>𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑽𝑶𝑰𝑷 𝑺𝑻𝑹𝑬𝑨𝑴𝑬𝑹</b>
+│ 🎶 <code>{PREFIX}playytcall &lt;Song Name or Link&gt;</code>
+│    ▸ <i>Stream song live inside VC / Voice Call</i>
+│ 📹 <code>{PREFIX}play2ytcall &lt;Song Name or Link&gt;</code>
+│    ▸ <i>Stream video / screen-share inside VC</i>
 │ 🔊 <code>{PREFIX}play1call</code>
-│    ▸ Play 51.mp3 in continuous loop on call
-│ ⏹️ <code>{PREFIX}stopcallplay</code>
-│    ▸ Stop stream playback
+│    ▸ <i>Play 51.mp3 continuous loop on call</i>
+│ 🎶 <code>{PREFIX}playjiocall &lt;Song Name&gt;</code>
+│    ▸ <i>JioSaavn call stream loop</i>
 ╰──────────────────────
 
 ╭──────────────────────────────╮
