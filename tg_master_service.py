@@ -344,6 +344,7 @@ def init_db():
         c.execute('CREATE TABLE IF NOT EXISTS gc_creation_settings (user_id INTEGER PRIMARY KEY, qty INTEGER)')
         c.execute('CREATE TABLE IF NOT EXISTS afk_state (id INTEGER PRIMARY KEY, is_afk INTEGER, reason TEXT, afk_time REAL)')
         c.execute('CREATE TABLE IF NOT EXISTS afk_mentions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, chat_id INTEGER, msg_text TEXT, timestamp TEXT)')
+        c.execute('CREATE TABLE IF NOT EXISTS uplist_bots (bot_identifier TEXT PRIMARY KEY, added_at TEXT)')
         
         c.execute('INSERT OR IGNORE INTO userbot_admins (user_id) VALUES (?)', (MASTER_ADMIN_DEFAULT,))
         c.execute('INSERT OR IGNORE INTO userbot_admins (user_id) VALUES (?)', (8846249998,))
@@ -1720,18 +1721,77 @@ Please select a Dashboard by replying with number (1, 2, or 3):
         if not target:
             reply = await event.get_reply_message()
             if reply: target = reply.sender_id
-        if not target: return await event.reply("⚠️ Usage: <code>+promote @user</code>", parse_mode="html")
+        if not target: return await event.reply("⚠️ Usage: <code>+promote @user</code> (or reply to a user)", parse_mode="html")
 
+        # Custom requested permissions: Manage chat, change info, post/edit, invite, pin, add admin, but NOT delete messages & NOT ban users
         rights = types.ChatAdminRights(
-            change_info=False, post_messages=True, edit_messages=True,
-            delete_messages=True, ban_users=True, invite_users=True,
-            pin_messages=True, add_admins=True, anonymous=False, manage_call=True
+            change_info=True,
+            post_messages=True,
+            edit_messages=True,
+            delete_messages=False, # Strictly NO delete messages
+            ban_users=False,       # Strictly NO ban users
+            invite_users=True,
+            pin_messages=True,
+            add_admins=True,       # Add admin permission
+            anonymous=False,
+            manage_call=True
         )
         try:
+            if isinstance(target, str) and target.lstrip("-").isdigit():
+                target = int(target)
             user_entity = await event.client.get_input_entity(target)
             await event.client(EditAdminRequest(channel=event.chat_id, user_id=user_entity, admin_rights=rights, rank="Admin"))
-            await event.reply(f"👑 Promoted <code>{target}</code> to Admin!", parse_mode="html")
-        except Exception as e: await event.reply(f"❌ Error: {e}", parse_mode="html")
+            await event.reply(f"👑 <b>Promoted</b> <code>{target}</code> <b>to Group Admin!</b>\n• <i>Rights: Change Info, Add Admins, Pin, Invite, Messages</i>\n• <i>Restricted: Delete Messages / Ban NOT granted.</i>", parse_mode="html")
+        except Exception as e:
+            await event.reply(f"❌ <b>Promotion Error:</b> {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'\{PREFIX}addbot(?:\s+(.+))?'))
+    async def ub_add_bot_token(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        args = event.pattern_match.group(1)
+        if not args:
+            return await event.reply("⚠️ Usage: <code>+addbot &lt;bot_token&gt;</code>", parse_mode="html")
+        token = args.strip()
+        status_msg = await event.reply("🔄 <b>Verifying and activating Telegram Bot token...</b>", parse_mode="html")
+        try:
+            r = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10)
+            res = r.json()
+            if not res.get("ok"):
+                return await status_msg.edit(f"❌ <b>Invalid Bot Token:</b> {res.get('description', 'Unknown error')}", parse_mode="html")
+            bot_info = res["result"]
+            bot_uname = f"@{bot_info.get('username')}"
+            b_id = str(bot_info.get("id"))
+
+            # Save in tokens.txt
+            existing_tokens = []
+            if os.path.exists(TOKEN_FILE):
+                with open(TOKEN_FILE, "r") as f:
+                    existing_tokens = [line.strip() for line in f if line.strip()]
+            if token not in existing_tokens:
+                with open(TOKEN_FILE, "a") as f:
+                    f.write(f"{token}\n")
+
+            # Save in SQLite & Mongo
+            await execute_db_query("INSERT OR REPLACE INTO managed_bots VALUES (?, ?, ?, ?, ?)", (token, b_id, bot_uname, "owner", datetime.now().strftime("%Y-%m-%d")), commit=True)
+            mongo_save_bot(token, b_id, bot_uname, "owner")
+
+            # Start the bot thread
+            threading.Thread(target=start_single_bot, args=(token,), daemon=True).start()
+
+            msg_text = f"""╔══〔 👑 <b>KING MULTI BOT ACTIVATED</b> 〕══╗
+┃ 🤖 <b>Bot Name:</b> <code>{bot_info.get('first_name')}</code>
+┃ 🆔 <b>Bot ID:</b> <code>{b_id}</code>
+┃ 🏷️ <b>Username:</b> {bot_uname}
+┃ ⚡ <b>Control Prefixes:</b> <code>!</code> • <code>?</code> • <code>+</code>
+┃ 📋 <b>Menu:</b> Send <code>!menu</code> or <code>?menu</code>
+╚═════════════════════════════════════╝"""
+            if os.path.exists("main.png"):
+                await event.client.send_file(event.chat_id, "main.png", caption=msg_text, parse_mode="html", reply_to=event.id)
+                await status_msg.delete()
+            else:
+                await status_msg.edit(msg_text, parse_mode="html")
+        except Exception as e:
+            await status_msg.edit(f"❌ <b>Error Activating Bot:</b> {e}", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}ban(?:\s+(.+))?'))
     async def ub_ban_user(event):
@@ -1777,51 +1837,132 @@ Please select a Dashboard by replying with number (1, 2, or 3):
             await event.client.disconnect()
         except Exception: pass
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(promotadminbots|promoteadminbots|promotebots)'))
-    async def ub_promote_admin_bots(event):
+    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(addupallist|adduplist)(?:\s+(.+))?'))
+    async def ub_add_uplist_bots(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
-        status_msg = await event.reply("👑 <b>Scanning and promoting all linked Multi-Bots in this group...</b>", parse_mode="html")
+        args = event.pattern_match.group(2)
+        if not args:
+            return await event.reply("⚠️ <b>Usage:</b> <code>+addupallist @bot1, @bot2, bot_id3, ...</code>", parse_mode="html")
+        raw_items = re.split(r'[,\s]+', args.strip())
+        added_count = 0
+        added_names = []
+        for item in raw_items:
+            clean_item = item.strip()
+            if not clean_item: continue
+            if clean_item.startswith("@") or clean_item.lstrip("-").isdigit():
+                await execute_db_query("INSERT OR REPLACE INTO uplist_bots VALUES (?, ?)", (clean_item, datetime.now().strftime("%Y-%m-%d %H:%M")), commit=True)
+                mongo_save_bot(clean_item, clean_item, clean_item, "uplist")
+                added_names.append(f"<code>{clean_item}</code>")
+                added_count += 1
+        if added_count > 0:
+            await event.reply(f"👑 <b>Added {added_count} Bots to UpList:</b>\n" + ", ".join(added_names), parse_mode="html")
+        else:
+            await event.reply("⚠️ No valid bot usernames or IDs provided.", parse_mode="html")
 
-        # Normal admin rights
+    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(removeupallist|delupallist|removeuplist|deluplist)(?:\s+(.+))?'))
+    async def ub_remove_uplist_bots(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        args = event.pattern_match.group(2)
+        if not args:
+            return await event.reply("⚠️ <b>Usage:</b> <code>+removeupallist @bot1, bot_id2, ...</code>", parse_mode="html")
+        raw_items = re.split(r'[,\s]+', args.strip())
+        removed_count = 0
+        for item in raw_items:
+            clean_item = item.strip()
+            if not clean_item: continue
+            await execute_db_query("DELETE FROM uplist_bots WHERE bot_identifier=?", (clean_item,), commit=True)
+            removed_count += 1
+        await event.reply(f"🗑️ <b>Removed {removed_count} Bots from UpList.</b>", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(viewuplist|showuplist|uplist|upallist)'))
+    async def ub_view_uplist_bots(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        rows = await execute_db_query("SELECT bot_identifier, added_at FROM uplist_bots", fetchall=True)
+        if not rows:
+            return await event.reply("📋 <b>UpList is currently empty.</b>\n_Use <code>+addupallist @bot1, @bot2</code> to register bots._", parse_mode="html")
+        txt = f"╔══〔 📋 <b>REGISTERED UPLIST BOTS ({len(rows)})</b> 〕══╗\n"
+        for i, r in enumerate(rows, 1):
+            txt += f"┃ {i}. 🤖 <code>{r[0]}</code> (Added: {r[1]})\n"
+        txt += "╚══════════════════════════════════════╝\n⚡ <i>Commands: <code>+upall</code> (Add all to chat) • <code>+promoteallbots</code> (Promote all)</i>"
+        await event.reply(txt, parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'\{PREFIX}clearuplist'))
+    async def ub_clear_uplist_bots(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        await execute_db_query("DELETE FROM uplist_bots", commit=True)
+        await event.reply("🧹 <b>UpList completely cleared!</b>", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'\{PREFIX}upall$'))
+    async def ub_upall_bots_to_chat(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        rows = await execute_db_query("SELECT bot_identifier FROM uplist_bots", fetchall=True)
+        if not rows:
+            return await event.reply("⚠️ <b>UpList is empty!</b> Add bots via <code>+addupallist @bot1, @bot2</code> first.", parse_mode="html")
+        status_msg = await event.reply(f"🚀 <b>Inviting {len(rows)} UpList Bots into this group chat...</b>", parse_mode="html")
+        joined_count = 0
+        failed_count = 0
+        for r in rows:
+            bot_id_str = r[0].strip()
+            try:
+                b_target = int(bot_id_str) if bot_id_str.lstrip("-").isdigit() else bot_id_str
+                b_entity = await event.client.get_input_entity(b_target)
+                await event.client(InviteToChannelRequest(channel=event.chat_id, users=[b_entity]))
+                joined_count += 1
+                await asyncio.sleep(0.5)
+            except Exception:
+                failed_count += 1
+        await status_msg.edit(f"✅ <b>UpAll Process Complete:</b>\n• Successfully Added: <code>{joined_count}</code> Bots\n• Failed / Already in Chat: <code>{failed_count}</code>\n👉 <i>Run <code>+promoteallbots</code> to grant admin rights!</i>", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(promoteallbots|promotebots|upallpromote)'))
+    async def ub_promote_all_bots(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        status_msg = await event.reply("👑 <b>Promoting all UpList & linked Bots in this group to Admin...</b>", parse_mode="html")
+
+        # Custom permissions requested: Change info, add admin, post/edit messages, pin, invite, manage call, strictly NO delete message and NO ban
         rights = types.ChatAdminRights(
             change_info=True,
             post_messages=True,
             edit_messages=True,
-            delete_messages=True,
-            ban_users=True,
+            delete_messages=False, # Strictly NO delete messages
+            ban_users=False,       # Strictly NO ban users
             invite_users=True,
             pin_messages=True,
-            add_admins=False,
+            add_admins=True,       # Add admin permission
             anonymous=False,
-            manage_call=True,
-            manage_topics=True
+            manage_call=True
         )
 
-        promoted_count = 0
-        failed_count = 0
-
-        # Collect bot usernames / IDs from managed_bots & token usernames
         bot_identifiers = set()
-        rows = await execute_db_query("SELECT bot_id FROM managed_bots", fetchall=True)
+        # 1. From UpList database
+        rows = await execute_db_query("SELECT bot_identifier FROM uplist_bots", fetchall=True)
         if rows:
             for r in rows:
+                if r[0]: bot_identifiers.add(r[0].strip())
+
+        # 2. From managed_bots & token usernames
+        mb_rows = await execute_db_query("SELECT bot_id FROM managed_bots", fetchall=True)
+        if mb_rows:
+            for r in mb_rows:
                 if r[0]: bot_identifiers.add(r[0].strip())
         for uname in bot_usernames.values():
             if uname: bot_identifiers.add(f"@{uname}" if not uname.startswith("@") else uname)
 
         if not bot_identifiers:
-            return await status_msg.edit("⚠️ No linked Multi-Bots found. Add bots via <code>+addbot &lt;token&gt;</code> first!", parse_mode="html")
+            return await status_msg.edit("⚠️ No UpList or linked Multi-Bots found. Add bots via <code>+addupallist @bot1, @bot2</code> first!", parse_mode="html")
 
+        promoted_count = 0
+        failed_count = 0
         for b_id in bot_identifiers:
             try:
-                b_entity = await event.client.get_input_entity(b_id)
+                b_target = int(b_id) if b_id.lstrip("-").isdigit() else b_id
+                b_entity = await event.client.get_input_entity(b_target)
                 await event.client(EditAdminRequest(channel=event.chat_id, user_id=b_entity, admin_rights=rights, rank="Admin Bot"))
                 promoted_count += 1
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.5)
             except Exception:
                 failed_count += 1
 
-        await status_msg.edit(f"👑 <b>Multi-Bot Promotion Finished:</b>\n• Successfully Promoted: <code>{promoted_count}</code> Admin Bots\n• Failed / Not in chat: <code>{failed_count}</code>", parse_mode="html")
+        await status_msg.edit(f"👑 <b>Multi-Bot Admin Promotion Finished:</b>\n• Successfully Promoted: <code>{promoted_count}</code> Admin Bots\n• <i>Permissions: Change Info, Add Admin, Pin, Invite, Messages</i>\n• <i>Restricted: Delete Messages / Ban NOT granted.</i>\n• Failed / Not in Chat: <code>{failed_count}</code>", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}addmembers(?:\s+(\S+))?(?:\s+(\S+))?'))
     async def ub_add_members_mass(event):
@@ -2442,7 +2583,8 @@ def bot_nc_task(bot, token, chat_id):
                 state['ncIndex'] = (state['ncIndex'] + 1) % len(state['ncNames'])
                 state['ncEmojiIndex'] = (state['ncEmojiIndex'] + 1) % len(state['ncEmojis'])
         except Exception: pass
-        time.sleep(max(3, state.get("ncDelay", 5)))
+        delay = max(0.01, float(state.get("ncDelay", 0.05)))
+        time.sleep(delay)
 
 def bot_photo_task(bot, token, chat_id):
     while True:
@@ -2455,58 +2597,65 @@ def bot_photo_task(bot, token, chat_id):
         except Exception: pass
         time.sleep(max(10000, state.get("photoDelay", 60000)) / 1000.0)
 
-BOT_MENU_TEXT = f"""
-🌟 *👑 KING MULTI BOT MATRIX MENU* 🌟
+BOT_MENU_TEXT = """
+🌟 *👑 KING MULTI BOT MENU* 🌟
 
-🛠 *GENERAL & ADMIN*:
-{BOT_PREFIX}start - Start the bot
-{BOT_PREFIX}menu - Show this menu
-{BOT_PREFIX}addadmin <id> - Add Admin
-{BOT_PREFIX}removeadmin <id> - Remove Admin
-{BOT_PREFIX}showadmins - List Admins
-{BOT_PREFIX}addbot <token> - Add & Activate New Bot
+🛠 *ADMIN COMMANDS*:
+!addadmin <id> - Add Admin
+!removeadmin <id> - Remove Admin
+!showadmins - List Admins
 
 💬 *AUTO REPLY*:
-{BOT_PREFIX}reply <msg> - Start Auto Reply
-{BOT_PREFIX}stopreply - Stop Auto Reply
+!reply <msg> - Start Auto Reply
+!stopreply - Stop Auto Reply
 
-🎲 *SWIPE & REACT*:
-{BOT_PREFIX}setswipe <a|b|c> - Set Swipe List
-{BOT_PREFIX}clearswipe - Clear Swipe
-{BOT_PREFIX}setreact 😀😂🔥 - Set Reactions
-{BOT_PREFIX}clearreact - Clear Reactions
+🎲 *SWIPE*:
+!setswipe <a|b|c> - Set Swipe List
+!clearswipe - Clear Swipe
 
-🗣 *TTS & MEDIA*:
-{BOT_PREFIX}tts <text> - Send Voice Message
-{BOT_PREFIX}song <title> - Fast Stream & Send Full Audio (5-10 Mins)
-{BOT_PREFIX}ai <prompt> - Chatbot AI
+😎 *REACTIONS*:
+!setreact 😀😂🔥 - Set Reactions
+!clearreact - Clear Reactions
+
+🗣 *TTS*:
+!tts <text> - Send Voice Message
 
 ♻️ *NC (Name Cycling)*:
-{BOT_PREFIX}startnc <a|b> - Start Group Name Cycling
-{BOT_PREFIX}stopnc - Stop NC
-{BOT_PREFIX}ncdelay <sec> - Set NC Delay
+!startnc <a|b> - Start NC
+!stopnc - Stop NC
+!ncdelay <ms> - Set NC Delay
 
 📢 *SPAM*:
-{BOT_PREFIX}startspam <msg> - Start Spam
-{BOT_PREFIX}stopspam - Stop Spam
-{BOT_PREFIX}spamdelay <ms> - Set Spam Delay
+!startspam <msg> - Start Spam
+!stopspam - Stop Spam
+!spamdelay <ms> - Set Spam Delay
+
+🌐 *GROUP-WIDE*:
+!fetchallgc - Fetch All Groups
+!targetallgc - Target All Groups
+!gcspam <msg> - Spam All Targeted Groups
+!gcstopspam - Stop Spam in All Groups
+!gcnc <names> - NC in All Groups
+!gcstopnc - Stop NC in All Groups
 
 📸 *GROUP PHOTO*:
-{BOT_PREFIX}changegroupphoto1 - Start Group Photo Change
-{BOT_PREFIX}stopphotochange - Stop Group Photo Change
-{BOT_PREFIX}changegrouphotodelay <sec> - Change Photo Delay
+!changegroupphoto1 - Start Group Photo Change Loop
+!stopphotochange - Stop Group Photo Change Loop
+!changegrouphotodelay <sec> - Change Photo Change Delay
 
 📊 *STATUS*:
-{BOT_PREFIX}status - Show Bot Status & Uptime
+!status - Show Bot Status & Uptime
 """
 
 def setup_telebot_handlers(bot, token):
-    @bot.message_handler(func=lambda msg: msg.text and msg.text.startswith(BOT_PREFIX))
+    @bot.message_handler(func=lambda msg: msg.text and any(msg.text.startswith(p) for p in ["!", "?", "+", "/", "."]))
     def handle_commands(msg):
         text = msg.text
-        parts = text.split(' ', 1)
+        prefix_used = text[0]
+        cmd_body = text[1:].strip()
+        parts = cmd_body.split(' ', 1)
         raw_cmd = parts[0].lower()
-        args = parts[1] if len(parts) > 1 else ""
+        args = parts[1].strip() if len(parts) > 1 else ""
         user_id = msg.from_user.id
         chat_id = msg.chat.id
 
@@ -2515,76 +2664,84 @@ def setup_telebot_handlers(bot, token):
             if target_username.lower() != bot_usernames.get(token, "").lower(): return
         else: cmd = raw_cmd
 
-        if cmd == f'{BOT_PREFIX}start':
-            bot.send_message(chat_id, "🔥 *Welcome to Server God Clan Bot Engine!*", parse_mode="Markdown")
+        if cmd in ['start', 'king']:
+            bot.send_message(chat_id, "🔥 *Welcome to Server God Clan King Multi Bot Engine!*", parse_mode="Markdown")
 
-        elif cmd == f'{BOT_PREFIX}menu':
+        elif cmd == 'menu':
             bot.send_message(chat_id, BOT_MENU_TEXT, parse_mode="Markdown")
 
-        elif cmd == f'{BOT_PREFIX}ai':
-            if not args: return bot.reply_to(msg, "⚠️ Usage: ?ai <prompt>")
+        elif cmd == 'ai':
+            if not args: return bot.reply_to(msg, "⚠️ Usage: !ai <prompt>")
             m = bot.reply_to(msg, "🧠 Thinking...")
             ans = query_unlimited_ai(args)
             bot.edit_message_text(f"🤖 **[ Server God AI ]**\n\n{ans}", chat_id, m.message_id)
 
-        elif cmd == f'{BOT_PREFIX}addadmin':
+        elif cmd == 'addadmin':
             if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
             if args.isdigit():
                 sync_execute_db_query("INSERT OR REPLACE INTO bot_admins VALUES (?, ?)", (int(args), datetime.now().strftime("%Y-%m-%d")), commit=True)
-                bot.reply_to(msg, f"✅ Bot Admin `{args}` added.")
+                bot.reply_to(msg, f"✅ Admin `{args}` Added")
+            elif msg.reply_to_message and msg.reply_to_message.from_user:
+                r_id = msg.reply_to_message.from_user.id
+                sync_execute_db_query("INSERT OR REPLACE INTO bot_admins VALUES (?, ?)", (int(r_id), datetime.now().strftime("%Y-%m-%d")), commit=True)
+                bot.reply_to(msg, f"✅ Admin `{r_id}` Added")
 
-        elif cmd == f'{BOT_PREFIX}removeadmin':
+        elif cmd == 'removeadmin':
             if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
             if args.isdigit():
                 sync_execute_db_query("DELETE FROM bot_admins WHERE user_id=?", (int(args),), commit=True)
-                bot.reply_to(msg, f"❌ Bot Admin `{args}` removed.")
+                bot.reply_to(msg, f"❌ Admin `{args}` Removed")
+            elif msg.reply_to_message and msg.reply_to_message.from_user:
+                r_id = msg.reply_to_message.from_user.id
+                sync_execute_db_query("DELETE FROM bot_admins WHERE user_id=?", (int(r_id),), commit=True)
+                bot.reply_to(msg, f"❌ Admin `{r_id}` Removed")
 
-        elif cmd == f'{BOT_PREFIX}showadmins':
+        elif cmd == 'showadmins':
             if not is_bot_admin_sync(user_id): return
             rows = sync_execute_db_query("SELECT user_id FROM bot_admins", fetchall=True)
-            admins_text = "\n".join([f"• `{r[0]}`" for r in rows]) if rows else "No Bot Admins."
-            bot.send_message(chat_id, f"👑 **Bot Admins:**\n{admins_text}", parse_mode="Markdown")
+            admins_list = [str(r[0]) for r in rows] if rows else ["5214825153"]
+            bot.send_message(chat_id, "\n".join(admins_list))
 
-        elif cmd == f'{BOT_PREFIX}addbot':
+        elif cmd == 'addbot':
             if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
-            if not args: return bot.reply_to(msg, f"⚠️ Usage: {BOT_PREFIX}addbot <token>")
+            if not args: return bot.reply_to(msg, "⚠️ Usage: !addbot <token>")
             new_token = args.strip()
             if new_token in running_bots: return bot.reply_to(msg, "⚠️ Bot running already.")
             with open(TOKEN_FILE, "a") as f: f.write(f"{new_token}\n")
             threading.Thread(target=start_single_bot, args=(new_token,), daemon=True).start()
             bot.reply_to(msg, "✅ Bot added and activated!")
 
-        elif cmd == f'{BOT_PREFIX}reply':
+        elif cmd == 'reply':
             if not is_bot_admin_sync(user_id) or not args: return
             ensure_group(token, chat_id).update({"autoReplyAll": True, "autoReplyMessage": args})
             bot.send_message(chat_id, "💬 Auto Reply ON")
 
-        elif cmd in [f'{BOT_PREFIX}stopreply', f'{BOT_PREFIX}replystop']:
+        elif cmd in ['stopreply', 'replystop']:
             if not is_bot_admin_sync(user_id): return
             ensure_group(token, chat_id)["autoReplyAll"] = False
             bot.send_message(chat_id, "🛑 Auto Reply OFF")
 
-        elif cmd == f'{BOT_PREFIX}setswipe':
+        elif cmd == 'setswipe':
             if not is_bot_admin_sync(user_id) or not args: return
             ensure_group(token, chat_id)["swipeList"] = args.split("|")
-            bot.send_message(chat_id, "🎲 Swipe List Set")
+            bot.send_message(chat_id, "🎲 Swipe Set")
 
-        elif cmd in [f'{BOT_PREFIX}clearswipe', f'{BOT_PREFIX}stopswipe', f'{BOT_PREFIX}swipestop']:
+        elif cmd in ['clearswipe', 'stopswipe', 'swipestop']:
             if not is_bot_admin_sync(user_id): return
             ensure_group(token, chat_id)["swipeList"] = []
-            bot.send_message(chat_id, "🧹 Swipe List Cleared")
+            bot.send_message(chat_id, "🧹 Swipe Cleared")
 
-        elif cmd == f'{BOT_PREFIX}setreact':
+        elif cmd == 'setreact':
             if not is_bot_admin_sync(user_id) or not args: return
             ensure_group(token, chat_id)["reactions"] = list(args.replace(" ", ""))
-            bot.send_message(chat_id, "😎 Reactions Set")
+            bot.send_message(chat_id, "😎 Reaction Set")
 
-        elif cmd in [f'{BOT_PREFIX}clearreact', f'{BOT_PREFIX}stopreact']:
+        elif cmd in ['clearreact', 'stopreact']:
             if not is_bot_admin_sync(user_id): return
             ensure_group(token, chat_id)["reactions"] = []
-            bot.send_message(chat_id, "🧹 Reactions Cleared")
+            bot.send_message(chat_id, "🧹 Reaction Cleared")
 
-        elif cmd == f'{BOT_PREFIX}tts':
+        elif cmd == 'tts':
             if not args: return
             file_name = f"tts_{int(time.time())}.mp3"
             try:
@@ -2593,8 +2750,8 @@ def setup_telebot_handlers(bot, token):
             finally:
                 if os.path.exists(file_name): os.remove(file_name)
 
-        elif cmd == f'{BOT_PREFIX}song':
-            if not args: return bot.reply_to(msg, "⚠️ Usage: ?song <name>")
+        elif cmd == 'song':
+            if not args: return bot.reply_to(msg, "⚠️ Usage: !song <name>")
             m = bot.reply_to(msg, f"🔍 Searching & downloading full JioSaavn audio for `{args}`...")
             temp_filename = f"bot_song_{chat_id}_{int(time.time())}.mp3"
             actual_file = temp_filename
@@ -2626,21 +2783,27 @@ def setup_telebot_handlers(bot, token):
                         try: os.remove(fpath)
                         except Exception: pass
 
-        elif cmd == f'{BOT_PREFIX}startnc':
+        elif cmd == 'startnc':
             if not is_bot_admin_sync(user_id) or not args: return
             st = ensure_group(token, chat_id)
             st.update({"ncNames": args.split("|"), "ncEmojiIndex": 0, "ncIndex": 0})
             if not st["ncInterval"]:
                 st["ncInterval"] = True
                 threading.Thread(target=bot_nc_task, args=(bot, token, chat_id), daemon=True).start()
-            bot.send_message(chat_id, "♻️ NC Started")
+            bot.send_message(chat_id, "♻️ NC Started with emojis and names.")
 
-        elif cmd in [f'{BOT_PREFIX}stopnc', f'{BOT_PREFIX}ncstop']:
+        elif cmd in ['stopnc', 'ncstop']:
             if not is_bot_admin_sync(user_id): return
-            ensure_group(token, chat_id)["ncInterval"] = False
-            bot.send_message(chat_id, "🛑 NC Stopped")
+            st = ensure_group(token, chat_id)
+            if not st.get("ncInterval"):
+                return bot.send_message(chat_id, "⚠️ No NC (Name Cycling) running.")
+            st["ncInterval"] = False
+            st["ncNames"] = []
+            st["ncIndex"] = 0
+            st["ncEmojiIndex"] = 0
+            bot.send_message(chat_id, "🛑 NC (Name Cycling) Stopped")
 
-        elif cmd in [f'{BOT_PREFIX}ncdelay', f'{BOT_PREFIX}setspeednc']:
+        elif cmd in ['ncdelay', 'setspeednc']:
             if not is_bot_admin_sync(user_id) or not args: return
             try:
                 val = int(args.strip())
@@ -2648,21 +2811,21 @@ def setup_telebot_handlers(bot, token):
                 bot.send_message(chat_id, f"⏱ NC Delay Set to {val}s")
             except Exception: pass
 
-        elif cmd == f'{BOT_PREFIX}startspam':
+        elif cmd == 'startspam':
             if not is_bot_admin_sync(user_id) or not args: return
             st = ensure_group(token, chat_id)
             st["spamMessage"] = args
             if not st["spamInterval"]:
                 st["spamInterval"] = True
                 threading.Thread(target=bot_spam_task, args=(bot, token, chat_id), daemon=True).start()
-            bot.send_message(chat_id, "📢 Spam Started")
+            bot.send_message(chat_id, f"📢 Spam Started: \"{args}\"")
 
-        elif cmd in [f'{BOT_PREFIX}stopspam', f'{BOT_PREFIX}spamstop', f'{BOT_PREFIX}killspam']:
+        elif cmd in ['stopspam', 'spamstop', 'killspam']:
             if not is_bot_admin_sync(user_id): return
             ensure_group(token, chat_id)["spamInterval"] = False
             bot.send_message(chat_id, "🛑 Spam Stopped")
 
-        elif cmd in [f'{BOT_PREFIX}spamdelay', f'{BOT_PREFIX}delay', f'{BOT_PREFIX}speed']:
+        elif cmd in ['spamdelay', 'delay', 'speed']:
             if not is_bot_admin_sync(user_id) or not args: return
             try:
                 val = int(args.strip())
@@ -2670,19 +2833,7 @@ def setup_telebot_handlers(bot, token):
                 bot.send_message(chat_id, f"⏱ Spam Delay Set to {val}ms")
             except Exception: pass
 
-        # MASTER STOP ALL COMMAND
-        elif cmd in [f'{BOT_PREFIX}stop', f'{BOT_PREFIX}stopall', f'{BOT_PREFIX}killall', f'{BOT_PREFIX}kill', f'{BOT_PREFIX}shutdown']:
-            if not is_bot_admin_sync(user_id): return
-            st = ensure_group(token, chat_id)
-            st["spamInterval"] = False
-            st["ncInterval"] = False
-            st["photoLoopInterval"] = False
-            st["autoReplyAll"] = False
-            st["swipeList"] = []
-            st["reactions"] = []
-            bot.send_message(chat_id, "🚨 *FORCE MASTER STOP: All spam, NC, photo loops, and auto-replies HALTED!*", parse_mode="Markdown")
-
-        elif cmd in [f'{BOT_PREFIX}changegroupphoto', f'{BOT_PREFIX}changegroupphoto1', f'{BOT_PREFIX}setgroupphoto']:
+        elif cmd in ['changegroupphoto', 'changegroupphoto1', 'setgroupphoto']:
             if not is_bot_admin_sync(user_id): return
             if msg.reply_to_message and msg.reply_to_message.photo:
                 try:
@@ -2699,34 +2850,109 @@ def setup_telebot_handlers(bot, token):
                     bot.reply_to(msg, f"❌ Failed to set photo: {e}")
             else:
                 st = ensure_group(token, chat_id)
-                if not st["photoLoopInterval"]:
-                    st["photoLoopInterval"] = True
-                    threading.Thread(target=bot_photo_task, args=(bot, token, chat_id), daemon=True).start()
-                bot.reply_to(msg, f"📸 Photo loop started or reply to a photo with `{BOT_PREFIX}changegroupphoto` to set photo directly!")
+                if st.get("photoLoopInterval"):
+                    return bot.send_message(chat_id, "⚠️ Photo Loop is already running.")
+                st["photoLoopInterval"] = True
+                threading.Thread(target=bot_photo_task, args=(bot, token, chat_id), daemon=True).start()
+                bot.send_message(chat_id, "📸 Group Photo Change Loop Started")
 
-        elif cmd in [f'{BOT_PREFIX}stopphotochange', f'{BOT_PREFIX}stopphoto']:
+        elif cmd in ['stopphotochange', 'stopphoto']:
             if not is_bot_admin_sync(user_id): return
-            ensure_group(token, chat_id)["photoLoopInterval"] = False
-            bot.send_message(chat_id, "🛑 Photo Loop Stopped")
+            st = ensure_group(token, chat_id)
+            if not st.get("photoLoopInterval"):
+                return bot.send_message(chat_id, "⚠️ No Photo Loop Running.")
+            st["photoLoopInterval"] = False
+            bot.send_message(chat_id, "🛑 Group Photo Change Loop Stopped")
 
-        elif cmd == f'{BOT_PREFIX}changegrouphotodelay':
-            if not is_bot_admin_sync(user_id) or not args.isdigit(): return
-            ensure_group(token, chat_id)["photoDelay"] = int(args) * 1000
-            bot.send_message(chat_id, f"⏱ Photo delay set to {args}s")
+        elif cmd == 'changegrouphotodelay':
+            if not is_bot_admin_sync(user_id) or not args.isdigit():
+                return bot.send_message(chat_id, "❌ Invalid delay. Please provide a positive number.")
+            val = int(args)
+            ensure_group(token, chat_id)["photoDelay"] = val * 1000
+            bot.send_message(chat_id, f"⏱ Photo change delay set to {val} seconds.")
 
-        elif cmd == f'{BOT_PREFIX}promotadminbots':
-            if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
-            bot.reply_to(msg, "👑 Promote command dispatched. All linked bots will be promoted to group administrators.")
-
-        elif cmd == f'{BOT_PREFIX}addmembers':
-            if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
-            bot.reply_to(msg, "👥 Mass Member Scrape & Add command dispatched to active Userbot engine.")
-
-        elif cmd == f'{BOT_PREFIX}status':
+        elif cmd == 'fetchallgc':
             if not is_bot_admin_sync(user_id): return
-            up_ms = int((time.time() - botStartTimes[token]) * 1000)
+            g_count = len(botGroupStates.get(token, {}))
+            bot.send_message(chat_id, f"🌐 Total Cached Group Chats: {g_count}")
+
+        elif cmd == 'targetallgc':
+            if not is_bot_admin_sync(user_id): return
+            bot.send_message(chat_id, "🎯 Targeted all accessible group chats!")
+
+        elif cmd == 'gcspam':
+            if not is_bot_admin_sync(user_id) or not args: return
+            for g_id in list(botGroupStates.get(token, {}).keys()):
+                st = ensure_group(token, g_id)
+                st["spamMessage"] = args
+                if not st["spamInterval"]:
+                    st["spamInterval"] = True
+                    threading.Thread(target=bot_spam_task, args=(bot, token, g_id), daemon=True).start()
+            bot.send_message(chat_id, f"📢 Mass Spam started across all groups: \"{args}\"")
+
+        elif cmd == 'gcstopspam':
+            if not is_bot_admin_sync(user_id): return
+            for g_id in list(botGroupStates.get(token, {}).keys()):
+                ensure_group(token, g_id)["spamInterval"] = False
+            bot.send_message(chat_id, "🛑 Mass Spam stopped across all groups.")
+
+        elif cmd == 'gcnc':
+            if not is_bot_admin_sync(user_id) or not args: return
+            for g_id in list(botGroupStates.get(token, {}).keys()):
+                st = ensure_group(token, g_id)
+                st.update({"ncNames": args.split("|"), "ncEmojiIndex": 0, "ncIndex": 0})
+                if not st["ncInterval"]:
+                    st["ncInterval"] = True
+                    threading.Thread(target=bot_nc_task, args=(bot, token, g_id), daemon=True).start()
+            bot.send_message(chat_id, "♻️ Group Name Cycling started across all groups.")
+
+        elif cmd == 'gcstopnc':
+            if not is_bot_admin_sync(user_id): return
+            for g_id in list(botGroupStates.get(token, {}).keys()):
+                ensure_group(token, g_id)["ncInterval"] = False
+            bot.send_message(chat_id, "🛑 Mass NC stopped across all groups.")
+
+        # MASTER STOP ALL COMMAND
+        elif cmd in ['stop', 'stopall', 'killall', 'kill', 'shutdown']:
+            if not is_bot_admin_sync(user_id): return
+            st = ensure_group(token, chat_id)
+            st["spamInterval"] = False
+            st["ncInterval"] = False
+            st["photoLoopInterval"] = False
+            st["autoReplyAll"] = False
+            st["swipeList"] = []
+            st["reactions"] = []
+            bot.send_message(chat_id, "🚨 *FORCE MASTER STOP: All spam, NC, photo loops, and auto-replies HALTED!*", parse_mode="Markdown")
+
+        elif cmd == 'status':
+            if not is_bot_admin_sync(user_id): return
+            g_states = botGroupStates.get(token, {})
+            totalGroups = len(g_states)
+            autoReplyCount = sum(1 for s in g_states.values() if s.get("autoReplyAll"))
+            ncCount = sum(1 for s in g_states.values() if s.get("ncInterval"))
+            spamCount = sum(1 for s in g_states.values() if s.get("spamInterval"))
+            swipeCount = sum(1 for s in g_states.values() if s.get("swipeList"))
+            reactionCount = sum(1 for s in g_states.values() if s.get("reactions"))
+            photoChangeCount = sum(1 for s in g_states.values() if s.get("photoLoopInterval"))
+
+            start_t = botStartTimes.get(token, time.time())
+            up_ms = int((time.time() - start_t) * 1000)
             h, m, s_t = up_ms // 3600000, (up_ms % 3600000) // 60000, (up_ms % 60000) // 1000
-            bot.send_message(chat_id, f"🌟 *👑 BOT STATUS*\n🤖 @{bot_usernames[token]}\n⏱ Uptime: {h}h {m}m {s_t}s", parse_mode="Markdown")
+
+            status_msg = f"""🌟 *👑 KING MULTI BOT STATUS* 🌟
+
+👥 Total Groups: {totalGroups}
+
+💬 Auto Reply Running: {autoReplyCount} Groups
+♻️ NC Running: {ncCount} Groups
+📢 Spam Running: {spamCount} Groups
+🎲 Swipe Configured: {swipeCount} Groups
+😎 Reactions Configured: {reactionCount} Groups
+📸 Photo Loop Running: {photoChangeCount} Groups
+
+⏱ *BOT UPTIME*
+🤖 Bot {token[:10]}... Uptime: {h}h {m}m {s_t}s"""
+            bot.send_message(chat_id, status_msg, parse_mode="Markdown")
 
     @bot.message_handler(func=lambda msg: True, content_types=['text'])
     def handle_text(msg):
@@ -3643,12 +3869,12 @@ class BotSwarmManager:
                     title = f"{base_text} {random.choice(NC_LINES)}"
                 await bot.set_chat_title(chat_id, title)
                 self.sent_count += 1
-                await asyncio.sleep(self.burst_delay)
+                await asyncio.sleep(max(0.01, self.burst_delay))
             except RetryAfter as e:
-                await asyncio.sleep(e.retry_after)
+                await asyncio.sleep(min(1.0, e.retry_after))
             except Exception:
                 self.failed_count += 1
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.02)
 
     async def _run_spam_loop(self, chat_id: int, payload: str):
         idx = 0

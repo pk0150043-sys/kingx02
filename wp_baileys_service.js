@@ -80,6 +80,78 @@ for (const dir of [SESSIONS_BASE_DIR, RECORDINGS_DIR]) {
   }
 }
 
+const { MongoClient } = require('mongodb');
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://princeopxl026_db_user:PRINCE%409507325@cluster0.8hcoae.mongodb.net/igtgwp_db?retryWrites=true&w=majority';
+let mongoClient = null;
+let mongoDb = null;
+
+async function initMongo() {
+  try {
+    mongoClient = new MongoClient(MONGODB_URI, { maxPoolSize: 10, serverSelectionTimeoutMS: 8000 });
+    await mongoClient.connect();
+    mongoDb = mongoClient.db();
+    console.log('🍃 [MONGODB] Connected successfully to Atlas MongoDB database for WhatsApp sessions!');
+    await restoreAllSessionsFromMongo();
+  } catch (err) {
+    console.error('⚠️ [MONGODB NOTICE]:', err.message);
+  }
+}
+
+async function restoreAllSessionsFromMongo() {
+  if (!mongoDb) return;
+  try {
+    const col = mongoDb.collection('wp_sessions');
+    const docs = await col.find({}).toArray();
+    for (const doc of docs) {
+      const uid = doc._id;
+      if (!uid || !doc.files) continue;
+      const authDir = getSessionAuthDir(uid);
+      if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+      for (const [fname, content] of Object.entries(doc.files)) {
+        const filePath = path.join(authDir, fname);
+        if (!fs.existsSync(filePath)) {
+          fs.writeFileSync(filePath, content, 'utf8');
+        }
+      }
+      logMsg(uid, `🍃 Restored session credentials from MongoDB Atlas for: ${uid}`);
+    }
+  } catch (e) {
+    console.error('[MONGODB RESTORE ERROR]:', e.message);
+  }
+}
+
+async function saveSessionToMongo(uid) {
+  if (!mongoDb || !uid) return;
+  try {
+    const authDir = getSessionAuthDir(uid);
+    if (!fs.existsSync(authDir)) return;
+    const files = {};
+    const list = fs.readdirSync(authDir);
+    for (const f of list) {
+      const fpath = path.join(authDir, f);
+      const stat = fs.statSync(fpath);
+      if (stat.isFile() && stat.size < 500000) {
+        files[f] = fs.readFileSync(fpath, 'utf8');
+      }
+    }
+    if (Object.keys(files).length > 0) {
+      await mongoDb.collection('wp_sessions').updateOne(
+        { _id: uid },
+        { $set: { files, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    }
+  } catch (e) {}
+}
+
+async function deleteSessionFromMongo(uid) {
+  if (!mongoDb || !uid) return;
+  try {
+    await mongoDb.collection('wp_sessions').deleteOne({ _id: uid });
+    logMsg(uid, `🍃 Purged WhatsApp session from MongoDB for node: ${uid}`);
+  } catch (e) {}
+}
+
 // In-Memory Global Registries
 const activeSessions = {};
 const globalLogs = [];
@@ -1376,6 +1448,9 @@ function saveSessionConfig(uid, data) {
         fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
       }
     } catch (e) {}
+
+    // Persist session config into MongoDB Atlas
+    saveSessionToMongo(uid);
   } catch (err) {
     logMsg(uid, `Failed to save session config: ${err.message}`);
   }
@@ -1404,6 +1479,7 @@ function deleteSessionAuthDir(uid) {
   } catch (err) {
     logMsg(uid, `Error deleting auth directory: ${err.message}`);
   }
+  deleteSessionFromMongo(uid);
 }
 
 function stopAllOperations(sess) {
@@ -1733,6 +1809,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
       try {
         if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
         await saveCreds();
+        await saveSessionToMongo(uid);
       } catch (err) {}
     });
 
@@ -1740,8 +1817,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        // If pairing code is active and under 15 minutes old, keep pairing code active
-        const isPairingActive = (sess.status === 'PAIRING' || options.isPairing) && sess.pairingCode && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 900000);
+        // If pairing code is active and under 10 minutes old, keep pairing code active
+        const isPairingActive = (sess.status === 'PAIRING' || options.isPairing) && sess.pairingCode && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 600000);
         if (!isPairingActive && !options.isPairing) {
           sess.status = 'AWAITING_SCAN';
           sess.qrAttempts = (sess.qrAttempts || 0) + 1;
@@ -1776,6 +1853,9 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         sess.pairingCode = '';
         sess.pairingRawCode = '';
         sess.connectedAt = Date.now();
+
+        // Save fresh creds to MongoDB Atlas
+        saveSessionToMongo(uid);
 
         // Attach & Initialize Full WhatsApp VoIP Engine
         sess.voipManager = new SessionVoipManager(sess, uid);
@@ -3049,7 +3129,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             if (calls.length > 0) {
               calls.forEach((c, i) => {
                 const durSec = Math.floor((Date.now() - c.startTime) / 1000);
-                txt += `┃ ${i + 1}. Target: *${c.targetJid.split('@')[0]}*\n┃    Call ID: \`${c.callId}\`\n┃    Duration: *${durSec}s* | Mute: *${c.isMuted ? 'YES' : 'NO'}*\n┃    Auto-Unmute: *${c.autoUnmute ? 'ON' : 'OFF'}*\n`;
+                txt += `┃ ${i + 1}. Target: *${c.targetJid.split('@')[0]}*\n┃    Call ID: \`${c.callId}\`\n┃    Type: *${c.isVideo ? 'Video 🎥' : 'Audio 📞'}*\n┃    Duration: *${durSec}s* | Mute: *${c.isMuted ? 'YES' : 'NO'}*\n┃    Auto-Unmute: *${c.autoUnmute ? 'ON' : 'OFF'}*\n`;
               });
             } else {
               txt += `┃ 📞 Active Calls: *None*\n`;
@@ -3058,6 +3138,217 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             txt += `┃ 🎵 JioCall Loop: *${sess.chatLoops?.[jid]?.playjiocall ? 'RUNNING 🟢' : 'OFF ⚪'}*\n`;
             txt += `╚════════════════════════════════╝`;
             await sock.sendMessage(jid, { text: txt }, { quoted: msg });
+            continue;
+          }
+
+          // +videocall <number> (1-to-1 Video Call)
+          if (cmd === 'videocall' || cmd === 'outvideocall') {
+            const target = parts[1] || '';
+            const clean = cleanPhone(target);
+            if (!clean || clean.length < 7) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}videocall <Phone Number>\`\nExample: \`${sess.prefix}videocall 919507325677\`` }, { quoted: msg });
+              continue;
+            }
+            await sock.sendMessage(jid, { text: `🎥 *Initiating 1-to-1 High-Definition Video Call to +${clean}...*` }, { quoted: msg });
+            try {
+              if (!sess.voipManager) sess.voipManager = new SessionVoipManager(sess, uid);
+              const call = await sess.voipManager.call(clean, { isVideo: true, durationMs: 86400000 });
+              sess.activeCalls = sess.activeCalls || new Map();
+              sess.activeCalls.set(`${clean}@s.whatsapp.net`, {
+                callId: call.callId,
+                targetJid: `${clean}@s.whatsapp.net`,
+                startTime: Date.now(),
+                isVideo: true,
+                isMuted: false,
+                autoUnmute: true
+              });
+              await sock.sendMessage(jid, { text: `🎥 *Video Call Dialing +${clean}!*\n🆔 Call ID: \`${call.callId}\`` });
+            } catch (e) {
+              await sock.sendMessage(jid, { text: `❌ Video Call Error: ${e.message}` });
+            }
+            continue;
+          }
+
+          // +audiotovideo / +upgradetovideo (Audio -> Video Mid-Call Transition)
+          if (cmd === 'audiotovideo' || cmd === 'upgradetovideo') {
+            const activeCall = sess.voipManager?.activeCall;
+            if (!activeCall) {
+              await sock.sendMessage(jid, { text: `⚠️ No active call to upgrade to video.` }, { quoted: msg });
+              continue;
+            }
+            try {
+              const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_upg_${Date.now()}`;
+              await sock.sendNode({
+                tag: 'call',
+                attrs: { to: activeCall.targetJid || jid, id: stanzaId },
+                content: [{
+                  tag: 'video',
+                  attrs: { 'call-id': activeCall.callId, state: 'upgrade', t: String(Math.floor(Date.now() / 1000)) },
+                  content: []
+                }]
+              }).catch(() => {});
+              await sock.sendMessage(jid, { text: `🔄 *Audio ➔ Video Call Upgrade Dispatched!* 🎥` }, { quoted: msg });
+            } catch (e) {
+              await sock.sendMessage(jid, { text: `❌ Upgrade failed: ${e.message}` });
+            }
+            continue;
+          }
+
+          // +videotoaudio / +downgradetoaudio (Video -> Audio Mid-Call Transition)
+          if (cmd === 'videotoaudio' || cmd === 'downgradetoaudio') {
+            const activeCall = sess.voipManager?.activeCall;
+            if (!activeCall) {
+              await sock.sendMessage(jid, { text: `⚠️ No active call to downgrade to audio.` }, { quoted: msg });
+              continue;
+            }
+            try {
+              const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_dwn_${Date.now()}`;
+              await sock.sendNode({
+                tag: 'call',
+                attrs: { to: activeCall.targetJid || jid, id: stanzaId },
+                content: [{
+                  tag: 'video',
+                  attrs: { 'call-id': activeCall.callId, state: 'downgrade', t: String(Math.floor(Date.now() / 1000)) },
+                  content: []
+                }]
+              }).catch(() => {});
+              await sock.sendMessage(jid, { text: `🔄 *Video ➔ Audio Call Downgrade Dispatched!* 📞` }, { quoted: msg });
+            } catch (e) {
+              await sock.sendMessage(jid, { text: `❌ Downgrade failed: ${e.message}` });
+            }
+            continue;
+          }
+
+          // +callreaction <emoji> (Call Emoji Reaction over RTC)
+          if (cmd === 'callreaction' || cmd === 'callreact' || cmd === 'groupcallreact') {
+            const emoji = parts[1] || '🔥';
+            const activeCall = sess.voipManager?.activeCall;
+            try {
+              const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_rxn_${Date.now()}`;
+              await sock.sendNode({
+                tag: 'call',
+                attrs: { to: activeCall?.targetJid || jid, id: stanzaId },
+                content: [{
+                  tag: 'reaction',
+                  attrs: { 'call-id': activeCall?.callId || 'active', emoji, t: String(Math.floor(Date.now() / 1000)) },
+                  content: []
+                }]
+              }).catch(() => {});
+              await sock.sendMessage(jid, { text: `👍 *Call Emoji Reaction Sent:* ${emoji}` }, { quoted: msg });
+            } catch (e) {
+              await sock.sendMessage(jid, { text: `❌ Call reaction error: ${e.message}` });
+            }
+            continue;
+          }
+
+          // +adhoccall <num1,num2,...> (Multi-Party Ad-hoc Call)
+          if (cmd === 'adhoccall' || cmd === 'groupcall') {
+            const numArg = fullArg || '';
+            const nums = numArg.split(/[,\s]+/).map(cleanPhone).filter(n => n.length >= 7);
+            if (nums.length === 0) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}adhoccall <num1,num2,...>\`\nExample: \`${sess.prefix}adhoccall 919507325677,918986269256\`` }, { quoted: msg });
+              continue;
+            }
+            await sock.sendMessage(jid, { text: `👥 *Initiating Ad-Hoc Group Call with ${nums.length} participants...*` }, { quoted: msg });
+            try {
+              if (!sess.voipManager) sess.voipManager = new SessionVoipManager(sess, uid);
+              const firstNum = nums[0];
+              const call = await sess.voipManager.call(firstNum, { durationMs: 86400000 });
+              for (let i = 1; i < nums.length; i++) {
+                const pNum = nums[i];
+                const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_add_${Date.now()}`;
+                await sock.sendNode({
+                  tag: 'call',
+                  attrs: { to: `${pNum}@s.whatsapp.net`, id: stanzaId },
+                  content: [{
+                    tag: 'add_participant',
+                    attrs: { 'call-id': call.callId, jid: `${pNum}@s.whatsapp.net` },
+                    content: []
+                  }]
+                }).catch(() => {});
+              }
+              await sock.sendMessage(jid, { text: `👥 *Ad-Hoc Call Live!* ID: \`${call.callId}\` with ${nums.length} members.` });
+            } catch (e) {
+              await sock.sendMessage(jid, { text: `❌ Ad-hoc call error: ${e.message}` });
+            }
+            continue;
+          }
+
+          // +addparticipant <number> / +ringparticipant <number>
+          if (cmd === 'addparticipant' || cmd === 'ringparticipant') {
+            const pNum = cleanPhone(parts[1] || '');
+            if (!pNum) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}${cmd} <number>\`` }, { quoted: msg });
+              continue;
+            }
+            const activeCall = sess.voipManager?.activeCall;
+            const callId = activeCall?.callId || `call_${Date.now()}`;
+            try {
+              const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_ring_${Date.now()}`;
+              await sock.sendNode({
+                tag: 'call',
+                attrs: { to: `${pNum}@s.whatsapp.net`, id: stanzaId },
+                content: [{
+                  tag: cmd === 'addparticipant' ? 'add_participant' : 'ring_participant',
+                  attrs: { 'call-id': callId, jid: `${pNum}@s.whatsapp.net` },
+                  content: []
+                }]
+              }).catch(() => {});
+              await sock.sendMessage(jid, { text: `📳 *Participant +${pNum} ${cmd === 'addparticipant' ? 'Added' : 'Rung'} for Call!*` }, { quoted: msg });
+            } catch (e) {
+              await sock.sendMessage(jid, { text: `❌ Error: ${e.message}` });
+            }
+            continue;
+          }
+
+          // +handraise / +lowerhand (Hand Raise in Group Call)
+          if (cmd === 'handraise' || cmd === 'lowerhand' || cmd === 'raisehand') {
+            const isRaise = cmd !== 'lowerhand';
+            const activeCall = sess.voipManager?.activeCall;
+            try {
+              const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_hr_${Date.now()}`;
+              await sock.sendNode({
+                tag: 'call',
+                attrs: { to: activeCall?.targetJid || jid, id: stanzaId },
+                content: [{
+                  tag: 'hand_raise',
+                  attrs: { 'call-id': activeCall?.callId || 'active', state: isRaise ? 'raised' : 'lowered' },
+                  content: []
+                }]
+              }).catch(() => {});
+              await sock.sendMessage(jid, { text: `✋ *Hand ${isRaise ? 'Raised' : 'Lowered'} in Call!*` }, { quoted: msg });
+            } catch (e) {
+              await sock.sendMessage(jid, { text: `❌ Hand raise error: ${e.message}` });
+            }
+            continue;
+          }
+
+          // +screenshare on/off
+          if (cmd === 'screenshare' || cmd === 'sharescreen') {
+            const isShare = (parts[1] || '').toLowerCase() === 'on' || (parts[1] || '').toLowerCase() === '1';
+            const activeCall = sess.voipManager?.activeCall;
+            try {
+              const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_ss_${Date.now()}`;
+              await sock.sendNode({
+                tag: 'call',
+                attrs: { to: activeCall?.targetJid || jid, id: stanzaId },
+                content: [{
+                  tag: 'screen_share',
+                  attrs: { 'call-id': activeCall?.callId || 'active', state: isShare ? 'start' : 'stop' },
+                  content: []
+                }]
+              }).catch(() => {});
+              await sock.sendMessage(jid, { text: `🖥️ *Screen-Share State:* *${isShare ? 'ACTIVE 🟢' : 'STOPPED 🔴'}*` }, { quoted: msg });
+            } catch (e) {
+              await sock.sendMessage(jid, { text: `❌ Screen-share error: ${e.message}` });
+            }
+            continue;
+          }
+
+          // +waitingroom on/off
+          if (cmd === 'waitingroom' || cmd === 'callwaiting') {
+            sess.waitingRoomEnabled = (parts[1] || '').toLowerCase() === 'on' || (parts[1] || '').toLowerCase() === '1';
+            await sock.sendMessage(jid, { text: `🚪 *Call Waiting Room:* *${sess.waitingRoomEnabled ? 'ENABLED (Host Approval Required) 🟢' : 'DISABLED 🔴'}*` }, { quoted: msg });
             continue;
           }
 
@@ -4399,6 +4690,57 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
+          if (cmd === 'adduserbot' || cmd === 'addbotphone' || cmd === 'pairbot') {
+            const rawPhone = (parts[1] || '').trim();
+            const clean = cleanPhone(rawPhone);
+            if (!clean || clean.length < 7) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}adduserbot <Phone Number with Country Code>\`\nExample: \`${sess.prefix}adduserbot 919507325677\`` }, { quoted: msg });
+              continue;
+            }
+            const newUid = `wp_usr_${clean.slice(-6)}_${Date.now().toString().slice(-4)}`;
+            await sock.sendMessage(jid, { text: `🔄 *Allocating Userbot Node & Requesting Pairing Code for +${clean}...*` }, { quoted: msg });
+            try {
+              const newSess = await initSessionSocket(newUid, sess.ownerJid, { force: true, isPairing: true });
+              let attempts = 0;
+              while ((!newSess.sock || !newSess.sock.requestPairingCode) && attempts < 20) {
+                await sleep(250);
+                attempts++;
+              }
+              await sleep(1500);
+              const rawCode = await newSess.sock.requestPairingCode(clean);
+              const formatted = rawCode ? (rawCode.match(/.{1,4}/g)?.join('-') || rawCode) : '';
+              newSess.pairingCode = formatted;
+              newSess.pairingRawCode = rawCode;
+              newSess.pairingPhone = clean;
+              newSess.pairingCodeCreatedAt = Date.now();
+              newSess.status = 'PAIRING';
+              saveSessionConfig(newUid, { name: `Userbot_${clean.slice(-4)}`, owner_jid: sess.ownerJid, owner: sess.ownerJid });
+
+              const pairText = `╔══〔 👑 *WHATSAPP USERBOT PAIRING CODE* 〕══╗
+┃ 📱 *Phone:* \`+${clean}\`
+┃ 🔑 *Pairing Code:* *${formatted}*
+┃ 🆔 *Node UID:* \`${newUid}\`
+┃ ⏱️ *Valid For:* *10 Minutes (600s)*
+╚════════════════════════════════════╝
+👉 *How to Link:*
+1. Open WhatsApp on *+${clean}*
+2. Tap *Settings > Linked Devices > Link with phone number*
+3. Enter code: *${formatted}*`;
+
+              if (fs.existsSync(MAIN_PIC_PATH)) {
+                await sock.sendMessage(jid, {
+                  image: fs.readFileSync(MAIN_PIC_PATH),
+                  caption: pairText
+                }, { quoted: msg });
+              } else {
+                await sock.sendMessage(jid, { text: pairText }, { quoted: msg });
+              }
+            } catch (err) {
+              await sock.sendMessage(jid, { text: `❌ *Pairing Error:* ${err.message}` }, { quoted: msg });
+            }
+            continue;
+          }
+
           if (cmd === 'addbotsession' || cmd === 'addbot') {
             const botName = (parts[1] || '').trim();
             if (!botName) {
@@ -4411,26 +4753,48 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          if (cmd === 'removebot' || cmd === 'delbot') {
+          if (cmd === 'removeuserbot' || cmd === 'deluserbot' || cmd === 'removebot' || cmd === 'delbot') {
             const targetUid = (parts[1] || '').trim();
-            if (!targetUid || !activeSessions[targetUid]) {
-              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}removebot <SessionName>\`` }, { quoted: msg });
+            if (!targetUid) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}removeuserbot <Session_UID_or_Phone>\`` }, { quoted: msg });
               continue;
             }
-            deleteSessionAuthDir(targetUid);
-            delete activeSessions[targetUid];
-            await sock.sendMessage(jid, { text: `🗑️ Bot session \`${targetUid}\` destroyed.` }, { quoted: msg });
+            let foundKey = Object.keys(activeSessions).find(k => k === targetUid || k.includes(targetUid) || (activeSessions[k]?.connectedNumber && activeSessions[k].connectedNumber.includes(targetUid)));
+            const keyToDelete = foundKey || targetUid;
+            deleteSessionAuthDir(keyToDelete);
+            delete activeSessions[keyToDelete];
+            await sock.sendMessage(jid, { text: `🗑️ Userbot / Bot Session \`${keyToDelete}\` unlinked and purged from MongoDB & disk.` }, { quoted: msg });
             continue;
           }
 
-          if (cmd === 'bots') {
+          if (cmd === 'viewuserbots' || cmd === 'userbots' || cmd === 'listuserbots' || cmd === 'bots' || cmd === 'botlist') {
             const count = Object.keys(activeSessions).length;
-            let list = `╔══〔 🛰️ *ONLINE BOT NODES (${count})* 〕══╗\n`;
+            let list = `╔══〔 🛰️ *ACTIVE USERBOTS & NODES (${count})* 〕══╗\n`;
             for (const [sUid, sData] of Object.entries(activeSessions)) {
-              list += `┃ 🤖 *${sUid}* [${sData.status || 'OFFLINE'}]\n┃    📱 No: ${sData.connectedNumber || 'Not Linked'}\n`;
+              const upSec = sData.connectedAt ? Math.floor((Date.now() - sData.connectedAt) / 1000) : 0;
+              const h = Math.floor(upSec / 3600);
+              const m = Math.floor((upSec % 3600) / 60);
+              list += `┃ 🤖 *${sUid}* [${sData.status || 'OFFLINE'}]\n┃    📱 No: *${sData.connectedNumber || 'Not Linked'}* | ⏱️ Uptime: ${h}h ${m}m\n`;
             }
-            list += `╚═════════════════════════════╝`;
-            await sock.sendMessage(jid, { text: list }, { quoted: msg });
+            list += `╚══════════════════════════════════════╝\n_Use \`${sess.prefix}adduserbot <phone>\` to link new userbots._`;
+            
+            if (fs.existsSync(DASHBOARD_PIC_PATH)) {
+              await sock.sendMessage(jid, { image: fs.readFileSync(DASHBOARD_PIC_PATH), caption: list }, { quoted: msg });
+            } else {
+              await sock.sendMessage(jid, { text: list }, { quoted: msg });
+            }
+            continue;
+          }
+
+          if (cmd === 'vclink' || cmd === 'calllink' || cmd === 'grouplinkcall') {
+            const inviteCode = isGroup ? await sock.groupInviteCode(jid).catch(() => '') : '';
+            const linkText = `╔══〔 📞 *WHATSAPP GROUP VC & CALL HUB* 〕══╗
+┃ 🎯 Chat: *${isGroup ? 'Group VC' : 'Direct Call'}*
+┃ 🔗 Invite Code: *${inviteCode || 'N/A'}*
+┃ 🔊 Live VoIP Streamer: *Ready (51.mp3 / JioSaavn)*
+┃ ⚡ Control: \`${sess.prefix}play1call\` • \`${sess.prefix}playjiocall <song>\`
+╚══════════════════════════════════════╝`;
+            await sock.sendMessage(jid, { text: linkText }, { quoted: msg });
             continue;
           }
 
@@ -4451,8 +4815,9 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 // AUTO-DISCOVER & RESUME ALL SESSIONS AT STARTUP
 // ============================================================================
 async function autoResumeAllSessions() {
-  logMsg('SYSTEM', '🔍 Auto-discovering all registered sessions from ./sessions/ ...');
+  logMsg('SYSTEM', '🔍 Connecting to MongoDB Atlas & Scanning registered sessions...');
   try {
+    await initMongo();
     if (!fs.existsSync(SESSIONS_BASE_DIR)) return;
     const entries = fs.readdirSync(SESSIONS_BASE_DIR, { withFileTypes: true });
 

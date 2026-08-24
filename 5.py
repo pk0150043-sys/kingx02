@@ -676,27 +676,35 @@ def get_full_db():
     return cache_db
 
 def get_owner_creds():
+    env_user = os.getenv("OWNER_USERNAME", "OWNER").strip()
+    env_pass = os.getenv("OWNER_PASSWORD", "PRINCE@9507325").strip()
     default_creds = {
-        "username": os.getenv("OWNER_USERNAME", "OWNER").strip(),
-        "password": os.getenv("OWNER_PASSWORD", "PRINCE@9507325").strip(),
-        "name": "PLATFORM OWNER",
+        "username": env_user or "OWNER",
+        "password": env_pass or "PRINCE@9507325",
+        "name": "SERVER GOD CLAN EMPEROR",
         "email": "spamkingxl400@gmail.com"
     }
     if "owner_creds" in cache_db and cache_db["owner_creds"].get("password"):
-        return cache_db["owner_creds"]
+        cached = cache_db["owner_creds"]
+        # Always guarantee .env password works
+        if env_pass and cached.get("password") != env_pass:
+            cached["password"] = env_pass
+            cached["username"] = env_user or cached.get("username", "OWNER")
+        return cached
     if mongo_connected and mongo_db is not None:
         try:
             doc = mongo_db["owner_creds"].find_one({"_id": "master_owner"})
             if doc:
                 cache_db["owner_creds"] = {
                     "username": doc.get("username", default_creds["username"]),
-                    "password": doc.get("password", default_creds["password"]),
+                    "password": env_pass if env_pass else doc.get("password", default_creds["password"]),
                     "name": doc.get("name", default_creds["name"]),
                     "email": doc.get("email", default_creds["email"])
                 }
                 return cache_db["owner_creds"]
         except Exception:
             pass
+    cache_db["owner_creds"] = default_creds
     return default_creds
 
 def save_owner_creds(creds):
@@ -1181,13 +1189,39 @@ def register():
 @app.route("/api/auth/login", methods=["POST"])
 def user_login():
     data = request.json or {}
-    email = data.get("email", "").lower().strip()
+    email = data.get("email", "").strip()
     password = data.get("password", "").strip()
 
     if not email or not password:
         return jsonify({"success": False, "message": "Email and Password are required!"}), 400
 
-    user = find_user_by_email(email)
+    # 👑 Master / Owner Instant Login Bypass
+    env_user = os.getenv("OWNER_USERNAME", "OWNER").strip()
+    env_pass = os.getenv("OWNER_PASSWORD", "PRINCE@9507325").strip()
+    creds = get_owner_creds()
+    expected_user = str(creds.get("username", env_user)).strip()
+    expected_pass = str(creds.get("password", env_pass)).strip()
+
+    is_owner_creds = (
+        (email.upper() in [env_user.upper(), expected_user.upper(), "OWNER", "ADMIN"] or email.lower() == creds.get("email", "").lower())
+        and (password == env_pass or password == expected_pass)
+    )
+
+    if is_owner_creds:
+        session.clear()
+        session.permanent = True
+        session["role"] = "owner"
+        session["user"] = expected_user or "OWNER"
+        session["name"] = creds.get("name", "SERVER GOD CLAN EMPEROR")
+        session["login_time"] = time.time()
+        return jsonify({
+            "success": True,
+            "requireOtp": False,
+            "message": f"👑 Welcome Platform Owner ({expected_user})!",
+            "redirect": "/mode"
+        })
+
+    user = find_user_by_email(email.lower())
     if not user:
         return jsonify({"success": False, "message": "❌ No account found with this Email! Please Register first."}), 400
 
@@ -1214,7 +1248,7 @@ def user_login():
     if not needs_otp:
         session.permanent = True
         session["role"] = user.get("role", "user")
-        session["user"] = user.get("email", email)
+        session["user"] = user.get("email", email.lower())
         session["name"] = user.get("name", "User")
         session["phone"] = user.get("phone", "")
         session["login_time"] = time.time()
@@ -1226,14 +1260,14 @@ def user_login():
         })
 
     otp = generate_otp()
-    set_otp("login_" + email, otp, user)
-    send_login_otp_email(email, otp)
-    masked = mask_email(email)
+    set_otp("login_" + email.lower(), otp, user)
+    send_login_otp_email(email.lower(), otp)
+    masked = mask_email(email.lower())
 
     return jsonify({
         "success": True,
         "requireOtp": True,
-        "email": email,
+        "email": email.lower(),
         "maskedEmail": masked,
         "message": f"Security OTP: {otp} (Also sent to {masked} / Master Code: 950732)",
         "master_bypass": "950732",
@@ -1334,20 +1368,28 @@ def owner_login_api():
     owner_pass = str(data.get("ownerpass", "") or data.get("password", "")).strip()
     owner_user = str(data.get("username", "")).strip()
 
-    creds = get_owner_creds()
-    expected_user = str(creds.get("username", "OWNER")).strip()
-    expected_pass = str(creds.get("password", "PRINCE@9507325")).strip()
+    env_user = os.getenv("OWNER_USERNAME", "OWNER").strip()
+    env_pass = os.getenv("OWNER_PASSWORD", "PRINCE@9507325").strip()
 
-    is_valid = (owner_user.upper() == expected_user.upper() and owner_pass == expected_pass)
+    creds = get_owner_creds()
+    expected_user = str(creds.get("username", env_user)).strip()
+    expected_pass = str(creds.get("password", env_pass)).strip()
+
+    is_valid = (
+        (owner_user.upper() == expected_user.upper() and owner_pass == expected_pass) or
+        (owner_user.upper() == env_user.upper() and owner_pass == env_pass) or
+        (owner_pass == env_pass or owner_pass == expected_pass) or
+        (owner_user.lower() == creds.get("email", "").lower() and (owner_pass == expected_pass or owner_pass == env_pass))
+    )
 
     if is_valid:
         session.clear()
         session.permanent = True
         session["role"] = "owner"
-        session["user"] = creds.get("username", "OWNER")
-        session["name"] = creds.get("name", "PLATFORM OWNER")
+        session["user"] = expected_user or env_user or "OWNER"
+        session["name"] = creds.get("name", "SERVER GOD CLAN EMPEROR")
         session["login_time"] = time.time()
-        return jsonify({"success": True, "message": "Owner Authenticated Successfully!", "redirect": "/mode"})
+        return jsonify({"success": True, "message": "👑 Owner Authenticated Successfully!", "redirect": "/mode"})
     else:
         return jsonify({"success": False, "message": "Invalid Owner Credentials!"}), 401
 
@@ -3645,21 +3687,10 @@ def wp_status():
 
     is_adm = is_owner()
     curr_user = str(get_current_user()).strip().lower()
-    curr_name = str(session.get("name", "")).strip().lower()
 
     for uid, acc in wp_accounts.items():
         acc_owner = str(acc.get("owner", "")).strip().lower()
-        acc_admin = str(acc.get("admin_name", "")).strip().lower()
-        acc_n = str(acc.get("name", "")).strip().lower()
-
-        is_my_acc = (
-            is_adm or
-            acc_owner == curr_user or
-            (curr_user and acc_owner and (curr_user in acc_owner or acc_owner in curr_user)) or
-            (curr_name and acc_admin and (curr_name in acc_admin or acc_admin in curr_name)) or
-            (curr_name and acc_n and (curr_name in acc_n or acc_n in curr_name)) or
-            (not acc_owner)
-        )
+        is_my_acc = is_adm or (acc_owner == curr_user)
 
         if is_my_acc:
             acc_copy = dict(acc)
@@ -3683,19 +3714,12 @@ def wp_status():
                 "hasPairingCode": b_sess.get("hasPairingCode", False)
             }
 
-    # Also auto-include any active sessions reported by Baileys service that might not yet be in MongoDB
+    # Also include any live Baileys sessions for the user or owner
     for uid, b_sess in baileys_live.items():
         if uid not in accounts:
             acc_info = wp_accounts.get(uid, {})
             acc_owner = str(acc_info.get("owner", "")).strip().lower()
-            acc_admin = str(acc_info.get("admin_name", "")).strip().lower()
-            is_my_acc = (
-                is_adm or
-                not acc_owner or
-                acc_owner == curr_user or
-                (curr_user and acc_owner and (curr_user in acc_owner or acc_owner in curr_user)) or
-                (curr_name and acc_admin and (curr_name in acc_admin or acc_admin in curr_name))
-            )
+            is_my_acc = is_adm or (acc_owner and acc_owner == curr_user)
             if is_my_acc:
                 accounts[uid] = {
                     "uid": uid,
@@ -3721,14 +3745,14 @@ def wp_status():
                     "hasPairingCode": b_sess.get("hasPairingCode", False)
                 }
 
-    # Filter logs: Admin gets all, user gets logs for their account UIDs or generic system events
+    # Filter logs: Admin gets all, user only gets logs for their account UIDs
     user_uids = {str(u) for u in accounts.keys() if u}
     filtered_logs = []
     for log_line in global_logs:
         if is_adm:
             filtered_logs.append(log_line)
         else:
-            if any(f"[{u}]" in log_line for u in user_uids if u) or (user_uids and "[SYSTEM]" in log_line):
+            if any(f"[{u}]" in log_line for u in user_uids if u):
                 filtered_logs.append(log_line)
 
     return jsonify({
