@@ -82,6 +82,10 @@ try { ytdl = require('@distube/ytdl-core'); } catch(e) {}
 const lastSearchedTracks = new Map(); // jid -> track object
 
 async function searchYouTubeTrack(query) {
+  query = (query || '').trim();
+  if (!query) return null;
+
+  // 1. Try yt-search
   if (yts) {
     try {
       const res = await yts(query);
@@ -95,15 +99,64 @@ async function searchYouTubeTrack(query) {
           seconds: v.seconds || 180,
           views: v.views ? Number(v.views).toLocaleString() : '150K+',
           ago: v.ago || 'Recently',
-          url: v.url,
+          url: v.url || `https://www.youtube.com/watch?v=${v.videoId}`,
           videoId: v.videoId,
+          description: v.description || `Official audio/video stream for ${v.title}`,
           thumbnail: v.thumbnail || v.image,
           image: v.image || v.thumbnail
         };
       }
     } catch(e) {}
   }
-  // Fallback to JioSaavn
+
+  // 2. Try Python yt-dlp dump-json fallback for exact video metadata
+  try {
+    const dlpRes = await new Promise((resolve) => {
+      const isUrl = query.startsWith('http://') || query.startsWith('https://');
+      const target = isUrl ? query : `ytsearch1:${query}`;
+      const proc = spawn('python', [
+        '-m', 'yt_dlp',
+        '--dump-json',
+        '--no-warnings',
+        '--extractor-args', 'youtube:player_client=ios,android',
+        target
+      ]);
+      let out = '';
+      proc.stdout.on('data', (d) => { out += d.toString(); });
+      proc.on('close', () => {
+        try {
+          const lines = out.trim().split('\n');
+          for (const line of lines) {
+            if (line.trim().startsWith('{')) {
+              const meta = JSON.parse(line.trim());
+              return resolve(meta);
+            }
+          }
+        } catch(e) {}
+        resolve(null);
+      });
+      proc.on('error', () => resolve(null));
+    });
+
+    if (dlpRes) {
+      return {
+        title: dlpRes.title || query,
+        artist: dlpRes.uploader || dlpRes.channel || 'YouTube Music',
+        author: dlpRes.uploader || dlpRes.channel || 'YouTube Music',
+        duration: dlpRes.duration_string || (dlpRes.duration ? `${Math.floor(dlpRes.duration / 60)}:${dlpRes.duration % 60}` : '3:30'),
+        seconds: dlpRes.duration || 210,
+        views: dlpRes.view_count ? Number(dlpRes.view_count).toLocaleString() : '200K+',
+        ago: 'Popular',
+        url: dlpRes.webpage_url || (dlpRes.id ? `https://www.youtube.com/watch?v=${dlpRes.id}` : query),
+        videoId: dlpRes.id,
+        description: dlpRes.description ? dlpRes.description.slice(0, 150) + '...' : `Official audio/video stream for ${dlpRes.title}`,
+        thumbnail: dlpRes.thumbnail || (dlpRes.id ? `https://i.ytimg.com/vi/${dlpRes.id}/maxresdefault.jpg` : ''),
+        image: dlpRes.thumbnail
+      };
+    }
+  } catch(e) {}
+
+  // 3. Fallback to JioSaavn
   try {
     const jio = await searchJioSaavn(query);
     if (jio) {
@@ -115,8 +168,9 @@ async function searchYouTubeTrack(query) {
         seconds: jio.durSec || 180,
         views: '500K+',
         ago: 'Popular',
-        url: `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`,
+        url: `https://www.youtube.com/watch?v=search_${encodeURIComponent(query)}`,
         audioUrl: jio.audioUrl,
+        description: `JioSaavn / YouTube Music Track: ${jio.title} by ${jio.artist}`,
         image: jio.image,
         thumbnail: jio.image
       };
@@ -127,8 +181,16 @@ async function searchYouTubeTrack(query) {
 
 function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
   return new Promise((resolve) => {
-    const isUrl = queryOrUrl.startsWith('http://') || queryOrUrl.startsWith('https://');
-    const target = isUrl ? queryOrUrl : `ytsearch1:${queryOrUrl}`;
+    let cleanTarget = (queryOrUrl || '').trim();
+    if (cleanTarget.includes('results?search_query=')) {
+      try {
+        const u = new URL(cleanTarget);
+        cleanTarget = u.searchParams.get('search_query') || cleanTarget;
+      } catch(e) {}
+    }
+
+    const isUrl = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
+    const target = isUrl ? cleanTarget : `ytsearch1:${cleanTarget}`;
     const format = type === 'video' ? 'best[ext=mp4]/best' : 'bestaudio/best';
     
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
@@ -3025,28 +3087,30 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               try {
                 const tempSongPath = path.join(__dirname, `temp_call_${Date.now()}.mp3`);
                 const dlRes = await downloadYouTubeMedia(query, 'audio', tempSongPath);
-                
-                if (!dlRes.success || !fs.existsSync(tempSongPath)) {
+                let actualFile = (dlRes.success && dlRes.filePath && fs.existsSync(dlRes.filePath)) ? dlRes.filePath : null;
+
+                if (!actualFile) {
                   // Fallback to JioSaavn
                   const jio = await searchJioSaavn(query);
                   if (jio?.audioUrl) {
                     const buf = await downloadBuffer(jio.audioUrl);
                     fs.writeFileSync(tempSongPath, buf);
+                    actualFile = tempSongPath;
                   }
                 }
 
-                if (!fs.existsSync(tempSongPath)) {
+                if (!actualFile || !fs.existsSync(actualFile)) {
                   return sock.sendMessage(jid, { text: `❌ Failed to fetch audio for \`${query}\`!` }, { quoted: msg });
                 }
 
                 if (sess.voipManager && sess.voipManager.activeCall) {
-                  sess.voipManager.switchAudio(tempSongPath);
+                  sess.voipManager.switchAudio(actualFile);
                   await sock.sendMessage(jid, {
                     text: `╔══〔 🎵 *YOUTUBE AUDIO STREAMING ON CALL* 〕══╗\n┃ 🎶 Track: *${query}*\n┃ 📡 Output: *Live WebRTC Opus VoIP Stream*\n┃ ⚡ Status: *STREAMING LIVE ON ACTIVE CALL* 🟢\n╚══════════════════════════════════════════╝\n_YouTube audio is playing live inside the VoIP call._`
                   }, { quoted: msg });
                 } else {
                   await sock.sendMessage(jid, {
-                    text: `✅ *Track Downloaded & Ready*\n⚠️ *No active VoIP call running right now.*\nUse \`${sess.prefix}outcall <number> ${query}\` to dial target and stream this track on the call!`
+                    text: `✅ *Track Downloaded & Ready*\n⚠️ *No active VoIP call running right now.*\nUse \`${sess.prefix}outcall <number> ${query}\` or \`${sess.prefix}call <number>\` to dial target and stream this track on the call!`
                   }, { quoted: msg });
                 }
               } catch (ytErr) {
@@ -3071,13 +3135,14 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               try {
                 const tempVideoPath = path.join(__dirname, `temp_vcall_${Date.now()}.mp4`);
                 const dlRes = await downloadYouTubeMedia(query, 'video', tempVideoPath);
+                const actualFile = (dlRes.success && dlRes.filePath && fs.existsSync(dlRes.filePath)) ? dlRes.filePath : null;
 
-                if (!dlRes.success && !fs.existsSync(tempVideoPath)) {
+                if (!actualFile || !fs.existsSync(actualFile)) {
                   return sock.sendMessage(jid, { text: `❌ Could not download video stream for \`${query}\`!` }, { quoted: msg });
                 }
 
                 if (sess.voipManager && sess.voipManager.activeCall) {
-                  sess.voipManager.switchAudio(tempVideoPath);
+                  sess.voipManager.switchAudio(actualFile);
                   await sock.sendMessage(jid, {
                     text: `╔══〔 🎥 *YOUTUBE VIDEO CALL STREAMING* 〕══╗\n┃ 🎬 Video: *${query}*\n┃ 📡 Mode: *Video Track & Opus Audio Stream*\n┃ ⚡ Status: *STREAMING LIVE TO CALL* 🟢\n╚═════════════════════════════════════════╝`
                   }, { quoted: msg });
@@ -3591,11 +3656,11 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          // +play1 (Sends Audio MP3 of searched song or argument)
-          if (cmd === 'play1' || cmd === 'ytaudio' || cmd === 'yta') {
+          // +play1 / +playaudio (Sends Audio MP3 of searched song or argument)
+          if (cmd === 'play1' || cmd === 'playaudio' || cmd === 'audio' || cmd === 'ytaudio' || cmd === 'yta') {
             const query = fullArg || (lastSearchedTracks.get(jid)?.url || lastSearchedTracks.get(jid)?.title);
             if (!query) {
-              await sock.sendMessage(jid, { text: `❌ Please search a song first with \`${sess.prefix}song <name>\` or provide a title: \`${sess.prefix}play1 <name>\`` }, { quoted: msg });
+              await sock.sendMessage(jid, { text: `❌ Please search a song first with \`${sess.prefix}song <name>\` or provide a title: \`${sess.prefix}playaudio <name>\`` }, { quoted: msg });
               continue;
             }
 
@@ -3654,11 +3719,11 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          // +play2 (Sends Full Video MP4 of searched song or argument)
-          if (cmd === 'play2' || cmd === 'ytvideo' || cmd === 'ytv') {
+          // +play2 / +playvideo (Sends Full Video MP4 of searched song or argument)
+          if (cmd === 'play2' || cmd === 'playvideo' || cmd === 'video' || cmd === 'ytvideo' || cmd === 'ytv') {
             const query = fullArg || (lastSearchedTracks.get(jid)?.url || lastSearchedTracks.get(jid)?.title);
             if (!query) {
-              await sock.sendMessage(jid, { text: `❌ Please search a song first with \`${sess.prefix}song <name>\` or provide a title: \`${sess.prefix}play2 <name>\`` }, { quoted: msg });
+              await sock.sendMessage(jid, { text: `❌ Please search a song first with \`${sess.prefix}song <name>\` or provide a title: \`${sess.prefix}playvideo <name>\`` }, { quoted: msg });
               continue;
             }
 

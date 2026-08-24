@@ -564,12 +564,16 @@ def get_file_duration(file_path: str) -> float:
     return 210.0
 
 def search_youtube_py(query: str) -> Optional[Dict]:
+    query = (query or '').strip()
+    if not query: return None
+
     if yt_dlp:
         try:
             ydl_opts = {
                 'quiet': True,
                 'extract_flat': True,
-                'no_warnings': True
+                'no_warnings': True,
+                'extractor_args': {'youtube': {'player_client': ['ios', 'android']}}
             }
             cookie_file = os.path.abspath("cookies.txt")
             if os.path.exists(cookie_file):
@@ -581,6 +585,7 @@ def search_youtube_py(query: str) -> Optional[Dict]:
                     e = res['entries'][0]
                     v_id = e.get('id', '')
                     dur_val = e.get('duration') or 180
+                    video_url = e.get('webpage_url') or (f"https://www.youtube.com/watch?v={v_id}" if v_id else f"ytsearch1:{query}")
                     return {
                         'title': e.get('title', query),
                         'artist': e.get('uploader', e.get('channel', 'YouTube Music')),
@@ -589,8 +594,9 @@ def search_youtube_py(query: str) -> Optional[Dict]:
                         'seconds': int(dur_val),
                         'views': f"{e.get('view_count', 150000):,}" if isinstance(e.get('view_count'), int) else '150K+',
                         'ago': 'Recently',
-                        'url': e.get('url', f"https://www.youtube.com/watch?v={v_id}"),
+                        'url': video_url,
                         'id': v_id,
+                        'description': e.get('description', f"YouTube stream for {e.get('title', query)}"),
                         'thumbnail': e.get('thumbnail', f"https://i.ytimg.com/vi/{v_id}/hqdefault.jpg" if v_id else '')
                     }
         except Exception as err:
@@ -607,13 +613,22 @@ def search_youtube_py(query: str) -> Optional[Dict]:
             'seconds': int(first.get('duration_sec', 210)),
             'views': '500K+',
             'ago': 'Popular',
-            'url': f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}",
+            'url': f"https://www.youtube.com/watch?v=search_{urllib.parse.quote(query)}",
             'audio_url': first.get('media_url'),
+            'description': f"JioSaavn Audio: {first.get('title', query)} by {first.get('artist', '')}",
             'thumbnail': first.get('image', '')
         }
     return None
 
 def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', output_path: str = '') -> Optional[str]:
+    query_or_url = (query_or_url or '').strip()
+    if 'results?search_query=' in query_or_url:
+        try:
+            parsed_u = urllib.parse.urlparse(query_or_url)
+            qs = urllib.parse.parse_qs(parsed_u.query)
+            if 'search_query' in qs:
+                query_or_url = qs['search_query'][0]
+        except Exception: pass
     if not output_path:
         base_name = f"yt_{media_type}_{int(time.time())}_{random.randint(100, 999)}"
     else:
@@ -1502,7 +1517,7 @@ Please select a Dashboard by replying with number (1, 2, or 3):
         except Exception: pass
         await msg.edit(caption, parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play1|ytaudio|yta)(?:\s+(.+))?$'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play1|playaudio|audio|ytaudio|yta)(?:\s+(.+))?$'))
     async def ub_play1_audio_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2)
@@ -1510,7 +1525,7 @@ Please select a Dashboard by replying with number (1, 2, or 3):
             last = tg_last_searched_tracks.get(event.chat_id)
             query = last.get('url') or last.get('title') if last else None
         if not query:
-            return await event.reply(f"⚠️ Search a song first via <code>{PREFIX}song &lt;name&gt;</code> or specify query: <code>{PREFIX}play1 &lt;name&gt;</code>", parse_mode="html")
+            return await event.reply(f"⚠️ Search a song first via <code>{PREFIX}song &lt;name&gt;</code> or specify query: <code>{PREFIX}playaudio &lt;name&gt;</code>", parse_mode="html")
 
         msg = await event.reply(f"🎵 <b>Downloading YouTube Audio for <code>{query}</code>...</b>", parse_mode="html")
         temp_audio = f"yt_audio_{event.chat_id}_{int(time.time())}.mp3"
@@ -1537,7 +1552,7 @@ Please select a Dashboard by replying with number (1, 2, or 3):
         except Exception as e:
             await msg.edit(f"❌ Audio error: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play2|ytvideo|ytv)(?:\s+(.+))?$'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play2|playvideo|video|ytvideo|ytv)(?:\s+(.+))?$'))
     async def ub_play2_video_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2)
