@@ -191,7 +191,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
 
     const isUrl = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
     const target = isUrl ? cleanTarget : `ytsearch1:${cleanTarget}`;
-    const format = type === 'video' ? 'best[ext=mp4]/best' : 'bestaudio/best';
+    const format = type === 'video' ? 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio/bestvideo+bestaudio/best' : 'bestaudio/best';
     
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
     const outTmpl = `${baseWithoutExt}.%(ext)s`;
@@ -832,7 +832,9 @@ class SessionVoipManager {
       try { this.activeCall.end(); } catch {}
     }
 
-    const targetNumber = phoneNumber.replace(/\D/g, '');
+    let targetNumber = phoneNumber.replace(/\D/g, '');
+    if (targetNumber.length === 10) targetNumber = '91' + targetNumber;
+    if (targetNumber.startsWith('0') && targetNumber.length === 11) targetNumber = '91' + targetNumber.slice(1);
     if (!targetNumber || targetNumber.length < 7) {
       throw new Error(`Invalid phone number: ${phoneNumber}`);
     }
@@ -3604,55 +3606,64 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           // 5. YOUTUBE MUSIC & VIDEO SUITE (YamzzBot-Caller Engine)
           // ==================================================================
 
-          // +song <name> / +gana <name> (YouTube Search & Track Details Card)
-          if (cmd === 'song' || cmd === 'gana' || cmd === 'ytsearch' || cmd === 'music') {
-            const query = fullArg;
+          // +song <name> / +gana <name> / +play1 / +playaudio (Direct Audio MP3 Downloader & Sender)
+          if (cmd === 'song' || cmd === 'gana' || cmd === 'music' || cmd === 'play1' || cmd === 'playaudio' || cmd === 'audio' || cmd === 'ytaudio' || cmd === 'yta') {
+            const query = fullArg || (lastSearchedTracks.get(jid)?.url || lastSearchedTracks.get(jid)?.title);
             if (!query) {
               await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}song <Song Name or YouTube Link>\`\nExample: \`${sess.prefix}song Believer\`` }, { quoted: msg });
               continue;
             }
 
-            await sock.sendMessage(jid, { text: `🔍 *Searching YouTube for: \`${query}\`...*` }, { quoted: msg });
+            await sock.sendMessage(jid, { text: `🎵 *Downloading Audio for: \`${query}\`...*` }, { quoted: msg });
 
             (async () => {
               try {
-                const track = await searchYouTubeTrack(query);
-                if (!track) {
-                  return sock.sendMessage(jid, { text: `❌ No results found on YouTube for \`${query}\`!` }, { quoted: msg });
+                const tempAudioPath = path.join(__dirname, `yt_audio_${Date.now()}.mp3`);
+                const dlRes = await downloadYouTubeMedia(query, 'audio', tempAudioPath);
+                
+                let audioBuf = null;
+                let actualFile = null;
+                if (dlRes.success && dlRes.filePath && fs.existsSync(dlRes.filePath)) {
+                  audioBuf = fs.readFileSync(dlRes.filePath);
+                  actualFile = dlRes.filePath;
+                } else {
+                  // Fallback via JioSaavn
+                  const jio = await searchJioSaavn(query);
+                  if (jio?.audioUrl) audioBuf = await downloadBuffer(jio.audioUrl);
                 }
 
-                lastSearchedTracks.set(jid, track);
-
-                const caption = `╔══〔 🎵 *YOUTUBE TRACK FOUND* 〕══╗
-┃ 🎶 *Title:* *${track.title}*
-┃ 👤 *Channel / Artist:* *${track.author || track.artist}*
-┃ ⏱️ *Duration:* *${track.duration}*
-┃ 👁️ *Views:* *${track.views}* • *${track.ago}*
-┃ 🔗 *Link:* ${track.url}
-╚══════════════════════════════════╝
-⚡ *SELECT OPTION TO PLAY:*
-• 🔊 \`${sess.prefix}play1\` ➔ Send Full Audio (MP3)
-• 🎥 \`${sess.prefix}play2\` ➔ Send Full Video (MP4)
-• ✂️ \`${sess.prefix}playsec <sec>\` ➔ Send Video Clip (e.g. \`${sess.prefix}playsec 30\`)
-• 🔗 \`${sess.prefix}play5video <link>\` ➔ Send Video from Link
-• 📞 \`${sess.prefix}playytcall\` ➔ Stream Audio on WhatsApp Call
-• 📹 \`${sess.prefix}play2ytcall\` ➔ Stream Video on WhatsApp Call`;
-
-                if (track.thumbnail || track.image) {
-                  try {
-                    const thumbBuf = await downloadBuffer(track.thumbnail || track.image);
-                    await sock.sendMessage(jid, {
-                      image: thumbBuf,
-                      caption
-                    }, { quoted: msg });
-                    return;
-                  } catch (e) {}
+                if (!audioBuf) {
+                  return sock.sendMessage(jid, { text: `❌ Could not download audio for \`${query}\`!` }, { quoted: msg });
                 }
 
-                await sock.sendMessage(jid, { text: caption }, { quoted: msg });
+                const track = lastSearchedTracks.get(jid);
+                const trackTitle = (track?.title || query).replace(/[^a-zA-Z0-9_-]/g, '_');
+                const caption = `🎵 *${track?.title || query}*\n👤 *Artist:* ${track?.author || track?.artist || 'YouTube Music'}\n⏱️ *Duration:* ${track?.duration || 'Full'}\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
+
+                if (audioBuf.length > 50 * 1024 * 1024) {
+                  await sock.sendMessage(jid, {
+                    document: audioBuf,
+                    mimetype: 'audio/mpeg',
+                    fileName: `${trackTitle}.mp3`,
+                    caption
+                  }, { quoted: msg });
+                } else {
+                  await sock.sendMessage(jid, {
+                    audio: audioBuf,
+                    mimetype: 'audio/mp4',
+                    fileName: `${trackTitle}.mp3`,
+                    ptt: false,
+                    caption
+                  }, { quoted: msg });
+                }
+
+                sess.sentCount = (sess.sentCount || 0) + 1;
+                if (actualFile && fs.existsSync(actualFile)) {
+                  try { fs.unlinkSync(actualFile); } catch (e) {}
+                }
               } catch (e) {
-                logMsg(uid, `Song search error: ${e.message}`);
-                await sock.sendMessage(jid, { text: `❌ Search error: ${e.message}` }, { quoted: msg });
+                logMsg(uid, `song/audio error: ${e.message}`);
+                await sock.sendMessage(jid, { text: `❌ Audio send error: ${e.message}` }, { quoted: msg });
               }
             })();
             continue;

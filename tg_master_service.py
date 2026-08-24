@@ -1479,45 +1479,7 @@ Please select a Dashboard by replying with number (1, 2, or 3):
         except Exception as e:
             await msg.edit(f"❌ Error: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(song|gana|music|ytsearch)(?:\s+(.+))?$'))
-    async def ub_song_search_cmd(event):
-        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
-        query = event.pattern_match.group(2)
-        if not query:
-            return await event.reply(f"⚠️ Usage: <code>{PREFIX}song &lt;Song Name or YouTube Link&gt;</code>", parse_mode="html")
-        query = query.strip()
-        msg = await event.reply(f"🔍 <b>Searching YouTube for <code>{query}</code>...</b>", parse_mode="html")
-
-        track = await asyncio.to_thread(search_youtube_py, query)
-        if not track:
-            return await msg.edit(f"❌ No tracks found on YouTube for <code>{query}</code>.")
-
-        tg_last_searched_tracks[event.chat_id] = track
-
-        caption = f"""╔══〔 🎵 <b>YOUTUBE TRACK FOUND</b> 〕══╗
-┃ 🎶 <b>Title:</b> <code>{track['title']}</code>
-┃ 👤 <b>Channel:</b> <code>{track['author']}</code>
-┃ ⏱️ <b>Duration:</b> <code>{track['duration']}</code>
-┃ 👁️ <b>Views:</b> <code>{track['views']}</code> ({track['ago']})
-┃ 🔗 <b>Link:</b> {track['url']}
-╚══════════════════════════════════╝
-⚡ <b>SELECT OPTION TO PLAY:</b>
-• 🔊 <code>{PREFIX}play1</code> ➔ Send Full Audio (MP3)
-• 🎥 <code>{PREFIX}play2</code> ➔ Send Full Video (MP4)
-• ✂️ <code>{PREFIX}playsec &lt;sec&gt;</code> ➔ Send Video Clip (e.g. <code>{PREFIX}playsec 30</code>)
-• 🔗 <code>{PREFIX}play5video &lt;link&gt;</code> ➔ Send Video from Link
-• 📞 <code>{PREFIX}playytcall</code> ➔ Stream Audio on Telegram Voice Call
-• 📹 <code>{PREFIX}play2ytcall</code> ➔ Stream Video on Telegram Voice Call"""
-
-        try:
-            if track.get("thumbnail"):
-                await event.client.send_file(event.chat_id, track["thumbnail"], caption=caption, parse_mode="html", reply_to=event.id)
-                await msg.delete()
-                return
-        except Exception: pass
-        await msg.edit(caption, parse_mode="html")
-
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play1|playaudio|audio|ytaudio|yta)(?:\s+(.+))?$'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(song|gana|music|play1|playaudio|audio|ytaudio|yta)(?:\s+(.+))?$'))
     async def ub_play1_audio_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2)
@@ -1525,9 +1487,9 @@ Please select a Dashboard by replying with number (1, 2, or 3):
             last = tg_last_searched_tracks.get(event.chat_id)
             query = last.get('url') or last.get('title') if last else None
         if not query:
-            return await event.reply(f"⚠️ Search a song first via <code>{PREFIX}song &lt;name&gt;</code> or specify query: <code>{PREFIX}playaudio &lt;name&gt;</code>", parse_mode="html")
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}song &lt;name or link&gt;</code>", parse_mode="html")
 
-        msg = await event.reply(f"🎵 <b>Downloading YouTube Audio for <code>{query}</code>...</b>", parse_mode="html")
+        msg = await event.reply(f"🎵 <b>Downloading Audio for <code>{query}</code>...</b>", parse_mode="html")
         temp_audio = f"yt_audio_{event.chat_id}_{int(time.time())}.mp3"
         try:
             fpath = await asyncio.to_thread(download_youtube_media_py, query, 'audio', temp_audio)
