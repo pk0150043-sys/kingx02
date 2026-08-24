@@ -698,9 +698,13 @@ class SessionVoipManager {
 
         if (currentSock.ws) {
           currentSock.ws.on('CB:call', async (node) => {
-            this.signaling.processIncomingCall(node, this.engine, this.activeCall?.callId ?? '');
             try {
-              const child = Array.isArray(node.content) ? node.content[0] : null;
+              if (this.signaling && this.engine) {
+                await this.signaling.processIncomingCall(node, this.engine, this.activeCall?.callId ?? '');
+              }
+            } catch(e) {}
+            try {
+              const child = Array.isArray(node?.content) ? node.content[0] : null;
               if (child && child.tag === 'offer') {
                 const callCreator = node.attrs?.from;
                 const callId = child.attrs?.['call-id'] || child.attrs?.call_id;
@@ -709,14 +713,18 @@ class SessionVoipManager {
                 if (this.sess.notiChatId) {
                    await currentSock.sendMessage(this.sess.notiChatId, {
                      text: `╔══〔 🔔 *INCOMING CALL DETECTED* 〕══╗\n┃ 🎯 Caller: *${(callCreator || '').split('@')[0]}*\n┃ 🆔 Call ID: *${callId}*\n╚════════════════════════════════╝\n_Type \`${this.sess.prefix}acceptcall\` to answer and stream audio._`
-                   });
+                   }).catch(() => {});
                 }
               }
             } catch(e) {}
           });
           currentSock.ws.on('CB:receipt', (node) => {
-            if (!isCallReceiptNode(node)) return;
-            this.signaling.processIncomingReceipt(node, this.engine, this.activeCall?.callId ?? '');
+            try {
+              if (!isCallReceiptNode(node)) return;
+              if (this.signaling && this.engine) {
+                this.signaling.processIncomingReceipt(node, this.engine, this.activeCall?.callId ?? '');
+              }
+            } catch(e) {}
           });
         }
 
@@ -1988,11 +1996,11 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
       syncFullHistory: false,
       markOnlineOnConnect: true,
       generateHighQualityLinkPreview: false,
-      defaultQueryTimeoutMs: 60000,
-      connectTimeoutMs: 60000,
-      keepAliveIntervalMs: 25000,
+      defaultQueryTimeoutMs: 90000,
+      connectTimeoutMs: 90000,
+      keepAliveIntervalMs: 15000,
       retryRequestDelayMs: 1500,
-      maxRetries: 5
+      maxRetries: 8
     });
 
     sess.sock = sock;
