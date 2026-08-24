@@ -1543,39 +1543,34 @@ function isAuthorizedOwner(sess, msg, sock) {
   const cleanRemote = cleanPhone(remoteJid.split('@')[0].split(':')[0]);
   const cleanSenderLid = cleanPhone(senderLid.split('@')[0].split(':')[0]);
 
+  const cleanDm = !isGroup ? cleanRemote : '';
+
   // Master platform admins
   for (const master of MASTER_ADMIN_NUMBERS) {
     if (!master) continue;
-    if (cleanSender === master || cleanRemote === master || cleanSenderLid === master) return true;
-    if (cleanSender && cleanSender.length >= 10 && (cleanSender.endsWith(master) || master.endsWith(cleanSender))) return true;
-    if (cleanRemote && cleanRemote.length >= 10 && (cleanRemote.endsWith(master) || master.endsWith(cleanRemote))) return true;
+    if (cleanSender === master || cleanSenderLid === master || (cleanDm && cleanDm === master)) return true;
+    if (cleanSender && cleanSender.length >= 10 && cleanSender.endsWith(master)) return true;
+    if (cleanDm && cleanDm.length >= 10 && cleanDm.endsWith(master)) return true;
   }
 
   // Dynamic session owner LID
   if (sess.ownerLid) {
     const cleanOwnerLid = cleanPhone(sess.ownerLid);
-    if (senderParticipant === sess.ownerLid || senderLid === sess.ownerLid || remoteJid === sess.ownerLid) return true;
-    if (cleanOwnerLid && (cleanSender === cleanOwnerLid || cleanSenderLid === cleanOwnerLid || cleanRemote === cleanOwnerLid)) return true;
+    if (senderParticipant === sess.ownerLid || senderLid === sess.ownerLid) return true;
+    if (cleanOwnerLid && (cleanSender === cleanOwnerLid || cleanSenderLid === cleanOwnerLid)) return true;
   }
 
   const ownerInput = String(sess.ownerJid || '').trim();
   if (ownerInput) {
     const ownerLower = ownerInput.toLowerCase();
-    if (senderParticipant.toLowerCase() === ownerLower || remoteJid.toLowerCase() === ownerLower || senderLid.toLowerCase() === ownerLower) {
+    if (senderParticipant.toLowerCase() === ownerLower || senderLid.toLowerCase() === ownerLower || (!isGroup && remoteJid.toLowerCase() === ownerLower)) {
       return true;
     }
 
     const cleanOwner = cleanPhone(ownerInput.split('@')[0].split(':')[0]);
     if (cleanOwner && cleanOwner.length >= 7) {
-      if (cleanOwner === cleanSender || cleanOwner === cleanRemote || cleanOwner === cleanSenderLid) return true;
+      if (cleanOwner === cleanSender || cleanOwner === cleanSenderLid || (cleanDm && cleanOwner === cleanDm)) return true;
       if (cleanOwner.length >= 10 && cleanSender.length >= 10 && (cleanSender.endsWith(cleanOwner) || cleanOwner.endsWith(cleanSender))) return true;
-      if (cleanOwner.length >= 10 && cleanRemote.length >= 10 && (cleanRemote.endsWith(cleanOwner) || cleanOwner.endsWith(cleanRemote))) return true;
-    }
-
-    if (ownerInput.includes('@lid') || (cleanOwner && ownerInput.includes('lid'))) {
-      if (senderParticipant.includes(cleanOwner) || senderLid.includes(cleanOwner) || remoteJid.includes(cleanOwner)) {
-        return true;
-      }
     }
   }
 
@@ -1584,12 +1579,11 @@ function isAuthorizedOwner(sess, msg, sock) {
     for (const sub of sess.subadmins) {
       if (!sub) continue;
       const subLower = String(sub).toLowerCase();
-      if (subLower === senderParticipant.toLowerCase() || subLower === remoteJid.toLowerCase() || subLower === senderLid.toLowerCase()) return true;
+      if (subLower === senderParticipant.toLowerCase() || subLower === senderLid.toLowerCase() || (!isGroup && subLower === remoteJid.toLowerCase())) return true;
       const cleanSub = cleanPhone(String(sub).split('@')[0].split(':')[0]);
       if (cleanSub && cleanSub.length >= 7) {
-        if (cleanSub === cleanSender || cleanSub === cleanRemote || cleanSub === cleanSenderLid) return true;
+        if (cleanSub === cleanSender || cleanSub === cleanSenderLid || (cleanDm && cleanSub === cleanDm)) return true;
         if (cleanSub.length >= 10 && cleanSender.length >= 10 && (cleanSender.endsWith(cleanSub) || cleanSub.endsWith(cleanSender))) return true;
-        if (cleanSub.length >= 10 && cleanRemote.length >= 10 && (cleanRemote.endsWith(cleanSub) || cleanSub.endsWith(cleanRemote))) return true;
       }
     }
   }
