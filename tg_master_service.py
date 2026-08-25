@@ -1158,6 +1158,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 │ • Type <code>{PREFIX}menu 1</code> for 👑 Ultra Raid Dashboard
 │ • Type <code>{PREFIX}menu 2</code> for 📞 VoIP Caller Engine
 │ • Type <code>{PREFIX}menu 3</code> for 🎵 Music & Song Engine
+│ • Type <code>{PREFIX}menu 4</code> for 🎙️ AI Voice Studio & OpenVoice
 │ • Type <code>{PREFIX}ping</code> to test network latency
 ╰──────────────────────────────╯"""
 

@@ -2644,6 +2644,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 │ • Type \`${sess.prefix}menu 1\` for 👑 Ultra Raid Dashboard
 │ • Type \`${sess.prefix}menu 2\` for 📞 VoIP Caller Engine
 │ • Type \`${sess.prefix}menu 3\` for 🎵 Music & Song Engine
+│ • Type \`${sess.prefix}menu 4\` for 🎙️ AI Voice Studio & OpenVoice
 │ • Type \`${sess.prefix}ping\` to test network latency
 ╰──────────────────────────────╯`;
 
@@ -4266,19 +4267,30 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               try {
                 const encoded = encodeURIComponent(speechText);
                 const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=hi&client=tw-ob`;
-                const audioBuf = await downloadBuffer(ttsUrl);
+                const rawBuf = await downloadBuffer(ttsUrl);
 
-                if (!audioBuf || audioBuf.length < 500) {
+                if (!rawBuf || rawBuf.length < 500) {
                   return sock.sendMessage(jid, { text: `❌ Failed to synthesize voice for text!` }, { quoted: msg });
                 }
 
-                await sock.sendMessage(jid, {
-                  audio: audioBuf,
-                  mimetype: 'audio/ogg; codecs=opus',
-                  ptt: true
-                }, { quoted: msg });
+                const rawPath = path.join(__dirname, `raw_tts_${Date.now()}.mp3`);
+                const opusPath = path.join(__dirname, `vn_${Date.now()}.opus`);
+                fs.writeFileSync(rawPath, rawBuf);
 
-                sess.sentCount = (sess.sentCount || 0) + 1;
+                const proc = spawn('ffmpeg', ['-y', '-i', rawPath, '-c:a', 'libopus', '-b:a', '64k', '-vbr', 'on', '-application', 'voip', opusPath]);
+                proc.on('close', async () => {
+                  const outBuf = fs.existsSync(opusPath) ? fs.readFileSync(opusPath) : rawBuf;
+                  await sock.sendMessage(jid, {
+                    audio: outBuf,
+                    mimetype: 'audio/ogg; codecs=opus',
+                    ptt: true
+                  }, { quoted: msg });
+
+                  sess.sentCount = (sess.sentCount || 0) + 1;
+                  for (const p of [rawPath, opusPath]) {
+                    if (fs.existsSync(p)) try { fs.unlinkSync(p); } catch (e) {}
+                  }
+                });
               } catch (e) {
                 await sock.sendMessage(jid, { text: `❌ Voice note error: ${e.message}` }, { quoted: msg });
               }
@@ -4300,10 +4312,10 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=hi&client=tw-ob`;
                 const rawBuf = await downloadBuffer(ttsUrl);
                 const rawPath = path.join(__dirname, `raw_tts_${Date.now()}.mp3`);
-                const pitchPath = path.join(__dirname, `female_tts_${Date.now()}.mp3`);
+                const pitchPath = path.join(__dirname, `female_tts_${Date.now()}.opus`);
                 fs.writeFileSync(rawPath, rawBuf);
 
-                const proc = spawn('ffmpeg', ['-y', '-i', rawPath, '-af', 'asetrate=44100*1.28,aresample=44100', pitchPath]);
+                const proc = spawn('ffmpeg', ['-y', '-i', rawPath, '-af', 'asetrate=44100*1.28,aresample=44100', '-c:a', 'libopus', '-b:a', '64k', '-application', 'voip', pitchPath]);
                 proc.on('close', async () => {
                   const outBuf = fs.existsSync(pitchPath) ? fs.readFileSync(pitchPath) : rawBuf;
                   await sock.sendMessage(jid, {
@@ -4336,14 +4348,14 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=hi&client=tw-ob`;
                 const rawBuf = await downloadBuffer(ttsUrl);
                 const rawPath = path.join(__dirname, `raw_tts_${Date.now()}.mp3`);
-                const outPath = path.join(__dirname, `fx_tts_${Date.now()}.mp3`);
+                const outPath = path.join(__dirname, `fx_tts_${Date.now()}.opus`);
                 fs.writeFileSync(rawPath, rawBuf);
 
                 const afFilter = cmd === 'robotvn'
                   ? 'afftfilt="real=\'hypot(re,im)*sin(0)\':imag=\'hypot(re,im)*cos(0)\':win_size=512:overlap=0.75"'
                   : 'asetrate=44100*0.75,aresample=44100,bass=g=15:f=110';
 
-                const proc = spawn('ffmpeg', ['-y', '-i', rawPath, '-af', afFilter, outPath]);
+                const proc = spawn('ffmpeg', ['-y', '-i', rawPath, '-af', afFilter, '-c:a', 'libopus', '-b:a', '64k', '-application', 'voip', outPath]);
                 proc.on('close', async () => {
                   const outBuf = fs.existsSync(outPath) ? fs.readFileSync(outPath) : rawBuf;
                   await sock.sendMessage(jid, {
@@ -4365,8 +4377,10 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           // +changevoice <text> / +clonevoice <text> (OpenVoice V2 Zero-Shot Voice Clone from Quoted Voice Note)
           if (cmd === 'changevoice' || cmd === 'clonevoice' || cmd === 'voiceclone') {
             const speechText = fullArg;
-            const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+            const ctxInfo = msg.message?.extendedTextMessage?.contextInfo;
+            const quotedMsg = ctxInfo?.quotedMessage;
             const hasQuotedAudio = quotedMsg?.audioMessage || quotedMsg?.videoMessage || quotedMsg?.documentMessage;
+            const quotedStanzaId = ctxInfo?.stanzaId || msg.key?.id || `quoted_${Date.now()}`;
 
             if (!speechText) {
               await sock.sendMessage(jid, { text: `❌ *Usage:* Reply to any Voice Note with \`${sess.prefix}changevoice <Text to speak>\`\nExample: \`${sess.prefix}changevoice Hello bhai kya haal hai\`` }, { quoted: msg });
@@ -4378,14 +4392,18 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             (async () => {
               try {
                 let refAudioPath = path.join(__dirname, `ref_voice_${Date.now()}.mp3`);
-                if (hasQuotedAudio) {
-                  const mediaBuf = await downloadMediaMessage(
-                    { key: { remoteJid: jid, id: msg.message.extendedTextMessage.contextInfo.stanzaId }, message: quotedMsg },
-                    'buffer',
-                    {},
-                    { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage }
-                  );
-                  if (mediaBuf) fs.writeFileSync(refAudioPath, mediaBuf);
+                if (hasQuotedAudio && ctxInfo) {
+                  try {
+                    const mediaBuf = await downloadMediaMessage(
+                      { key: { remoteJid: jid, id: quotedStanzaId }, message: quotedMsg },
+                      'buffer',
+                      {},
+                      { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage }
+                    );
+                    if (mediaBuf) fs.writeFileSync(refAudioPath, mediaBuf);
+                  } catch (dlQuotedErr) {
+                    logMsg(uid, `Quoted audio download note: ${dlQuotedErr.message}`);
+                  }
                 }
 
                 // Synthesize target text
@@ -4393,7 +4411,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=hi&client=tw-ob`;
                 const ttsBuf = await downloadBuffer(ttsUrl);
                 const ttsPath = path.join(__dirname, `base_tts_${Date.now()}.mp3`);
-                const clonedPath = path.join(__dirname, `cloned_voice_${Date.now()}.mp3`);
+                const clonedPath = path.join(__dirname, `cloned_voice_${Date.now()}.opus`);
                 fs.writeFileSync(ttsPath, ttsBuf);
 
                 // Run OpenVoice acoustic filter cloning or ffmpeg timbre transfer
@@ -4401,7 +4419,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                   ? 'equalizer=f=1000:t=q:w=1:g=2,aecho=0.8:0.88:40:0.4'
                   : 'equalizer=f=800:t=q:w=1:g=3';
 
-                const proc = spawn('ffmpeg', ['-y', '-i', ttsPath, '-af', ffmpegAf, clonedPath]);
+                const proc = spawn('ffmpeg', ['-y', '-i', ttsPath, '-af', ffmpegAf, '-c:a', 'libopus', '-b:a', '64k', '-application', 'voip', clonedPath]);
                 proc.on('close', async () => {
                   const finalBuf = fs.existsSync(clonedPath) ? fs.readFileSync(clonedPath) : ttsBuf;
                   await sock.sendMessage(jid, {
