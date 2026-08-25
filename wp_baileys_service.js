@@ -2236,7 +2236,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         }
 
         const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === 403;
+        const isExplicitLoggedOut = statusCode === DisconnectReason.loggedOut;
         const isPairingActive = sess.pairingCode && (Date.now() - (sess.pairingCodeCreatedAt || 0) < 900000);
 
         try {
@@ -2246,7 +2246,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         } catch (e) {}
         sess.sock = null;
 
-        if (isLoggedOut) {
+        // Strictly verify true logout before wiping auth credentials
+        if (isExplicitLoggedOut) {
           sess.status = 'LOGGED_OUT';
           sess.connectedNumber = '';
           sess.userJid = '';
@@ -2254,14 +2255,13 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           sess.pairingCode = '';
           sess.pairingRawCode = '';
           stopAllOperations(sess);
-          logMsg(uid, `🔴 Session logged out / unlinked. Cleaned auth directory from disk.`);
+          logMsg(uid, `🔴 Session logged out by device. Cleaned auth directory.`);
           deleteSessionAuthDir(uid);
           return;
         }
 
-        // WhatsApp pairing or transient restart (515, 408, 428, restartRequired)
-        if (isPairingActive || statusCode === DisconnectReason.restartRequired || statusCode === 515 || statusCode === 408 || statusCode === 428) {
-          // If active call is ongoing, keep status ONLINE so no reconnecting flash occurs
+        // WhatsApp pairing or transient restart (515, 401 sync, 403 sync, 408, 428, restartRequired)
+        if (isPairingActive || statusCode === DisconnectReason.restartRequired || statusCode === 515 || statusCode === 408 || statusCode === 428 || statusCode === 401 || statusCode === 403) {
           sess.status = hasActiveCalls ? 'ONLINE' : (isPairingActive ? 'PAIRING' : 'ONLINE');
           logMsg(uid, `🔄 Non-stop connection sync (Code: ${statusCode || '515'}). Auto-resuming live session...`);
 
@@ -2270,7 +2270,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             if (activeSessions[uid] && activeSessions[uid].status !== 'LOGGED_OUT') {
               initSessionSocket(uid, sess.ownerJid, { force: false, preservePairing: true });
             }
-          }, 500);
+          }, 1000);
           return;
         }
 
