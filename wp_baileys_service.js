@@ -246,27 +246,18 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
 
     spawnArgs.push(target);
 
-    // Detect Python / yt-dlp binary
-    let execBin = 'yt-dlp';
+    // Detect Python / yt-dlp binary (Prefer python3 -m yt_dlp for full JS challenge engine)
+    let execBin = process.platform === 'win32' ? 'python' : 'python3';
     let isDirectYtDlp = false;
 
-    if (process.platform === 'win32') {
-      execBin = 'python';
-    } else {
-      if (fs.existsSync('/usr/local/bin/yt-dlp')) {
-        execBin = '/usr/local/bin/yt-dlp';
-        isDirectYtDlp = true;
-      } else if (fs.existsSync('/usr/bin/yt-dlp')) {
-        execBin = '/usr/bin/yt-dlp';
-        isDirectYtDlp = true;
-      } else if (fs.existsSync('/usr/local/bin/python')) {
-        execBin = '/usr/local/bin/python';
-      } else if (fs.existsSync('/usr/local/bin/python3')) {
+    if (process.platform !== 'win32') {
+      if (fs.existsSync('/usr/local/bin/python3')) {
         execBin = '/usr/local/bin/python3';
       } else if (fs.existsSync('/usr/bin/python3')) {
         execBin = '/usr/bin/python3';
-      } else {
-        execBin = 'python3';
+      } else if (fs.existsSync('/usr/local/bin/yt-dlp')) {
+        execBin = '/usr/local/bin/yt-dlp';
+        isDirectYtDlp = true;
       }
     }
 
@@ -281,9 +272,9 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
         return resolve({ success: true, filePath: found });
       }
       // Direct best fallback
-      const retryArgs = ['-m', 'yt_dlp', '--no-playlist', '--socket-timeout', '15', '--no-warnings'];
+      const retryArgs = ['-m', 'yt_dlp', '--no-playlist', '--socket-timeout', '20', '--no-warnings', '--geo-bypass'];
       if (type === 'video') {
-        retryArgs.push('-f', 'best', '--merge-output-format', 'mp4');
+        retryArgs.push('-f', 'best[height<=720][ext=mp4]/bestvideo+bestaudio/best', '--merge-output-format', 'mp4');
       } else {
         retryArgs.push('-f', 'bestaudio/best', '-x', '--audio-format', 'mp3');
       }
@@ -291,7 +282,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       if (fs.existsSync(ffmpegPath)) {
         retryArgs.push('--ffmpeg-location', __dirname);
       }
-      if (fs.existsSync(cookiePath)) {
+      if (cookiePath && fs.existsSync(cookiePath) && fs.statSync(cookiePath).size > 10) {
         retryArgs.push('--cookies', cookiePath);
       }
       retryArgs.push(target);
