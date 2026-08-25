@@ -192,7 +192,12 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
     const outTmpl = `${baseWithoutExt}.%(ext)s`;
-    const cookiePath = path.join(__dirname, 'cookies.txt');
+    let cookiePath = path.join(__dirname, 'cookies.txt');
+    if (!fs.existsSync(cookiePath) && fs.existsSync('/app/cookies.txt')) {
+      cookiePath = '/app/cookies.txt';
+    } else if (!fs.existsSync(cookiePath) && fs.existsSync(path.join(process.cwd(), 'cookies.txt'))) {
+      cookiePath = path.join(process.cwd(), 'cookies.txt');
+    }
 
     const findDownloadedFile = () => {
       if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) return outputPath;
@@ -235,7 +240,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       spawnArgs.push('--ffmpeg-location', __dirname);
     }
 
-    if (fs.existsSync(cookiePath) && fs.statSync(cookiePath).size > 10) {
+    if (cookiePath && fs.existsSync(cookiePath) && fs.statSync(cookiePath).size > 10) {
       spawnArgs.push('--cookies', cookiePath);
     }
 

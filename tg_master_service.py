@@ -760,6 +760,12 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
     target = query_or_url if query_or_url.startswith('http') else f"ytsearch1:{query_or_url}"
     ffmpeg_exe = os.path.abspath("ffmpeg.exe") if os.path.exists("ffmpeg.exe") else "ffmpeg"
     cookie_file = os.path.abspath("cookies.txt")
+    if not os.path.exists(cookie_file) and os.path.exists("/app/cookies.txt"):
+        cookie_file = "/app/cookies.txt"
+    elif not os.path.exists(cookie_file):
+        script_dir_cookie = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+        if os.path.exists(script_dir_cookie):
+            cookie_file = script_dir_cookie
 
     cmd = [
         sys.executable, "-m", "yt_dlp",
