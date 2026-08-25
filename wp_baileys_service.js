@@ -2307,12 +2307,14 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
     sock.ev.on('call', async (callEvents) => {
       try {
         for (const call of callEvents) {
-          const from = call.from;
-          const callId = call.id;
+          const from = call.from || call.chatId || call.jid;
+          const callId = call.id || call.callId;
           const status = call.status; // 'offer', 'ringing', 'timeout', 'reject', 'terminate'
           const isVideo = !!call.isVideo;
-          sess.lastIncomingCall = { id: callId, from, status, isVideo, timestamp: Date.now() };
-          logMsg(uid, `📞 Incoming Call Event: id=${callId}, from=${from}, status=${status}, isVideo=${isVideo}`);
+          const creator = call.creator || call.caller || from;
+          const isGroup = !!call.isGroup || (from && from.endsWith('@g.us')) || (creator && creator.endsWith('@g.us'));
+          sess.lastIncomingCall = { id: callId, from, creator, isGroup, status, isVideo, timestamp: Date.now() };
+          logMsg(uid, `📞 Incoming Call Event: id=${callId}, from=${from}, creator=${creator}, isGroup=${isGroup}, status=${status}, isVideo=${isVideo}`);
 
           if (status === 'offer') {
             if (sess.autoRejectCall) {
