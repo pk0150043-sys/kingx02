@@ -213,7 +213,15 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     };
 
     const ffmpegPath = path.join(__dirname, 'ffmpeg.exe');
-    const spawnArgs = ['-m', 'yt_dlp', '--no-playlist', '--socket-timeout', '15', '--no-warnings'];
+    const spawnArgs = [
+      '-m', 'yt_dlp',
+      '--no-playlist',
+      '--socket-timeout', '20',
+      '--no-warnings',
+      '--extractor-args', 'youtube:player_client=android,web,ios,tvhtml5',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      '--geo-bypass'
+    ];
 
     if (type === 'video') {
       spawnArgs.push('-f', format, '--merge-output-format', 'mp4');

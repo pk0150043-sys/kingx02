@@ -764,8 +764,11 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
     cmd = [
         sys.executable, "-m", "yt_dlp",
         "--no-playlist",
-        "--socket-timeout", "15",
-        "--no-warnings"
+        "--socket-timeout", "20",
+        "--no-warnings",
+        "--extractor-args", "youtube:player_client=android,web,ios,tvhtml5",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "--geo-bypass"
     ]
 
     if media_type == 'video':
