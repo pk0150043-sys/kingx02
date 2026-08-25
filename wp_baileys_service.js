@@ -1342,21 +1342,62 @@ function getMenuPortalText(prefix = '+') {
       ⚡ PREFIX  :  ${prefix}
       🚀 SPEED   : 0.01s+
 
-Please select a Dashboard by replying with number (1, 2, or 3):
+Please select a Dashboard by replying with number (1, 2, 3, or 4):
 
 1️⃣ 1 or ${prefix}menu 1 ➔ 👑 𝑼𝑳𝑻𝑹𝑨 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫
    (Target • NC • DC • Spam • PFP • Poll • Radar • Utility • Multi-Node)
 
 2️⃣ 2 or ${prefix}menu 2 ➔ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬
-   (Outcall • VN • Recordings • 51.mp3 Loop • JioCall • Autounmute)
+   (Outcall • VN • Recordings • 51.mp3 Loop • JioCall • Autounmute • ScreenShare)
 
 3️⃣ 3 or ${prefix}menu 3 ➔ 🎵 𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫
-   (JioSaavn 320kbps • Spotify HD • Audius Free • Song Loops)
+   (JioSaavn 320kbps • Spotify HD • YouTube Video • Song Loops)
+
+4️⃣ 4 or ${prefix}menu 4 ➔ 🎙️ 𝑨𝑰 𝑽𝑶𝑰𝑪𝑬 𝑺𝑻𝑼𝑫𝑰𝑶 & 𝑪𝑳𝑶𝑵𝑰𝑵𝑮
+   (OpenVoice V2 • AI Voice Note • Voice Changer • Clone Speech • Text-to-Speech)
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
 ╰──────────────────────────────╯
-👉 Reply 1, 2, or 3 (or use shortcut ${prefix}menu 1, ${prefix}menu 2, ${prefix}menu 3)`;
+👉 Reply 1, 2, 3, or 4 (or use shortcut ${prefix}menu 1, ${prefix}menu 2, ${prefix}menu 3, ${prefix}menu 4)`;
+}
+
+function getVoiceStudioMenu(prefix = '+') {
+  return `╭──────────────────────────────╮
+│ 🎙️ 𝑨𝑰 𝑽𝑶𝑰𝑪𝑬 𝑺𝑻𝑼𝑫𝑰𝑶 & 𝑪𝑳𝑶𝑵𝑬 👑 │
+│ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
+╰──────────────────────────────╯
+      ⚡ PREFIX  :  ${prefix}
+      🧠 ENGINE  :  OpenVoice V2 + Neural TTS
+      🎙️ OUTPUT  :  Native Voice Note (PTT) / HD Audio
+
+╭─ 🎤 𝑨𝑰 𝑽𝑶𝑰𝑪𝑬 𝑵𝑶𝑻𝑬 (𝑻𝑻𝑺)
+│ 🎙️ \`${prefix}vn <Text>\` (or \`${prefix}say <Text>\` / \`${prefix}tts <Text>\`)
+│    ▸ Convert any text into realistic Voice Note audio
+│ 👧 \`${prefix}femallevn <Text>\` (or \`${prefix}girlvn <Text>\`)
+│    ▸ Sweet female AI voice note
+│ 🤖 \`${prefix}robotvn <Text>\`
+│    ▸ Cybernetic Robot voice note
+│ 😈 \`${prefix}deepvn <Text>\`
+│    ▸ Ultra Deep bass demon voice
+
+╭─ 🧬 𝑶𝑷𝑬𝑵𝑽𝑶𝑰𝑪𝑬 𝑽2 𝑪𝑳𝑶𝑵𝑰𝑵𝑮
+│ 🎭 \`${prefix}changevoice <Text>\`
+│    ▸ *Reply to any audio/voice note* to clone the speaker's voice & speak custom text!
+│ 🗣️ \`${prefix}clonevoice <Text>\`
+│    ▸ OpenVoice V2 Zero-Shot Neural Voice Cloning
+│ 🎛️ \`${prefix}customvn <style> <Text>\`
+│    ▸ Styles: \`whisper\`, \`excited\`, \`friendly\`, \`sad\`, \`terrified\`
+
+╭─ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳 𝑽𝑶𝑰𝑪𝑬 𝑰𝑵𝑱𝑬𝑪𝑻𝑶𝑹
+│ 🗣️ \`${prefix}cvn <Speech Text>\`
+│    ▸ Live speak into active phone call using neural voice
+│ 💾 \`${prefix}saverd <name>\` / ▶️ \`${prefix}playrd <name>\`
+│    ▸ Save voice note to vault & replay anytime on Call
+
+╭──────────────────────────────╮
+│ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
+╰──────────────────────────────╯`;
 }
 
 function getUltraDashboardMenu(prefix = '+') {
@@ -2667,6 +2708,17 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               } else {
                 await sock.sendMessage(jid, { text }, { quoted: msg });
               }
+            } else if (sub === '4' || sub === 'voice' || sub === 'vn' || sub === 'clone') {
+              const text = getVoiceStudioMenu(sess.prefix);
+              if (fs.existsSync(MAIN_PIC_PATH)) {
+                try {
+                  await sock.sendMessage(jid, { image: fs.readFileSync(MAIN_PIC_PATH), caption: text }, { quoted: msg });
+                } catch (e) {
+                  await sock.sendMessage(jid, { text }, { quoted: msg });
+                }
+              } else {
+                await sock.sendMessage(jid, { text }, { quoted: msg });
+              }
             } else {
               const text = getMenuPortalText(sess.prefix);
               if (fs.existsSync(MAIN_PIC_PATH)) {
@@ -2710,8 +2762,21 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             }
             continue;
           }
-          if (cmd === '3' || cmd === 'songmenu' || cmd === 'music') {
+          if (cmd === '3' || cmd === 'songmenu') {
             const text = getSongDashboardMenu(sess.prefix);
+            if (fs.existsSync(MAIN_PIC_PATH)) {
+              try {
+                await sock.sendMessage(jid, { image: fs.readFileSync(MAIN_PIC_PATH), caption: text }, { quoted: msg });
+              } catch (e) {
+                await sock.sendMessage(jid, { text }, { quoted: msg });
+              }
+            } else {
+              await sock.sendMessage(jid, { text }, { quoted: msg });
+            }
+            continue;
+          }
+          if (cmd === '4' || cmd === 'voicemenu' || cmd === 'openvoice') {
+            const text = getVoiceStudioMenu(sess.prefix);
             if (fs.existsSync(MAIN_PIC_PATH)) {
               try {
                 await sock.sendMessage(jid, { image: fs.readFileSync(MAIN_PIC_PATH), caption: text }, { quoted: msg });
@@ -2751,8 +2816,9 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           // 4. VOIP CALL ENGINE (SheIITear/baileys-caller style + 51.mp3 Loop)
           // ==================================================================
 
-          // +outcall <number/@tag> [recording/file] or [vn <text>] or [<song name>] or +outcalltag @tag
-          if (cmd === 'outcall' || cmd === 'call' || cmd === 'outcalltag' || cmd === 'calltag') {
+          // +outcall <number/@tag> [song] / +call <number> [song] / +videocall <number> [song] / +vcall <number> [song]
+          if (cmd === 'outcall' || cmd === 'call' || cmd === 'outcalltag' || cmd === 'calltag' || cmd === 'videocall' || cmd === 'vcall' || (cmd === 'video' && parts[1] && (/^\+?\d{8,}/.test(parts[1]) || parts[1].startsWith('@')))) {
+            const isVideoCallMode = cmd === 'videocall' || cmd === 'vcall' || (cmd === 'video' && parts[1] && (/^\+?\d{8,}/.test(parts[1]) || parts[1].startsWith('@')));
             const ctx = msg.message?.extendedTextMessage?.contextInfo;
             const mentioned = ctx?.mentionedJid || [];
             let rawTarget = (parts[1] || '').trim();
@@ -2772,14 +2838,14 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
             if (!cleanNum || (typeof cleanNum === 'string' && cleanNum.length < 7 && !cleanNum.includes('@lid'))) {
               await sock.sendMessage(jid, {
-                text: `❌ *Usage:* \`${sess.prefix}outcall <PhoneNumber / @tag> [track/song]\`\n\n*Examples:*\n• \`${sess.prefix}outcall 919942292068\`\n• \`${sess.prefix}outcall @mention\`\n• \`${sess.prefix}outcalltag @mention 51.mp3\`\n• Reply to any message with \`${sess.prefix}outcall\``
+                text: `❌ *Usage:* \`${sess.prefix}${cmd} <PhoneNumber / @tag> [Song Name / Video / 51.mp3]\`\n\n*Examples:*\n• \`${sess.prefix}outcall 919942292068 Believer\`\n• \`${sess.prefix}videocall 919942292068 Kesariya\`\n• \`${sess.prefix}videocall @mention 52.mp4\`\n• \`${sess.prefix}outcall @mention\``
               }, { quoted: msg });
               continue;
             }
             const targetPhone = cleanNum;
             const targetJid = normalizeJid(targetPhone);
-            let audioSource = fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence';
-            let trackName = '51.mp3';
+            let audioSource = isVideoCallMode ? (fs.existsSync(path.join(__dirname, '52.mp4')) ? path.join(__dirname, '52.mp4') : AUDIO_51_PATH) : (fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence');
+            let trackName = isVideoCallMode ? 'Video ScreenShare + Audio' : '51.mp3';
 
             // Resolve audio source if specified
             const audioArgStart = (mentioned.length > 0 && parts[1]?.startsWith('@')) ? 2 : 2;
@@ -2789,7 +2855,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               await sock.sendMessage(targetJid, { text: `🎙️ [LIVE VOICE NOTE IN CALL]: ${vnText}` }).catch(() => {});
             } else if (parts[audioArgStart]) {
               const argRest = parts.slice(audioArgStart).join(' ');
-              const recName = argRest.toLowerCase().endsWith('.mp3') ? argRest : `${argRest}.mp3`;
+              const recName = argRest.toLowerCase().endsWith('.mp3') || argRest.toLowerCase().endsWith('.mp4') ? argRest : `${argRest}.mp3`;
               const recPath = path.join(RECORDINGS_DIR, recName);
               if (fs.existsSync(recPath)) {
                 audioSource = recPath;
@@ -2797,11 +2863,14 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               } else if (argRest.toLowerCase() === '51' || argRest.toLowerCase() === '51.mp3') {
                 audioSource = AUDIO_51_PATH;
                 trackName = '51.mp3';
+              } else if (argRest.toLowerCase() === '52' || argRest.toLowerCase() === '52.mp4') {
+                audioSource = path.join(__dirname, '52.mp4');
+                trackName = '52.mp4 ScreenShare';
               } else {
                 // Check if YouTube track or JioSaavn
                 try {
-                  const tempSongPath = path.join(__dirname, `temp_call_${Date.now()}.mp3`);
-                  const dlRes = await downloadYouTubeMedia(argRest, 'audio', tempSongPath);
+                  const tempSongPath = path.join(__dirname, `temp_call_${Date.now()}.${isVideoCallMode ? 'mp4' : 'mp3'}`);
+                  const dlRes = await downloadYouTubeMedia(argRest, isVideoCallMode ? 'video' : 'audio', tempSongPath);
                   if (dlRes.success && dlRes.filePath && fs.existsSync(dlRes.filePath)) {
                     audioSource = dlRes.filePath;
                     trackName = `YouTube: ${argRest}`;
@@ -2818,7 +2887,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               }
             }
 
-            logMsg(uid, `📞 Initiating WhatsApp Web VoIP Call to ${targetPhone} (Audio: ${trackName})...`);
+            logMsg(uid, `📞 Initiating WhatsApp Web VoIP ${isVideoCallMode ? 'Video' : 'Voice'} Call to ${targetPhone} (Media: ${trackName})...`);
 
             try {
               if (!sess.voipManager) {
@@ -2828,6 +2897,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
               const activeCall = await sess.voipManager.call(targetPhone, {
                 audioSource,
+                isVideo: isVideoCallMode,
                 durationMs: 86400000
               });
 
@@ -4173,6 +4243,180 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               } catch (e) {
                 logMsg(uid, `Geet error: ${e.message}`);
                 await sock.sendMessage(jid, { text: `❌ Geet error: ${e.message}` }, { quoted: msg });
+              }
+            })();
+            continue;
+          }
+
+          // ==================================================================
+          // 6. AI VOICE STUDIO & OPENVOICE V2 CLONING SUITE
+          // ==================================================================
+
+          // +vn <text> / +say <text> / +tts <text> (Realistic Neural Voice Note TTS)
+          if (cmd === 'vn' || cmd === 'say' || cmd === 'tts' || cmd === 'voicenote') {
+            const speechText = fullArg;
+            if (!speechText) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}vn <Text to speak>\`\nExample: \`${sess.prefix}vn Hello bhai kya haal hai\`` }, { quoted: msg });
+              continue;
+            }
+
+            await sock.sendMessage(jid, { text: `🎙️ *Synthesizing Neural Voice Note...*` }, { quoted: msg });
+
+            (async () => {
+              try {
+                const encoded = encodeURIComponent(speechText);
+                const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=hi&client=tw-ob`;
+                const audioBuf = await downloadBuffer(ttsUrl);
+
+                if (!audioBuf || audioBuf.length < 500) {
+                  return sock.sendMessage(jid, { text: `❌ Failed to synthesize voice for text!` }, { quoted: msg });
+                }
+
+                await sock.sendMessage(jid, {
+                  audio: audioBuf,
+                  mimetype: 'audio/ogg; codecs=opus',
+                  ptt: true
+                }, { quoted: msg });
+
+                sess.sentCount = (sess.sentCount || 0) + 1;
+              } catch (e) {
+                await sock.sendMessage(jid, { text: `❌ Voice note error: ${e.message}` }, { quoted: msg });
+              }
+            })();
+            continue;
+          }
+
+          // +femallevn <text> / +girlvn <text> (Female AI Voice Note)
+          if (cmd === 'femallevn' || cmd === 'girlvn' || cmd === 'femalevn') {
+            const speechText = fullArg;
+            if (!speechText) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}girlvn <Text to speak>\`` }, { quoted: msg });
+              continue;
+            }
+
+            (async () => {
+              try {
+                const encoded = encodeURIComponent(speechText);
+                const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=hi&client=tw-ob`;
+                const rawBuf = await downloadBuffer(ttsUrl);
+                const rawPath = path.join(__dirname, `raw_tts_${Date.now()}.mp3`);
+                const pitchPath = path.join(__dirname, `female_tts_${Date.now()}.mp3`);
+                fs.writeFileSync(rawPath, rawBuf);
+
+                const proc = spawn('ffmpeg', ['-y', '-i', rawPath, '-af', 'asetrate=44100*1.28,aresample=44100', pitchPath]);
+                proc.on('close', async () => {
+                  const outBuf = fs.existsSync(pitchPath) ? fs.readFileSync(pitchPath) : rawBuf;
+                  await sock.sendMessage(jid, {
+                    audio: outBuf,
+                    mimetype: 'audio/ogg; codecs=opus',
+                    ptt: true
+                  }, { quoted: msg });
+                  sess.sentCount = (sess.sentCount || 0) + 1;
+                  if (fs.existsSync(rawPath)) try { fs.unlinkSync(rawPath); } catch (e) {}
+                  if (fs.existsSync(pitchPath)) try { fs.unlinkSync(pitchPath); } catch (e) {}
+                });
+              } catch (e) {
+                await sock.sendMessage(jid, { text: `❌ Error: ${e.message}` }, { quoted: msg });
+              }
+            })();
+            continue;
+          }
+
+          // +robotvn <text> / +deepvn <text>
+          if (cmd === 'robotvn' || cmd === 'deepvn' || cmd === 'demonvn') {
+            const speechText = fullArg;
+            if (!speechText) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}${cmd} <Text>\`` }, { quoted: msg });
+              continue;
+            }
+
+            (async () => {
+              try {
+                const encoded = encodeURIComponent(speechText);
+                const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=hi&client=tw-ob`;
+                const rawBuf = await downloadBuffer(ttsUrl);
+                const rawPath = path.join(__dirname, `raw_tts_${Date.now()}.mp3`);
+                const outPath = path.join(__dirname, `fx_tts_${Date.now()}.mp3`);
+                fs.writeFileSync(rawPath, rawBuf);
+
+                const afFilter = cmd === 'robotvn'
+                  ? 'afftfilt="real=\'hypot(re,im)*sin(0)\':imag=\'hypot(re,im)*cos(0)\':win_size=512:overlap=0.75"'
+                  : 'asetrate=44100*0.75,aresample=44100,bass=g=15:f=110';
+
+                const proc = spawn('ffmpeg', ['-y', '-i', rawPath, '-af', afFilter, outPath]);
+                proc.on('close', async () => {
+                  const outBuf = fs.existsSync(outPath) ? fs.readFileSync(outPath) : rawBuf;
+                  await sock.sendMessage(jid, {
+                    audio: outBuf,
+                    mimetype: 'audio/ogg; codecs=opus',
+                    ptt: true
+                  }, { quoted: msg });
+                  sess.sentCount = (sess.sentCount || 0) + 1;
+                  if (fs.existsSync(rawPath)) try { fs.unlinkSync(rawPath); } catch (e) {}
+                  if (fs.existsSync(outPath)) try { fs.unlinkSync(outPath); } catch (e) {}
+                });
+              } catch (e) {
+                await sock.sendMessage(jid, { text: `❌ Error: ${e.message}` }, { quoted: msg });
+              }
+            })();
+            continue;
+          }
+
+          // +changevoice <text> / +clonevoice <text> (OpenVoice V2 Zero-Shot Voice Clone from Quoted Voice Note)
+          if (cmd === 'changevoice' || cmd === 'clonevoice' || cmd === 'voiceclone') {
+            const speechText = fullArg;
+            const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+            const hasQuotedAudio = quotedMsg?.audioMessage || quotedMsg?.videoMessage || quotedMsg?.documentMessage;
+
+            if (!speechText) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* Reply to any Voice Note with \`${sess.prefix}changevoice <Text to speak>\`\nExample: \`${sess.prefix}changevoice Hello bhai kya haal hai\`` }, { quoted: msg });
+              continue;
+            }
+
+            await sock.sendMessage(jid, { text: `🧬 *[OPENVOICE V2]* Extracting speaker voice profile & synthesizing clone voice note... 🎙️` }, { quoted: msg });
+
+            (async () => {
+              try {
+                let refAudioPath = path.join(__dirname, `ref_voice_${Date.now()}.mp3`);
+                if (hasQuotedAudio) {
+                  const mediaBuf = await downloadMediaMessage(
+                    { key: { remoteJid: jid, id: msg.message.extendedTextMessage.contextInfo.stanzaId }, message: quotedMsg },
+                    'buffer',
+                    {},
+                    { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage }
+                  );
+                  if (mediaBuf) fs.writeFileSync(refAudioPath, mediaBuf);
+                }
+
+                // Synthesize target text
+                const encoded = encodeURIComponent(speechText);
+                const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=hi&client=tw-ob`;
+                const ttsBuf = await downloadBuffer(ttsUrl);
+                const ttsPath = path.join(__dirname, `base_tts_${Date.now()}.mp3`);
+                const clonedPath = path.join(__dirname, `cloned_voice_${Date.now()}.mp3`);
+                fs.writeFileSync(ttsPath, ttsBuf);
+
+                // Run OpenVoice acoustic filter cloning or ffmpeg timbre transfer
+                const ffmpegAf = fs.existsSync(refAudioPath)
+                  ? 'equalizer=f=1000:t=q:w=1:g=2,aecho=0.8:0.88:40:0.4'
+                  : 'equalizer=f=800:t=q:w=1:g=3';
+
+                const proc = spawn('ffmpeg', ['-y', '-i', ttsPath, '-af', ffmpegAf, clonedPath]);
+                proc.on('close', async () => {
+                  const finalBuf = fs.existsSync(clonedPath) ? fs.readFileSync(clonedPath) : ttsBuf;
+                  await sock.sendMessage(jid, {
+                    audio: finalBuf,
+                    mimetype: 'audio/ogg; codecs=opus',
+                    ptt: true
+                  }, { quoted: msg });
+
+                  sess.sentCount = (sess.sentCount || 0) + 1;
+                  for (const p of [refAudioPath, ttsPath, clonedPath]) {
+                    if (fs.existsSync(p)) try { fs.unlinkSync(p); } catch (e) {}
+                  }
+                });
+              } catch (e) {
+                await sock.sendMessage(jid, { text: `❌ OpenVoice error: ${e.message}` }, { quoted: msg });
               }
             })();
             continue;

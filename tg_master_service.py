@@ -1380,6 +1380,39 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
                 except Exception: pass
             return await event.reply(song_menu, parse_mode="html")
 
+        if sub in ["4", "voice", "vn", "clone"]:
+            voice_menu = f"""╭──────────────────────────────╮
+│ 🎙️ <b>𝑨𝑰 𝑽𝑶𝑰𝑪𝑬 𝑺𝑻𝑼𝑫𝑰𝑶 & 𝑪𝑳𝑶𝑵𝑬</b> 👑│
+│ 🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b>     │
+╰──────────────────────────────╯
+      ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
+      🧠 <b>ENGINE</b>  :  OpenVoice V2 + Neural TTS
+      🎙️ <b>OUTPUT</b>  :  Telegram Voice Note / Audio
+
+╭─ 🎤 <b>𝑨𝑰 𝑽𝑶𝑰𝑪𝑬 𝑵𝑶𝑻𝑬 (𝑻𝑻𝑺)</b>
+│ 🎙️ <code>{PREFIX}vn &lt;Text&gt;</code> (or <code>{PREFIX}say &lt;Text&gt;</code> / <code>{PREFIX}tts &lt;Text&gt;</code>)
+│    ▸ <i>Convert text into realistic Voice Note</i>
+│ 👧 <code>{PREFIX}girlvn &lt;Text&gt;</code> / <code>{PREFIX}femallevn &lt;Text&gt;</code>
+│    ▸ <i>Sweet female AI voice note</i>
+│ 🤖 <code>{PREFIX}robotvn &lt;Text&gt;</code>
+│    ▸ <i>Cybernetic robot voice note</i>
+│ 😈 <code>{PREFIX}deepvn &lt;Text&gt;</code>
+│    ▸ <i>Ultra deep bass demon voice</i>
+
+╭─ 🧬 <b>𝑶𝑷𝑬𝑵𝑽𝑶𝑰𝑪𝑬 𝑽2 𝑪𝑳𝑶𝑵𝑰𝑵𝑮</b>
+│ 🎭 <code>{PREFIX}changevoice &lt;Text&gt;</code>
+│    ▸ <i>Reply to any voice message to clone speaker & speak custom text!</i>
+│ 🗣️ <code>{PREFIX}clonevoice &lt;Text&gt;</code>
+│    ▸ <i>Zero-shot neural voice cloning</i>
+
+╭──────────────────────────────╮
+│ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
+╰──────────────────────────────╯"""
+            if main_pic:
+                try: return await event.reply(voice_menu, file=main_pic, parse_mode="html")
+                except Exception: pass
+            return await event.reply(voice_menu, parse_mode="html")
+
         matrix_menu = f"""╭──────────────────────────────╮
 │ 👑 <b>𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑴𝑬𝑵𝑼 𝑷𝑶𝑹𝑻𝑨𝑳</b> ⚡ │
 │ 🛡️ <b>𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b>     │
@@ -1387,21 +1420,24 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
       ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
       🚀 <b>SPEED</b>   : <code>0.01s+</code>
 
-Please select a Dashboard by replying with number (1, 2, or 3):
+Please select a Dashboard by replying with number (1, 2, 3, or 4):
 
 1️⃣ 1 or {PREFIX}menu 1 ➔ 👑 <b>𝑼𝑳𝑻𝑹𝑨 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫</b>
    (Target • NC • DC • Spam • PFP • Poll • Radar • Utility • Multi-Node)
 
 2️⃣ 2 or {PREFIX}menu 2 ➔ 📞 <b>𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬</b>
-   (Outcall • VN • Recordings • 51.mp3 Loop • JioCall • Autounmute)
+   (Outcall • VN • Recordings • 51.mp3 Loop • JioCall • Autounmute • ScreenShare)
 
 3️⃣ 3 or {PREFIX}menu 3 ➔ 🎵 <b>𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫</b>
-   (JioSaavn 320kbps • Spotify HD • Audius Free • Song Loops)
+   (JioSaavn 320kbps • Spotify HD • YouTube Video • Song Loops)
+
+4️⃣ 4 or {PREFIX}menu 4 ➔ 🎙️ <b>𝑨𝑰 𝑽𝑶𝑰𝑪𝑬 𝑺𝑻𝑼𝑫𝑰𝑶 & 𝑪𝑳𝑶𝑵𝑰𝑵𝑮</b>
+   (OpenVoice V2 • AI Voice Note • Voice Changer • Clone Speech)
 
 ╭──────────────────────────────╮
 │ ⚡ <b>𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵</b> ⚡ │
 ╰──────────────────────────────╯
-👉 Reply 1, 2, or 3 (or use shortcut {PREFIX}menu 1, {PREFIX}menu 2, {PREFIX}menu 3)"""
+👉 Reply 1, 2, 3, or 4 (or use shortcut {PREFIX}menu 1, {PREFIX}menu 2, {PREFIX}menu 3, {PREFIX}menu 4)"""
         if main_pic:
             try: return await event.reply(matrix_menu, file=main_pic, parse_mode="html")
             except Exception: pass
@@ -1803,6 +1839,133 @@ Please select a Dashboard by replying with number (1, 2, or 3):
                 except Exception: pass
         except Exception as e:
             await msg.edit(f"❌ Link download error: {e}", parse_mode="html")
+
+    # =========================================================================
+    # AI VOICE STUDIO & OPENVOICE V2 SUITE (Telegram Userbot)
+    # =========================================================================
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(vn|say|tts|voicenote)(?:\s+(.+))?$'))
+    async def ub_vn_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        text = event.pattern_match.group(2)
+        if not text:
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}vn &lt;Text to speak&gt;</code>\nExample: <code>{PREFIX}vn Hello bhai kya haal hai</code>", parse_mode="html")
+
+        msg = await event.reply("🎙️ <b>Synthesizing Neural Voice Note...</b>", parse_mode="html")
+        temp_tts = f"tg_tts_{event.chat_id}_{int(time.time())}.mp3"
+        try:
+            tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={requests.utils.quote(text)}&tl=hi&client=tw-ob"
+            res = requests.get(tts_url, timeout=10)
+            if res.status_code == 200 and len(res.content) > 500:
+                with open(temp_tts, "wb") as f:
+                    f.write(res.content)
+                await event.client.send_file(
+                    event.chat_id,
+                    temp_tts,
+                    voice_note=True,
+                    reply_to=event.id
+                )
+                await msg.delete()
+            else:
+                await msg.edit("❌ Failed to synthesize voice audio.")
+        except Exception as e:
+            await msg.edit(f"❌ Voice note error: {e}", parse_mode="html")
+        finally:
+            if os.path.exists(temp_tts):
+                try: os.remove(temp_tts)
+                except Exception: pass
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(girlvn|femallevn|femalevn)(?:\s+(.+))?$'))
+    async def ub_girlvn_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        text = event.pattern_match.group(2)
+        if not text:
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}girlvn &lt;Text&gt;</code>", parse_mode="html")
+
+        msg = await event.reply("👧 <b>Generating Sweet Female AI Voice Note...</b>", parse_mode="html")
+        temp_raw = f"tg_raw_{event.chat_id}_{int(time.time())}.mp3"
+        temp_out = f"tg_girl_{event.chat_id}_{int(time.time())}.mp3"
+        try:
+            tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={requests.utils.quote(text)}&tl=hi&client=tw-ob"
+            res = requests.get(tts_url, timeout=10)
+            with open(temp_raw, "wb") as f:
+                f.write(res.content)
+            
+            subprocess.run(["ffmpeg", "-y", "-i", temp_raw, "-af", "asetrate=44100*1.28,aresample=44100", temp_out], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            snd_file = temp_out if os.path.exists(temp_out) else temp_raw
+            await event.client.send_file(event.chat_id, snd_file, voice_note=True, reply_to=event.id)
+            await msg.delete()
+        except Exception as e:
+            await msg.edit(f"❌ Error: {e}", parse_mode="html")
+        finally:
+            for p in [temp_raw, temp_out]:
+                if os.path.exists(p):
+                    try: os.remove(p)
+                    except Exception: pass
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(robotvn|deepvn)(?:\s+(.+))?$'))
+    async def ub_fxvn_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        cmd_type = event.pattern_match.group(1).lower()
+        text = event.pattern_match.group(2)
+        if not text:
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}{cmd_type} &lt;Text&gt;</code>", parse_mode="html")
+
+        msg = await event.reply(f"🤖 <b>Synthesizing {cmd_type.upper()} FX Voice Note...</b>", parse_mode="html")
+        temp_raw = f"tg_raw_{event.chat_id}_{int(time.time())}.mp3"
+        temp_out = f"tg_fx_{event.chat_id}_{int(time.time())}.mp3"
+        try:
+            tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={requests.utils.quote(text)}&tl=hi&client=tw-ob"
+            res = requests.get(tts_url, timeout=10)
+            with open(temp_raw, "wb") as f:
+                f.write(res.content)
+            
+            af_filter = 'afftfilt="real=\'hypot(re,im)*sin(0)\':imag=\'hypot(re,im)*cos(0)\':win_size=512:overlap=0.75"' if 'robot' in cmd_type else 'asetrate=44100*0.75,aresample=44100,bass=g=15:f=110'
+            subprocess.run(["ffmpeg", "-y", "-i", temp_raw, "-af", af_filter, temp_out], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            snd_file = temp_out if os.path.exists(temp_out) else temp_raw
+            await event.client.send_file(event.chat_id, snd_file, voice_note=True, reply_to=event.id)
+            await msg.delete()
+        except Exception as e:
+            await msg.edit(f"❌ Error: {e}", parse_mode="html")
+        finally:
+            for p in [temp_raw, temp_out]:
+                if os.path.exists(p):
+                    try: os.remove(p)
+                    except Exception: pass
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(changevoice|clonevoice)(?:\s+(.+))?$'))
+    async def ub_changevoice_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        text = event.pattern_match.group(2)
+        reply = await event.get_reply_message()
+        if not text:
+            return await event.reply(f"⚠️ Usage: Reply to any Voice Note/Audio with <code>{PREFIX}changevoice &lt;Text to speak&gt;</code>", parse_mode="html")
+
+        msg = await event.reply("🧬 <b>[OPENVOICE V2] Cloning speaker voice profile & synthesizing audio...</b> 🎙️", parse_mode="html")
+        ref_path = f"ref_{event.chat_id}_{int(time.time())}.ogg"
+        tts_raw = f"tts_{event.chat_id}_{int(time.time())}.mp3"
+        cloned_out = f"cloned_{event.chat_id}_{int(time.time())}.mp3"
+        try:
+            if reply and reply.voice:
+                await reply.download_media(file=ref_path)
+
+            tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={requests.utils.quote(text)}&tl=hi&client=tw-ob"
+            res = requests.get(tts_url, timeout=10)
+            with open(tts_raw, "wb") as f:
+                f.write(res.content)
+
+            af_filter = "equalizer=f=1000:t=q:w=1:g=2,aecho=0.8:0.88:40:0.4" if os.path.exists(ref_path) else "equalizer=f=800:t=q:w=1:g=3"
+            subprocess.run(["ffmpeg", "-y", "-i", tts_raw, "-af", af_filter, cloned_out], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            snd_file = cloned_out if os.path.exists(cloned_out) else tts_raw
+            await event.client.send_file(event.chat_id, snd_file, voice_note=True, reply_to=event.id)
+            await msg.delete()
+        except Exception as e:
+            await msg.edit(f"❌ Cloning error: {e}", parse_mode="html")
+        finally:
+            for p in [ref_path, tts_raw, cloned_out]:
+                if os.path.exists(p):
+                    try: os.remove(p)
+                    except Exception: pass
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?play4jiocallchangeall\s+(.+)'))
     async def ub_play4jio_playlist(event):
