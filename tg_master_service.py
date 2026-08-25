@@ -188,14 +188,23 @@ def should_process_tg_command(chat_id: int, msg_id: int, cmd_name: str) -> bool:
     return True
 
 # ==============================================================================
-# MONGODB ATLAS INTEGRATION (ZERO LOCAL FILE POLLUTION)
+# MONGODB ATLAS INTEGRATION (ZERO LOCAL FILE POLLUTION OR ISOLATED LOCAL STORAGE)
 # ==============================================================================
+STORAGE_MODE = os.getenv("SESSION_STORAGE", "local").lower() # 'local' or 'mongodb'
+INSTANCE_ID = os.getenv("INSTANCE_ID") or os.getenv("RAILWAY_SERVICE_NAME") or os.getenv("RENDER_SERVICE_NAME") or "default_node"
+COLLECTION_SUFFIX = re.sub(r'[^a-zA-Z0-9_]', '_', INSTANCE_ID)
+
 mongo_client = None
 mongo_db = None
 mongo_connected = False
 
 def init_mongo_connection():
     global mongo_client, mongo_db, mongo_connected
+    if STORAGE_MODE == "local":
+        add_log(f"💾 [STORAGE] TG Service using Local Storage Mode (Isolated per repository/instance: {INSTANCE_ID}).")
+        mongo_connected = False
+        return
+
     uri = os.getenv("MONGODB_URI", "").strip()
     if not uri and os.path.exists(".env"):
         try:
@@ -217,7 +226,7 @@ def init_mongo_connection():
         db_name = "igtgwp_db"
         mongo_db = mongo_client[db_name]
         mongo_connected = True
-        add_log(f"🍃 [MONGODB] Connected to Atlas Database: '{db_name}'")
+        add_log(f"🍃 [MONGODB] Connected to Atlas Database: '{db_name}' (Instance Namespace: {COLLECTION_SUFFIX})")
     except Exception as e:
         mongo_connected = False
         add_log(f"⚠️ [MONGODB] Atlas Connection Warning: {e}. Using SQLite fallback.")

@@ -215,13 +215,18 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       return null;
     };
 
+    const ffmpegPath = path.join(__dirname, 'ffmpeg.exe');
     const spawnArgs = [
       '-m', 'yt_dlp',
       '-f', format,
-      '--extractor-args', 'youtube:player_client=ios,android',
+      '--extractor-args', 'youtube:player_client=ios,android,web',
       '-o', outTmpl,
       '--no-warnings'
     ];
+
+    if (fs.existsSync(ffmpegPath)) {
+      spawnArgs.push('--ffmpeg-location', __dirname);
+    }
 
     if (fs.existsSync(cookiePath)) {
       spawnArgs.push('--cookies', cookiePath);
@@ -239,14 +244,22 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
         return resolve({ success: true, filePath: found });
       }
       // Retry with broader format and mweb,android client
-      const retryProc = spawn('python', [
+      const retryArgs = [
         '-m', 'yt_dlp',
         '-f', 'best',
         '--extractor-args', 'youtube:player_client=android,mweb,web',
         '-o', outTmpl,
-        '--no-warnings',
-        target
-      ]);
+        '--no-warnings'
+      ];
+      if (fs.existsSync(ffmpegPath)) {
+        retryArgs.push('--ffmpeg-location', __dirname);
+      }
+      if (fs.existsSync(cookiePath)) {
+        retryArgs.push('--cookies', cookiePath);
+      }
+      retryArgs.push(target);
+
+      const retryProc = spawn('python', retryArgs);
       retryProc.on('close', () => {
         const retryFound = findDownloadedFile();
         if (retryFound) {
@@ -298,15 +311,23 @@ for (const dir of [SESSIONS_BASE_DIR, RECORDINGS_DIR]) {
 
 const { MongoClient } = require('mongodb');
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://princeopxl026_db_user:PRINCE%409507325@cluster0.8hcoae.mongodb.net/igtgwp_db?retryWrites=true&w=majority';
+const STORAGE_MODE = (process.env.SESSION_STORAGE || 'local').toLowerCase(); // 'local' or 'mongodb'
+const INSTANCE_ID = process.env.INSTANCE_ID || process.env.RAILWAY_SERVICE_NAME || process.env.RENDER_SERVICE_NAME || 'default_node';
+const MONGO_COLLECTION_NAME = `wp_sessions_${INSTANCE_ID.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+
 let mongoClient = null;
 let mongoDb = null;
 
 async function initMongo() {
+  if (STORAGE_MODE === 'local') {
+    console.log('💾 [STORAGE] Using Local Storage Mode (Isolated per hosting repository/disk).');
+    return;
+  }
   try {
     mongoClient = new MongoClient(MONGODB_URI, { maxPoolSize: 10, serverSelectionTimeoutMS: 8000 });
     await mongoClient.connect();
     mongoDb = mongoClient.db();
-    console.log('🍃 [MONGODB] Connected successfully to Atlas MongoDB database for WhatsApp sessions!');
+    console.log(`🍃 [MONGODB] Connected successfully! Session Namespace: '${MONGO_COLLECTION_NAME}'`);
     await restoreAllSessionsFromMongo();
   } catch (err) {
     console.error('⚠️ [MONGODB NOTICE]:', err.message);
@@ -314,9 +335,9 @@ async function initMongo() {
 }
 
 async function restoreAllSessionsFromMongo() {
-  if (!mongoDb) return;
+  if (!mongoDb || STORAGE_MODE === 'local') return;
   try {
-    const col = mongoDb.collection('wp_sessions');
+    const col = mongoDb.collection(MONGO_COLLECTION_NAME);
     const docs = await col.find({}).toArray();
     for (const doc of docs) {
       const uid = doc._id;
@@ -329,7 +350,7 @@ async function restoreAllSessionsFromMongo() {
           fs.writeFileSync(filePath, content, 'utf8');
         }
       }
-      logMsg(uid, `🍃 Restored session credentials from MongoDB Atlas for: ${uid}`);
+      logMsg(uid, `🍃 Restored session credentials from MongoDB (${MONGO_COLLECTION_NAME}) for: ${uid}`);
     }
   } catch (e) {
     console.error('[MONGODB RESTORE ERROR]:', e.message);
@@ -337,7 +358,7 @@ async function restoreAllSessionsFromMongo() {
 }
 
 async function saveSessionToMongo(uid) {
-  if (!mongoDb || !uid) return;
+  if (!mongoDb || !uid || STORAGE_MODE === 'local') return;
   try {
     const authDir = getSessionAuthDir(uid);
     if (!fs.existsSync(authDir)) return;
@@ -351,9 +372,9 @@ async function saveSessionToMongo(uid) {
       }
     }
     if (Object.keys(files).length > 0) {
-      await mongoDb.collection('wp_sessions').updateOne(
+      await mongoDb.collection(MONGO_COLLECTION_NAME).updateOne(
         { _id: uid },
-        { $set: { files, updatedAt: new Date() } },
+        { $set: { files, instanceId: INSTANCE_ID, updatedAt: new Date() } },
         { upsert: true }
       );
     }
@@ -361,10 +382,10 @@ async function saveSessionToMongo(uid) {
 }
 
 async function deleteSessionFromMongo(uid) {
-  if (!mongoDb || !uid) return;
+  if (!mongoDb || !uid || STORAGE_MODE === 'local') return;
   try {
-    await mongoDb.collection('wp_sessions').deleteOne({ _id: uid });
-    logMsg(uid, `🍃 Purged WhatsApp session from MongoDB for node: ${uid}`);
+    await mongoDb.collection(MONGO_COLLECTION_NAME).deleteOne({ _id: uid });
+    logMsg(uid, `🍃 Purged WhatsApp session from MongoDB (${MONGO_COLLECTION_NAME}) for node: ${uid}`);
   } catch (e) {}
 }
 
@@ -1584,15 +1605,7 @@ function isAuthorizedOwner(sess, msg, sock) {
 
   const cleanDm = !isGroup ? cleanRemote : '';
 
-  // Master platform admins
-  for (const master of MASTER_ADMIN_NUMBERS) {
-    if (!master) continue;
-    if (cleanSender === master || cleanSenderLid === master || (cleanDm && cleanDm === master)) return true;
-    if (cleanSender && cleanSender.length >= 10 && cleanSender.endsWith(master)) return true;
-    if (cleanDm && cleanDm.length >= 10 && cleanDm.endsWith(master)) return true;
-  }
-
-  // Dynamic session owner LID
+  // 1. Dynamic session owner LID & JID check (Each bot instance owner)
   if (sess.ownerLid) {
     const cleanOwnerLid = cleanPhone(sess.ownerLid);
     if (senderParticipant === sess.ownerLid || senderLid === sess.ownerLid) return true;
@@ -1613,7 +1626,7 @@ function isAuthorizedOwner(sess, msg, sock) {
     }
   }
 
-  // Subadmins
+  // 2. Subadmins strictly registered under this specific session
   if (sess.subadmins && sess.subadmins.size > 0) {
     for (const sub of sess.subadmins) {
       if (!sub) continue;
@@ -1624,6 +1637,16 @@ function isAuthorizedOwner(sess, msg, sock) {
         if (cleanSub === cleanSender || cleanSub === cleanSenderLid || (cleanDm && cleanSub === cleanDm)) return true;
         if (cleanSub.length >= 10 && cleanSender.length >= 10 && (cleanSender.endsWith(cleanSub) || cleanSub.endsWith(cleanSender))) return true;
       }
+    }
+  }
+
+  // 3. Fallback: If no owner is assigned to this session yet, allow master emergency admin
+  if (!sess.ownerJid && !sess.ownerLid) {
+    for (const master of MASTER_ADMIN_NUMBERS) {
+      if (!master) continue;
+      if (cleanSender === master || cleanSenderLid === master || (cleanDm && cleanDm === master)) return true;
+      if (cleanSender && cleanSender.length >= 10 && cleanSender.endsWith(master)) return true;
+      if (cleanDm && cleanDm.length >= 10 && cleanDm.endsWith(master)) return true;
     }
   }
 
@@ -2164,7 +2187,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             if (activeSessions[uid] && activeSessions[uid].status !== 'LOGGED_OUT') {
               initSessionSocket(uid, sess.ownerJid, { force: false, preservePairing: true });
             }
-          }, 800);
+          }, 500);
           return;
         }
 
@@ -2182,14 +2205,14 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               if (activeSessions[uid] && activeSessions[uid].status !== 'LOGGED_OUT') {
                 initSessionSocket(uid, sess.ownerJid, { force: false });
               }
-            }, 1500);
+            }, 1000);
             return;
           }
         }
 
         sess.reconnectAttempts = (sess.reconnectAttempts || 0) + 1;
-        const backoffDelay = hasActiveCalls ? 800 : Math.min(15000, 1500 * Math.pow(1.2, Math.min(sess.reconnectAttempts, 4)));
-        if (!hasActiveCalls) sess.status = 'RECONNECTING';
+        const backoffDelay = hasActiveCalls ? 500 : Math.min(8000, 1000 * Math.pow(1.2, Math.min(sess.reconnectAttempts, 3)));
+        if (!hasActiveCalls) sess.status = 'ONLINE'; // Keep status online to avoid dashboard flashing
         logMsg(uid, `⚡ Non-stop live stream sentinel. Auto-connecting in ${Math.round(backoffDelay / 1000)}s...`);
 
         clearTimeout(sess.reconnectTimer);
@@ -2380,14 +2403,10 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           const rawBody = text.trim();
           const curPrefix = sess.prefix || '+';
 
-          // Allowed command prefixes
-          const allowedPrefixes = [curPrefix, '+', '.', '!', '/', '-', '?', '#', '$', '*', '&', '_'].filter(Boolean);
+          // Strict Prefix Check: Bot strictly responds to its assigned prefix
           let usedPrefix = null;
-          for (const p of allowedPrefixes) {
-            if (rawBody.startsWith(p)) {
-              usedPrefix = p;
-              break;
-            }
+          if (rawBody.startsWith(curPrefix)) {
+            usedPrefix = curPrefix;
           }
 
           // Allow bare number reply '1', '2', '3' for menu navigation
