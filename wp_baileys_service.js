@@ -217,6 +217,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       '-m', 'yt_dlp',
       '-f', format,
       '--merge-output-format', 'mp4',
+      '--postprocessor-args', 'ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v baseline -level 3.0 -c:a aac -b:a 128k -movflags +faststart',
       '--no-playlist',
       '--socket-timeout', '15',
       '-o', outTmpl,
@@ -2440,11 +2441,23 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             }
           }
 
-          // STRICT ADMIN AUTHORIZATION CHECK (ONLY Configured Admin/Owner commands work - non-admins silently ignored)
+          // SENSITIVE ADMIN COMMANDS LIST (Restricted strictly to Owner/Subadmins)
+          const SENSITIVE_ADMIN_COMMANDS = new Set([
+            'setowner', 'setadmin', 'addadmin', 'deladmin', 'removeadmin', 'showadmins', 'admins', 'listadmins',
+            'mode', 'workmode', 'public', 'self', 'private',
+            'eval', 'exec', 'restart', 'reboot', 'shutdown', 'clearsession', 'logout',
+            'delbotsession', 'removebot', 'deletesession'
+          ]);
+
           const isOwner = isAuthorizedOwner(sess, msg, sock);
-          if (!isOwner) {
-            logMsg(uid, `⛔ [UNAUTHORIZED COMMAND IGNORED] User ${senderParticipant} is not authorized on Node ${uid} for [${cmd}]`);
-            continue;
+          const isPublicMode = (sess.mode || 'public') === 'public';
+
+          // If mode is self/private or it's a sensitive admin command, enforce strict owner check
+          if (SENSITIVE_ADMIN_COMMANDS.has(cmd) || !isPublicMode) {
+            if (!isOwner) {
+              logMsg(uid, `⛔ [UNAUTHORIZED COMMAND IGNORED] User ${senderParticipant} is not authorized on Node ${uid} for [${cmd}]`);
+              continue;
+            }
           }
 
           // SET OWNER COMMAND
@@ -2518,13 +2531,6 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             }, { quoted: msg });
             continue;
           }
-
-          // SENSITIVE ADMIN COMMANDS LIST
-          const SENSITIVE_ADMIN_COMMANDS = new Set([
-            'setowner', 'setadmin', 'addadmin', 'deladmin', 'removeadmin', 'showadmins', 'admins', 'listadmins',
-            'mode', 'workmode', 'public', 'self', 'private',
-            'eval', 'exec', 'restart', 'reboot', 'shutdown', 'clearsession', 'logout'
-          ]);
 
           if (!shouldExecuteCommand(sess, msg, cmd)) {
             continue;
