@@ -187,7 +187,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const isUrl = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
     const target = isUrl ? cleanTarget : `ytsearch1:${cleanTarget}`;
     const format = type === 'video' 
-      ? 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bestvideo+bestaudio/best' 
+      ? 'bestvideo+bestaudio/best' 
       : 'ba/bestaudio/best';
     
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
@@ -218,7 +218,6 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       '--no-playlist',
       '--socket-timeout', '30',
       '--no-warnings',
-      '--extractor-args', 'youtube:player_client=android_embedded,web_embedded,ios,mweb',
       '--geo-bypass'
     ];
 
