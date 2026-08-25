@@ -2000,6 +2000,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         userJid: '',
         ownerJid: resolvedOwnerJid,
         prefix: savedCfg.prefix || '+',
+        mode: savedCfg.mode || 'self',
+        workMode: savedCfg.workMode || 'self',
         executionMode: 'solo',
         autoRejectCall: !!savedCfg.autoRejectCall,
         lastIncomingCall: null,
@@ -2456,12 +2458,12 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           ]);
 
           const isOwner = isAuthorizedOwner(sess, msg, sock);
-          const isPublicMode = (sess.mode || 'public') === 'public';
+          const isPublicMode = (sess.mode || 'self') === 'public';
 
-          // If mode is self/private or it's a sensitive admin command, enforce strict owner check
-          if (SENSITIVE_ADMIN_COMMANDS.has(cmd) || !isPublicMode) {
+          // Strictly restrict ALL commands to the session's Owner/Subadmins unless explicitly set to public
+          if (!isPublicMode || SENSITIVE_ADMIN_COMMANDS.has(cmd)) {
             if (!isOwner) {
-              logMsg(uid, `⛔ [UNAUTHORIZED COMMAND IGNORED] User ${senderParticipant} is not authorized on Node ${uid} for [${cmd}]`);
+              logMsg(uid, `⛔ [UNAUTHORIZED COMMAND BLOCKED] User ${senderParticipant} attempted [${cmd}] on Node ${uid}. Only verified owner can control this bot.`);
               continue;
             }
           }
