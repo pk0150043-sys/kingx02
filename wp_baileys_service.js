@@ -85,8 +85,19 @@ async function searchYouTubeTrack(query) {
   query = (query || '').trim();
   if (!query) return null;
 
+  // Handle youtu.be / watch URLs
+  if (query.startsWith('http://') || query.startsWith('https://')) {
+    try {
+      const u = new URL(query);
+      if (u.hostname.includes('youtu.be')) {
+        const vidId = u.pathname.replace(/^\//, '');
+        if (vidId) query = `https://www.youtube.com/watch?v=${vidId}`;
+      }
+    } catch(e) {}
+  }
+
   // 1. Try yt-search
-  if (yts) {
+  if (yts && !query.startsWith('http')) {
     try {
       const res = await yts(query);
       if (res && res.videos && res.videos.length > 0) {
@@ -98,55 +109,39 @@ async function searchYouTubeTrack(query) {
           duration: v.timestamp || `${Math.floor(v.seconds / 60)}:${v.seconds % 60}`,
           seconds: v.seconds || 180,
           views: v.views ? Number(v.views).toLocaleString() : '150K+',
-          ago: v.ago || 'Recently',
+          ago: v.ago || 'Recent',
           url: v.url || `https://www.youtube.com/watch?v=${v.videoId}`,
           videoId: v.videoId,
-          description: v.description || `Official audio/video stream for ${v.title}`,
-          thumbnail: v.thumbnail || v.image,
-          image: v.image || v.thumbnail
+          description: v.description || `Official music video for ${v.title}`,
+          image: v.thumbnail || v.image,
+          thumbnail: v.thumbnail || v.image
         };
       }
-    } catch(e) {}
+    } catch (e) {}
   }
 
-  // 2. Try Python yt-dlp dump-json fallback for exact video metadata
+  // 2. Direct yt_dlp metadata extraction
   try {
-    const dlpRes = await new Promise((resolve) => {
-      const isUrl = query.startsWith('http://') || query.startsWith('https://');
-      const target = isUrl ? query : `ytsearch1:${query}`;
-      const proc = spawn('python', [
-        '-m', 'yt_dlp',
-        '--dump-json',
-        '--no-warnings',
-        '--extractor-args', 'youtube:player_client=ios,android',
-        target
-      ]);
-      let out = '';
-      proc.stdout.on('data', (d) => { out += d.toString(); });
-      proc.on('close', () => {
-        try {
-          const lines = out.trim().split('\n');
-          for (const line of lines) {
-            if (line.trim().startsWith('{')) {
-              const meta = JSON.parse(line.trim());
-              return resolve(meta);
-            }
-          }
-        } catch(e) {}
-        resolve(null);
-      });
-      proc.on('error', () => resolve(null));
-    });
-
-    if (dlpRes) {
+    const dlpProc = spawn('python', [
+      '-m', 'yt_dlp',
+      '--dump-json',
+      '--no-warnings',
+      '--no-playlist',
+      query.startsWith('http') ? query : `ytsearch1:${query}`
+    ]);
+    let dlpOut = '';
+    dlpProc.stdout.on('data', (d) => { dlpOut += d.toString(); });
+    const code = await new Promise(r => dlpProc.on('close', r));
+    if (code === 0 && dlpOut.trim()) {
+      const dlpRes = JSON.parse(dlpOut.trim().split('\n')[0]);
       return {
         title: dlpRes.title || query,
-        artist: dlpRes.uploader || dlpRes.channel || 'YouTube Music',
-        author: dlpRes.uploader || dlpRes.channel || 'YouTube Music',
-        duration: dlpRes.duration_string || (dlpRes.duration ? `${Math.floor(dlpRes.duration / 60)}:${dlpRes.duration % 60}` : '3:30'),
-        seconds: dlpRes.duration || 210,
+        artist: dlpRes.uploader || dlpRes.channel || 'YouTube Artist',
+        author: dlpRes.uploader || dlpRes.channel || 'YouTube Artist',
+        duration: dlpRes.duration ? `${Math.floor(dlpRes.duration / 60)}:${dlpRes.duration % 60}` : '3:45',
+        seconds: dlpRes.duration || 180,
         views: dlpRes.view_count ? Number(dlpRes.view_count).toLocaleString() : '200K+',
-        ago: 'Popular',
+        ago: 'Recent',
         url: dlpRes.webpage_url || (dlpRes.id ? `https://www.youtube.com/watch?v=${dlpRes.id}` : query),
         videoId: dlpRes.id,
         description: dlpRes.description ? dlpRes.description.slice(0, 150) + '...' : `Official audio/video stream for ${dlpRes.title}`,
@@ -191,7 +186,9 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
 
     const isUrl = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
     const target = isUrl ? cleanTarget : `ytsearch1:${cleanTarget}`;
-    const format = type === 'video' ? 'best[ext=mp4][vcodec^=avc1]/best[ext=mp4]/18/22/best' : 'bestaudio/best';
+    const format = type === 'video' 
+      ? 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best' 
+      : 'bestaudio[ext=m4a]/bestaudio/best';
     
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
     const outTmpl = `${baseWithoutExt}.%(ext)s`;
@@ -206,7 +203,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
         for (const file of files) {
           if (file.startsWith(baseName)) {
             const fullP = path.join(dir, file);
-            if (fs.existsSync(fullP) && fs.statSync(fullP).size > 1000) {
+            if (fs.existsSync(fullP) && fs.statSync(fullP).size > 1000 && !fullP.endsWith('.part') && !fullP.endsWith('.ytdl')) {
               return fullP;
             }
           }
@@ -219,7 +216,8 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const spawnArgs = [
       '-m', 'yt_dlp',
       '-f', format,
-      '--extractor-args', 'youtube:player_client=ios,android,web',
+      '--merge-output-format', 'mp4',
+      '--no-playlist',
       '-o', outTmpl,
       '--no-warnings'
     ];
@@ -243,11 +241,11 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       if (found) {
         return resolve({ success: true, filePath: found });
       }
-      // Retry with broader format and mweb,android client
+      // Retry with direct best format
       const retryArgs = [
         '-m', 'yt_dlp',
         '-f', 'best',
-        '--extractor-args', 'youtube:player_client=android,mweb,web',
+        '--no-playlist',
         '-o', outTmpl,
         '--no-warnings'
       ];
