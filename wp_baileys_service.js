@@ -235,6 +235,10 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       spawnArgs.push('--ffmpeg-location', __dirname);
     }
 
+    if (fs.existsSync(cookiePath) && fs.statSync(cookiePath).size > 10) {
+      spawnArgs.push('--cookies', cookiePath);
+    }
+
     spawnArgs.push(target);
 
     // Detect Python / yt-dlp binary
