@@ -4218,8 +4218,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
                 try {
                   const vBuf = fs.readFileSync(finalVideoPath);
-                  // Allow native inline WhatsApp Video playback up to 95MB
-                  if (stat.size > 95 * 1024 * 1024) {
+                  // Up to 110MB direct video message format, larger as document
+                  if (stat.size > 110 * 1024 * 1024) {
                     await sock.sendMessage(jid, {
                       document: vBuf,
                       mimetype: 'video/mp4',
@@ -4235,11 +4235,20 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                   }
                 } catch (sendErr) {
                   logMsg(uid, `⚠️ Buffer send fallback: ${sendErr.message}`);
-                  await sock.sendMessage(jid, {
-                    video: { url: finalVideoPath },
-                    mimetype: 'video/mp4',
-                    caption
-                  }, { quoted: msg });
+                  if (stat.size > 110 * 1024 * 1024) {
+                    await sock.sendMessage(jid, {
+                      document: { url: finalVideoPath },
+                      mimetype: 'video/mp4',
+                      fileName: `${trackTitle}.mp4`,
+                      caption
+                    }, { quoted: msg });
+                  } else {
+                    await sock.sendMessage(jid, {
+                      video: { url: finalVideoPath },
+                      mimetype: 'video/mp4',
+                      caption
+                    }, { quoted: msg });
+                  }
                 }
 
                 sess.sentCount = (sess.sentCount || 0) + 1;
@@ -4250,7 +4259,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                       try { fs.unlinkSync(p); } catch (e) {}
                     }
                   }
-                }, 10000);
+                }, 8000);
               } catch (e) {
                 logMsg(uid, `play2 error: ${e.message}`);
                 await sock.sendMessage(jid, { text: `❌ Video send error: ${e.message}` }, { quoted: msg });
