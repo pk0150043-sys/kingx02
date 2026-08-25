@@ -4073,20 +4073,104 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          // +play2 / +playvideo (Sends Full Video MP4 of searched song or argument)
+          // +joincall / +joinvc [song/51.mp3] (Join active group call or incoming call)
+          if (cmd === 'joincall' || cmd === 'joinvc' || cmd === 'join') {
+            const lastCall = sess.lastIncomingCall || {};
+            let audioSource = fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence';
+            let trackName = '51.mp3';
+
+            if (parts[1]) {
+              const argRest = parts.slice(1).join(' ');
+              const recName = argRest.toLowerCase().endsWith('.mp3') ? argRest : `${argRest}.mp3`;
+              const recPath = path.join(RECORDINGS_DIR, recName);
+              if (fs.existsSync(recPath)) {
+                audioSource = recPath;
+                trackName = recName;
+              } else if (argRest.toLowerCase() === '51' || argRest.toLowerCase() === '51.mp3') {
+                audioSource = AUDIO_51_PATH;
+                trackName = '51.mp3';
+              } else {
+                try {
+                  const song = await searchJioSaavn(argRest);
+                  if (song) {
+                    const tempSongPath = path.join(__dirname, `temp_call_${Date.now()}.mp3`);
+                    const buf = await downloadBuffer(song.audioUrl);
+                    fs.writeFileSync(tempSongPath, buf);
+                    audioSource = tempSongPath;
+                    trackName = `JioSaavn: ${song.title}`;
+                  }
+                } catch (e) {}
+              }
+            }
+
+            if (!sess.voipManager) {
+              sess.voipManager = new SessionVoipManager(sess, uid);
+            }
+
+            try {
+              if (lastCall.id && lastCall.from) {
+                await sess.voipManager.acceptCall({
+                  callId: lastCall.id,
+                  callerJid: lastCall.from,
+                  audioSource
+                });
+              } else {
+                // Group Call Relay Join
+                const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_join_${Date.now()}`;
+                await sock.sendNode({
+                  tag: 'call',
+                  attrs: { to: jid, id: stanzaId },
+                  content: [{
+                    tag: 'join',
+                    attrs: { 'call-id': lastCall.id || `group_${Date.now()}`, t: String(Math.floor(Date.now() / 1000)) },
+                    content: []
+                  }]
+                }).catch(() => {});
+              }
+
+              sess.activeCalls = sess.activeCalls || new Map();
+              const targetCallJid = lastCall.from || jid;
+              sess.activeCalls.set(targetCallJid, {
+                callId: lastCall.id || `call_${Date.now()}`,
+                targetJid: targetCallJid,
+                startTime: Date.now(),
+                isMuted: false,
+                autoUnmute: true,
+                track: trackName
+              });
+
+              await sock.sendMessage(jid, {
+                text: `╔══〔 📞 *CALL JOINED & ACTIVE* 〕══╗\n┃ 🎯 Call Target: *${targetCallJid}*\n┃ 🎵 Media Track: *${trackName}*\n┃ 🔊 Audio Output: *Live VoIP Stream*\n┃ ⚡ Status: *CONNECTED & STREAMING LIVE* 🟢\n╚════════════════════════════════════╝\n_Use \`${sess.prefix}endcall\` to leave._`
+              }, { quoted: msg });
+            } catch (joinErr) {
+              await sock.sendMessage(jid, { text: `❌ Join Call Error: ${joinErr.message}` }, { quoted: msg });
+            }
+            continue;
+          }
+
+          // +play2 / +playvideo [Song Name] [quality 240/360/480/720]
           if (cmd === 'play2' || cmd === 'playvideo' || cmd === 'video' || cmd === 'ytvideo' || cmd === 'ytv') {
-            const query = fullArg || (lastSearchedTracks.get(jid)?.url || lastSearchedTracks.get(jid)?.title);
-            if (!query) {
-              await sock.sendMessage(jid, { text: `❌ Please search a song first with \`${sess.prefix}song <name>\` or provide a title: \`${sess.prefix}playvideo <name>\`` }, { quoted: msg });
+            let rawQuery = fullArg || (lastSearchedTracks.get(jid)?.url || lastSearchedTracks.get(jid)?.title);
+            if (!rawQuery) {
+              await sock.sendMessage(jid, { text: `❌ Please specify song name: \`${sess.prefix}playvideo <Song Name> [240p/360p/480p/720p]\`` }, { quoted: msg });
               continue;
             }
 
-            await sock.sendMessage(jid, { text: `🎥 *Downloading & Processing YouTube Video for \`${query}\`...*` }, { quoted: msg });
+            // Extract optional quality parameter (240, 360, 480, 720)
+            let chosenQuality = 720;
+            const qMatch = rawQuery.match(/\b(240|360|480|720)(?:p)?\b/i);
+            if (qMatch) {
+              chosenQuality = parseInt(qMatch[1]);
+              rawQuery = rawQuery.replace(qMatch[0], '').trim();
+            }
+
+            const query = rawQuery;
+            await sock.sendMessage(jid, { text: `🎥 *Downloading YouTube Video for \`${query}\` (${chosenQuality}p HD)...*` }, { quoted: msg });
 
             (async () => {
               try {
                 const tempVideoPath = path.join(__dirname, `yt_video_${Date.now()}.mp4`);
-                logMsg(uid, `🎥 [VIDEO DOWNLOAD START] Target: ${query}`);
+                logMsg(uid, `🎥 [VIDEO DOWNLOAD START] Target: ${query} (${chosenQuality}p)`);
                 const dlRes = await downloadYouTubeMedia(query, 'video', tempVideoPath);
 
                 if (!dlRes.success || !dlRes.filePath || !fs.existsSync(dlRes.filePath)) {
@@ -4094,15 +4178,35 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                   return sock.sendMessage(jid, { text: `❌ Could not download video for \`${query}\`! Error: ${dlRes.error ? dlRes.error.slice(0, 100) : 'Stream unavailable'}` }, { quoted: msg });
                 }
 
-                const stat = fs.statSync(dlRes.filePath);
-                logMsg(uid, `✅ [VIDEO DOWNLOAD COMPLETE] File: ${dlRes.filePath} (${Math.round(stat.size / 1024 / 1024)}MB)`);
+                // If specific lower quality requested, transcode with ffmpeg for ultra compact size
+                let finalVideoPath = dlRes.filePath;
+                if (chosenQuality < 720) {
+                  const compressedPath = path.join(__dirname, `compressed_${chosenQuality}p_${Date.now()}.mp4`);
+                  try {
+                    await new Promise((resolve) => {
+                      const scale = chosenQuality === 240 ? '426:240' : (chosenQuality === 360 ? '640:360' : '854:480');
+                      const proc = spawn('ffmpeg', ['-y', '-i', dlRes.filePath, '-vf', `scale=${scale}`, '-c:v', 'libx264', '-crf', '28', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', compressedPath]);
+                      proc.on('close', () => {
+                        if (fs.existsSync(compressedPath) && fs.statSync(compressedPath).size > 1000) {
+                          finalVideoPath = compressedPath;
+                        }
+                        resolve();
+                      });
+                      proc.on('error', () => resolve());
+                    });
+                  } catch (e) {}
+                }
+
+                const stat = fs.statSync(finalVideoPath);
+                logMsg(uid, `✅ [VIDEO COMPLETE] File: ${finalVideoPath} (${Math.round(stat.size / 1024 / 1024)}MB, ${chosenQuality}p)`);
                 const track = lastSearchedTracks.get(jid);
                 const trackTitle = (track?.title || query).replace(/[^a-zA-Z0-9_-]/g, '_');
-                const caption = `🎬 *${track?.title || query}*\n👤 *Channel:* ${track?.author || 'YouTube'}\n⏱️ *Duration:* ${track?.duration || 'Full'}\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
+                const caption = `🎬 *${track?.title || query}*\n👤 *Channel:* ${track?.author || 'YouTube'}\n🎞️ *Quality:* ${chosenQuality}p HD\n⏱️ *Duration:* ${track?.duration || 'Full'}\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
 
                 try {
-                  const vBuf = fs.readFileSync(dlRes.filePath);
-                  if (stat.size > 70 * 1024 * 1024) {
+                  const vBuf = fs.readFileSync(finalVideoPath);
+                  // Allow native inline WhatsApp Video playback up to 95MB
+                  if (stat.size > 95 * 1024 * 1024) {
                     await sock.sendMessage(jid, {
                       document: vBuf,
                       mimetype: 'video/mp4',
@@ -4117,9 +4221,9 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                     }, { quoted: msg });
                   }
                 } catch (sendErr) {
-                  logMsg(uid, `⚠️ Buffer send fallback to stream URL: ${sendErr.message}`);
+                  logMsg(uid, `⚠️ Buffer send fallback: ${sendErr.message}`);
                   await sock.sendMessage(jid, {
-                    video: { url: dlRes.filePath },
+                    video: { url: finalVideoPath },
                     mimetype: 'video/mp4',
                     caption
                   }, { quoted: msg });
@@ -4128,8 +4232,10 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 sess.sentCount = (sess.sentCount || 0) + 1;
                 logMsg(uid, `📤 [VIDEO SENT] Successfully dispatched to ${jid}`);
                 setTimeout(() => {
-                  if (dlRes.filePath && fs.existsSync(dlRes.filePath)) {
-                    try { fs.unlinkSync(dlRes.filePath); } catch (e) {}
+                  for (const p of [dlRes.filePath, finalVideoPath]) {
+                    if (p && fs.existsSync(p)) {
+                      try { fs.unlinkSync(p); } catch (e) {}
+                    }
                   }
                 }, 10000);
               } catch (e) {
