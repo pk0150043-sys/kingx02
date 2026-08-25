@@ -770,20 +770,20 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
     cmd = [
         sys.executable, "-m", "yt_dlp",
         "--no-playlist",
-        "--socket-timeout", "30",
+        "--socket-timeout", "20",
         "--no-warnings",
         "--geo-bypass"
     ]
 
     if media_type == 'video':
         cmd.extend([
-            "-f", "bestvideo+bestaudio/best",
+            "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
             "--merge-output-format", "mp4",
-            "--postprocessor-args", "ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v baseline -level 3.0 -c:a aac -b:a 128k -movflags +faststart"
+            "--postprocessor-args", "ffmpeg:-c:v copy -c:a aac -movflags +faststart"
         ])
     else:
         cmd.extend([
-            "-f", "ba/bestaudio/best",
+            "-f", "bestaudio[ext=m4a]/bestaudio/best",
             "-x", "--audio-format", "mp3",
             "--postprocessor-args", "ffmpeg:-c:a libmp3lame -b:a 192k -ar 44100"
         ])

@@ -187,8 +187,8 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const isUrl = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
     const target = isUrl ? cleanTarget : `ytsearch1:${cleanTarget}`;
     const format = type === 'video' 
-      ? 'bestvideo+bestaudio/best' 
-      : 'ba/bestaudio/best';
+      ? 'best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best[height<=720]/best' 
+      : 'bestaudio[ext=m4a]/bestaudio/best';
     
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
     const outTmpl = `${baseWithoutExt}.%(ext)s`;
@@ -221,14 +221,14 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const spawnArgs = [
       '-m', 'yt_dlp',
       '--no-playlist',
-      '--socket-timeout', '30',
+      '--socket-timeout', '20',
       '--no-warnings',
       '--geo-bypass'
     ];
 
     if (type === 'video') {
       spawnArgs.push('-f', format, '--merge-output-format', 'mp4');
-      spawnArgs.push('--postprocessor-args', 'ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v baseline -level 3.0 -c:a aac -b:a 128k -movflags +faststart');
+      spawnArgs.push('--postprocessor-args', 'ffmpeg:-c:v copy -c:a aac -movflags +faststart');
     } else {
       spawnArgs.push('-f', format, '-x', '--audio-format', 'mp3');
       spawnArgs.push('--postprocessor-args', 'ffmpeg:-c:a libmp3lame -b:a 192k -ar 44100');
