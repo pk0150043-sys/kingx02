@@ -233,9 +233,8 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       spawnArgs.push('--cookies', cookiePath);
     }
 
-    spawnArgs.push(target);
-
-    const proc = spawn('python', spawnArgs);
+    const pythonBin = process.platform === 'win32' ? 'python' : (fs.existsSync('/usr/bin/python3') ? '/usr/bin/python3' : (fs.existsSync('/usr/local/bin/python3') ? '/usr/local/bin/python3' : 'python3'));
+    const proc = spawn(pythonBin, spawnArgs);
 
     let errData = '';
     proc.stderr.on('data', (d) => { errData += d.toString(); });
@@ -260,7 +259,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       }
       retryArgs.push(target);
 
-      const retryProc = spawn('python', retryArgs);
+      const retryProc = spawn(pythonBin, retryArgs);
       retryProc.on('close', () => {
         const retryFound = findDownloadedFile();
         if (retryFound) {
