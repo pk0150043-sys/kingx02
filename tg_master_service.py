@@ -753,58 +753,64 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
             return output_path
         matches = glob.glob(f"{base_name}*")
         for m in matches:
-            if os.path.isfile(m) and os.path.getsize(m) > 1000:
+            if os.path.isfile(m) and os.path.getsize(m) > 1000 and not m.endswith('.part') and not m.endswith('.ytdl'):
                 return m
         return None
 
-    if yt_dlp:
-        fmt = 'best[ext=mp4]/best' if media_type == 'video' else 'bestaudio/best'
-        target = query_or_url if query_or_url.startswith('http') else f"ytsearch1:{query_or_url}"
-        
-        # 1. First attempt (ios, android clients)
-        try:
-            ydl_opts = {
-                'format': fmt,
-                'outtmpl': outtmpl,
-                'quiet': True,
-                'no_warnings': True,
-                'extractor_args': {'youtube': {'player_client': ['ios', 'android']}}
-            }
-            cookie_file = os.path.abspath("cookies.txt")
-            if os.path.exists(cookie_file):
-                ydl_opts['cookiefile'] = cookie_file
+    target = query_or_url if query_or_url.startswith('http') else f"ytsearch1:{query_or_url}"
+    ffmpeg_exe = os.path.abspath("ffmpeg.exe") if os.path.exists("ffmpeg.exe") else "ffmpeg"
+    cookie_file = os.path.abspath("cookies.txt")
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([target])
-            found = find_file()
-            if found:
-                return found
-        except Exception as e:
-            logger.warning(f"yt_dlp attempt 1 error: {e}")
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "--no-playlist",
+        "--socket-timeout", "15",
+        "--no-warnings"
+    ]
 
-        # 2. Second attempt (mweb, android clients)
-        try:
-            ydl_opts2 = {
-                'format': fmt,
-                'outtmpl': outtmpl,
-                'quiet': True,
-                'no_warnings': True,
-                'extractor_args': {'youtube': {'player_client': ['mweb', 'android']}}
-            }
-            with yt_dlp.YoutubeDL(ydl_opts2) as ydl2:
-                ydl2.download([target])
-            found = find_file()
-            if found:
-                return found
-        except Exception as e2:
-            logger.error(f"yt_dlp attempt 2 error: {e2}")
+    if media_type == 'video':
+        cmd.extend([
+            "-f", "bv*[height<=720]+ba/b[height<=720]/bestvideo+bestaudio/best",
+            "--merge-output-format", "mp4",
+            "--postprocessor-args", "ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v baseline -level 3.0 -c:a aac -b:a 128k -movflags +faststart"
+        ])
+    else:
+        cmd.extend([
+            "-f", "ba/bestaudio/best",
+            "-x", "--audio-format", "mp3",
+            "--postprocessor-args", "ffmpeg:-c:a libmp3lame -b:a 192k -ar 44100"
+        ])
 
-    # Fallback audio download via JioSaavn
+    cmd.extend(["-o", outtmpl])
+    if os.path.exists("ffmpeg.exe"):
+        cmd.extend(["--ffmpeg-location", os.getcwd()])
+    if os.path.exists(cookie_file):
+        cmd.extend(["--cookies", cookie_file])
+    cmd.append(target)
+
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+        found = find_file()
+        if found:
+            return os.path.abspath(found)
+    except Exception as e:
+        logger.warning(f"download_youtube_media_py subprocess error: {e}")
+
+    # Fallback to JioSaavn for audio
     if media_type == 'audio':
-        fallback_path = output_path or f"{base_name}.mp3"
-        res = download_full_audio(query_or_url, fallback_path)
-        if res and res.get('status') and os.path.exists(fallback_path):
-            return fallback_path
+        jio_res = search_jiosaavn_songs(query_or_url)
+        if jio_res and jio_res.get('status') and jio_res.get('results'):
+            first = jio_res['results'][0]
+            m_url = first.get('media_url')
+            if m_url:
+                try:
+                    res = requests.get(m_url, timeout=15)
+                    final_p = f"{base_name}.mp3"
+                    with open(final_p, 'wb') as f:
+                        f.write(res.content)
+                    return os.path.abspath(final_p)
+                except Exception: pass
+    return None
     return None
 
 def download_full_audio(query_or_url: str, output_path: str) -> Optional[Dict]:
@@ -1192,41 +1198,23 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 │ 💀 <code>{PREFIX}roast @tag</code>
 ╰──────────────────────
 
-╭─ 📌 <b>𝑷𝑰𝑵 𝑺𝑷𝑨𝑴</b>
-│ 📌 <code>{PREFIX}pin</code>
-│ 📌 <code>{PREFIX}unpin</code>
-│ ⚡ <code>{PREFIX}pinspam &lt;count&gt; &lt;delay_ms&gt;</code>
-│ 🛑 <code>{PREFIX}pinspam off</code>
+╭─ 📌 <b>𝑷𝑰𝑵 & 𝑹𝑨𝑰𝑫</b>
+│ 📌 <code>{PREFIX}pin</code> / <code>{PREFIX}unpin</code>
+│ ⚔️ <code>{PREFIX}raid &lt;count&gt; @tag</code>
+│ 💀 <code>{PREFIX}roast @tag</code>
 ╰──────────────────────
 
-╭─ ⚡ <b>𝑵𝑹 (𝑵𝑨𝑴𝑬 𝑹𝑨𝑰𝑫)</b>
-│ ⚡ <code>{PREFIX}nr &lt;Text&gt;</code>
-│ ⚡ <code>{PREFIX}nr1 &lt;Text&gt;</code>
-│ ⚡ <code>{PREFIX}nr2 &lt;Text&gt;</code>
-│ ⚡ <code>{PREFIX}nr3 &lt;Text&gt;</code>
-│ ⏱️ <code>{PREFIX}nrdelay &lt;0.01-20&gt;</code>
-│ 🛑 <code>{PREFIX}stopnr</code>
-│ 🔴 <code>{PREFIX}stopnrall</code>
-│ 📨 <code>{PREFIX}send &lt;Number/JID&gt; &lt;Text&gt;</code>
+╭─ 👑 <b>𝑼𝑷𝑳𝑰𝑺𝑻 & 𝑴𝑼𝑳𝑻𝑰-𝑩𝑶𝑻 𝑴𝑨𝑻𝑹𝑰𝑿</b>
+│ ➕ <code>{PREFIX}addupallist @bot1, @bot2</code>
+│ 📋 <code>{PREFIX}viewuplist</code>
+│ 🚀 <code>{PREFIX}upall</code> (Invite all bots to chat)
+│ 👑 <code>{PREFIX}promoteallbots</code> (Promote all to admin)
+│ 👑 <code>{PREFIX}promote @user</code>
+│ 🗑️ <code>{PREFIX}removeuplist @bot</code>
+│ 🧹 <code>{PREFIX}clearuplist</code>
 ╰──────────────────────
 
-╭─ 🌀 <b>𝑻𝑼𝑹𝑩𝑶 𝑵𝑪</b>
-│ 🌀 <code>{PREFIX}nc &lt;Text&gt;</code>
-│ ⚡ <code>{PREFIX}triplenc1 &lt;Text&gt;</code>
-│ ⏱️ <code>{PREFIX}ncdelay &lt;0.01-20&gt;</code>
-│ 🛑 <code>{PREFIX}stopnc</code>
-│ 🔴 <code>{PREFIX}stopncall</code>
-╰──────────────────────
-
-╭─ ✍️ <b>𝑮𝑹𝑶𝑼𝑷 𝑫𝑪</b>
-│ 📝 <code>{PREFIX}gdc &lt;Text&gt;</code>
-│ 📝 <code>{PREFIX}gcdc &lt;Text&gt;</code>
-│ ⏱️ <code>{PREFIX}gdcdelay &lt;0.01-20&gt;</code>
-│ 🛑 <code>{PREFIX}gdcstop</code>
-│ 🔴 <code>{PREFIX}stopgdcall</code>
-╰──────────────────────
-
-╭─ 🖼️ <b>𝑨𝑼𝑻𝑶 𝑷𝑭𝑷</b>
+╭─ 🖼️ <b>𝑨𝑼𝑻𝑶 𝑷𝑭𝑷 & 𝑴𝑬𝑫𝑰𝑨</b>
 │ 📸 <code>{PREFIX}pfpchange</code>
 │ ⏱️ <code>{PREFIX}pfpdelay &lt;0.1-20&gt;</code>
 │ 🛑 <code>{PREFIX}pfpstop</code>
@@ -1591,6 +1579,48 @@ Please select a Dashboard by replying with number (1, 2, or 3):
             await msg.edit(f"🎥 <b>Now Streaming Video on Call:</b> <code>{query}</code>\n{resp}", parse_mode="html")
         except Exception as e:
             await msg.edit(f"❌ Error: {e}", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(playjio|jiosong|jio)(?:\s+(.+))?$'))
+    async def ub_playjio_audio_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        query = event.pattern_match.group(2)
+        if not query:
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}playjio &lt;Song Name&gt;</code>", parse_mode="html")
+
+        msg = await event.reply(f"⚡ <b>Downloading JioSaavn 320kbps HD Audio for <code>{query}</code>...</b>", parse_mode="html")
+        temp_audio = f"jio_audio_{event.chat_id}_{int(time.time())}.mp3"
+        try:
+            jio_res = await asyncio.to_thread(search_jiosaavn_songs, query)
+            if not jio_res or not jio_res.get("status") or not jio_res.get("results"):
+                return await msg.edit(f"❌ Song <code>{query}</code> not found on JioSaavn.")
+
+            first = jio_res["results"][0]
+            m_url = first.get("media_url")
+            if not m_url:
+                return await msg.edit("❌ Audio stream not found.")
+
+            res = await asyncio.to_thread(requests.get, m_url, timeout=12)
+            with open(temp_audio, "wb") as f:
+                f.write(res.content)
+
+            title = first.get("title", query)
+            artist = first.get("artist", "JioSaavn Artist")
+            album = first.get("album", "Single")
+
+            await event.client.send_file(
+                event.chat_id,
+                temp_audio,
+                caption=f"🎵 <b>{title}</b>\n👤 <i>{artist}</i>\n💿 <i>{album}</i>\n⚡ <b>JioSaavn 320kbps HD Audio</b>\n\n🛡️ <b>SERVER GOD CLAN KING BOT</b> 👑",
+                parse_mode="html",
+                reply_to=event.id
+            )
+            await msg.delete()
+        except Exception as e:
+            await msg.edit(f"❌ JioSaavn Audio error: {e}", parse_mode="html")
+        finally:
+            if os.path.exists(temp_audio):
+                try: os.remove(temp_audio)
+                except Exception: pass
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(song|gana|music|play1|playaudio|audio|ytaudio|yta)(?:\s+(.+))?$'))
     async def ub_play1_audio_cmd(event):
@@ -2396,7 +2426,7 @@ Please select a Dashboard by replying with number (1, 2, or 3):
         await execute_db_query("DELETE FROM uplist_bots", commit=True)
         await event.reply("🧹 <b>UpList completely cleared!</b>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}upall$'))
+    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(upall|addupall|inviteallbots)'))
     async def ub_upall_bots_to_chat(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         rows = await execute_db_query("SELECT bot_identifier FROM uplist_bots", fetchall=True)
@@ -2409,12 +2439,18 @@ Please select a Dashboard by replying with number (1, 2, or 3):
             bot_id_str = r[0].strip()
             try:
                 b_target = int(bot_id_str) if bot_id_str.lstrip("-").isdigit() else bot_id_str
-                b_entity = await event.client.get_input_entity(b_target)
-                await event.client(InviteToChannelRequest(channel=event.chat_id, users=[b_entity]))
+                b_entity = await event.client.get_entity(b_target)
+                input_user = await event.client.get_input_entity(b_entity)
+                try:
+                    await event.client(InviteToChannelRequest(channel=event.chat_id, users=[input_user]))
+                except Exception:
+                    # Fallback for Basic legacy chats
+                    await event.client(AddChatUserRequest(chat_id=event.chat_id, user_id=input_user, fwd_limit=100))
                 joined_count += 1
-                await asyncio.sleep(0.5)
-            except Exception:
+                await asyncio.sleep(0.6)
+            except Exception as e:
                 failed_count += 1
+                logger.warning(f"UpAll failed for {bot_id_str}: {e}")
         await status_msg.edit(f"✅ <b>UpAll Process Complete:</b>\n• Successfully Added: <code>{joined_count}</code> Bots\n• Failed / Already in Chat: <code>{failed_count}</code>\n👉 <i>Run <code>+promoteallbots</code> to grant admin rights!</i>", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'\{PREFIX}(promoteallbots|promotebots|upallpromote)'))
@@ -2459,12 +2495,14 @@ Please select a Dashboard by replying with number (1, 2, or 3):
         for b_id in bot_identifiers:
             try:
                 b_target = int(b_id) if b_id.lstrip("-").isdigit() else b_id
-                b_entity = await event.client.get_input_entity(b_target)
-                await event.client(EditAdminRequest(channel=event.chat_id, user_id=b_entity, admin_rights=rights, rank="Admin Bot"))
+                b_entity = await event.client.get_entity(b_target)
+                input_user = await event.client.get_input_entity(b_entity)
+                await event.client(EditAdminRequest(channel=event.chat_id, user_id=input_user, admin_rights=rights, rank="Admin Bot"))
                 promoted_count += 1
-                await asyncio.sleep(0.5)
-            except Exception:
+                await asyncio.sleep(0.6)
+            except Exception as e:
                 failed_count += 1
+                logger.warning(f"Promote failed for {b_id}: {e}")
 
         await status_msg.edit(f"👑 <b>Multi-Bot Admin Promotion Finished:</b>\n• Successfully Promoted: <code>{promoted_count}</code> Admin Bots\n• <i>Permissions: Change Info, Add Admin, Pin, Invite, Messages</i>\n• <i>Restricted: Delete Messages / Ban NOT granted.</i>\n• Failed / Not in Chat: <code>{failed_count}</code>", parse_mode="html")
 
@@ -2779,7 +2817,70 @@ Please select a Dashboard by replying with number (1, 2, or 3):
             await msg.edit(f"❌ Audio sending failed: {e}")
         finally:
             for fpath in [temp_filename, actual_file]:
-                if os.path.exists(fpath):
+                if fpath and os.path.exists(fpath):
+                    try: os.remove(fpath)
+                    except Exception: pass
+
+    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(video|playvideo|ytvideo|ytv)(?:\s+(.+))?'))
+    async def ub_video_handler(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        query = event.pattern_match.group(2)
+        if not query:
+            return await event.reply("❌ <b>Usage:</b> <code>+video &lt;Song Name or YouTube Link&gt;</code>", parse_mode="html")
+        query = query.strip()
+        msg = await event.reply(f"🎬 <i>Searching & downloading 720p HD YouTube video for</i> <code>{query}</code>...", parse_mode="html")
+        
+        me = await event.client.get_me()
+        temp_filename = f"yt_video_{event.chat_id}_{me.id}_{int(time.time())}.mp4"
+        actual_file = temp_filename
+        try:
+            cmd_args = [
+                sys.executable, "-m", "yt_dlp",
+                "-f", "bv*[height<=720]+ba/b[height<=720]/bestvideo+bestaudio/best",
+                "--merge-output-format", "mp4",
+                "--postprocessor-args", "ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v baseline -level 3.0 -c:a aac -b:a 128k -movflags +faststart",
+                "--no-playlist",
+                "--socket-timeout", "15",
+                "-o", temp_filename,
+                "--no-warnings"
+            ]
+            cookie_p = os.path.join(os.getcwd(), "cookies.txt")
+            if os.path.exists(cookie_p):
+                cmd_args.extend(["--cookies", cookie_p])
+            
+            target = query if (query.startswith("http://") or query.startswith("https://")) else f"ytsearch1:{query}"
+            cmd_args.append(target)
+
+            proc = await asyncio.create_subprocess_exec(*cmd_args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            await proc.communicate()
+
+            # Find output file
+            base_out = temp_filename.rsplit('.', 1)[0]
+            found_file = None
+            for f in os.listdir('.'):
+                if f.startswith(os.path.basename(base_out)) and not f.endswith('.part') and not f.endswith('.ytdl'):
+                    if os.path.getsize(f) > 1000:
+                        found_file = os.path.abspath(f)
+                        break
+
+            if not found_file or not os.path.exists(found_file):
+                return await msg.edit(f"❌ Could not download YouTube video for <code>{query}</code>!")
+
+            actual_file = found_file
+            await msg.edit(f"🚀 <i>Uploading HD video...</i>", parse_mode="html")
+            await event.client.send_file(
+                event.chat_id,
+                actual_file,
+                caption=f"🎬 <b>{query}</b>\n🛡️ <b>SERVER GOD CLAN TELEGRAM ENGINE</b> 👑",
+                parse_mode="html"
+            )
+            await msg.delete()
+        except Exception as e:
+            logger.error(f"Video upload error: {e}")
+            await msg.edit(f"❌ Video sending failed: {e}")
+        finally:
+            for fpath in [temp_filename, actual_file]:
+                if fpath and os.path.exists(fpath):
                     try: os.remove(fpath)
                     except Exception: pass
 

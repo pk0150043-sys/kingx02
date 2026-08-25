@@ -213,16 +213,17 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     };
 
     const ffmpegPath = path.join(__dirname, 'ffmpeg.exe');
-    const spawnArgs = [
-      '-m', 'yt_dlp',
-      '-f', format,
-      '--merge-output-format', 'mp4',
-      '--postprocessor-args', 'ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v baseline -level 3.0 -c:a aac -b:a 128k -movflags +faststart',
-      '--no-playlist',
-      '--socket-timeout', '15',
-      '-o', outTmpl,
-      '--no-warnings'
-    ];
+    const spawnArgs = ['-m', 'yt_dlp', '--no-playlist', '--socket-timeout', '15', '--no-warnings'];
+
+    if (type === 'video') {
+      spawnArgs.push('-f', format, '--merge-output-format', 'mp4');
+      spawnArgs.push('--postprocessor-args', 'ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v baseline -level 3.0 -c:a aac -b:a 128k -movflags +faststart');
+    } else {
+      spawnArgs.push('-f', format, '-x', '--audio-format', 'mp3');
+      spawnArgs.push('--postprocessor-args', 'ffmpeg:-c:a libmp3lame -b:a 192k -ar 44100');
+    }
+
+    spawnArgs.push('-o', outTmpl);
 
     if (fs.existsSync(ffmpegPath)) {
       spawnArgs.push('--ffmpeg-location', __dirname);
@@ -244,14 +245,13 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
         return resolve({ success: true, filePath: found });
       }
       // Direct best fallback
-      const retryArgs = [
-        '-m', 'yt_dlp',
-        '-f', 'best',
-        '--no-playlist',
-        '--socket-timeout', '15',
-        '-o', outTmpl,
-        '--no-warnings'
-      ];
+      const retryArgs = ['-m', 'yt_dlp', '--no-playlist', '--socket-timeout', '15', '--no-warnings'];
+      if (type === 'video') {
+        retryArgs.push('-f', 'best', '--merge-output-format', 'mp4');
+      } else {
+        retryArgs.push('-f', 'bestaudio/best', '-x', '--audio-format', 'mp3');
+      }
+      retryArgs.push('-o', outTmpl);
       if (fs.existsSync(ffmpegPath)) {
         retryArgs.push('--ffmpeg-location', __dirname);
       }
@@ -631,12 +631,8 @@ class SafeActiveCall extends EventEmitter {
       this.hasStarted = true;
       this.hasConnected = true;
       this.emit('connected');
-    } else if (state === 13) { // Ending
-      if (this.hasStarted || this.hasConnected) {
-        this._forceEnd('ended');
-      }
-    } else if (state === 0) { // Idle
-      if (prevState === 13 || (prevState === 6 && this.hasConnected)) {
+    } else if (state === 13) { // Explicit Ending
+      if (this.hasConnected) {
         this._forceEnd('ended');
       }
     }
@@ -1524,43 +1520,46 @@ function getCallingEngineMenu(prefix = '+') {
 
 function getSongDashboardMenu(prefix = '+') {
   return `╭──────────────────────────────╮
-│ 🎵 𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬 🎶   │
+│ 🎵 𝑴𝑼𝑺𝑰𝑪 & 𝑽𝑰𝑫𝑬𝑶 𝑬𝑵𝑮𝑰𝑵𝑬 🎶   │
 │ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
 ╰──────────────────────────────╯
       ⚡ PREFIX  :  ${prefix}
-      🎧 ENGINES : JioSaavn • Spotify • Audius
+      🚀 SPEED   :  Ultra-Fast Non-Blocking
+      🎧 ENGINES :  YouTube • JioSaavn • Spotify • Audius
 
-╭─ 🎵 𝑱𝑰𝑶𝑺𝑨𝑨𝑽𝑵 𝑴𝑼𝑺𝑰𝑪
-│ 🎵 \`${prefix}song <Song Name>\`
-│    ▸ Search & download 320kbps HD audio track
-│ 🎶 \`${prefix}songplay <Song Name>\`
-│    ▸ Instant voice note audio player
-│ 🔁 \`${prefix}songloop <Song Name>\`
-│    ▸ Continuous 5s loop in chat
-│ 🛑 \`${prefix}stopsong\`
-│    ▸ Stop playing / looping song
-╰──────────────────────
+╭─ ▶️ 𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑽𝑰𝑫𝑬𝑶 & 𝑨𝑼𝑫𝑰𝑶
+│ 🎥 \`${prefix}playvideo <Song/Link>\` (or \`${prefix}play2\`)
+│    ▸ Instant 720p HD MP4 Video with H.264 Universal Mobile Codec
+│ 🎵 \`${prefix}song <Song/Link>\` (or \`${prefix}play1\` / \`${prefix}music\`)
+│    ▸ Instant 320kbps MP3 Audio Download & Play
+│ ⏱️ \`${prefix}playsec <seconds> [Song/Link]\`
+│    ▸ Cut and send precise high-speed video clip
+│ 🔁 \`${prefix}play5video\`
+│    ▸ Continuous 5s High-Energy Loop in chat
 
-╭─ 🎧 𝑺𝑷𝑶𝑻𝑰𝑭𝒀 × 𝑱𝑰𝑶𝑺𝑨𝑨𝑽𝑵
+╭─ 📞 𝑪𝑨𝑳𝑳 𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑺𝑻𝑹𝑬𝑨𝑴𝑬𝑹
+│ 🎶 \`${prefix}playytcall <Song/Link>\`
+│    ▸ Stream YouTube Audio into Live Call in real-time
+│ 📹 \`${prefix}play2ytcall <Song/Link>\`
+│    ▸ Stream YouTube Video & Audio into Live Video Call
+│ 🔊 \`${prefix}play1call\` (or \`${prefix}playcall\`)
+│    ▸ Stream 51.mp3 high-bass loop directly into Call
+│ 📺 \`${prefix}play2call\`
+│    ▸ Stream 2.mp4 video loop directly into Video Call
+
+╭─ 🎵 𝑱𝑰𝑶𝑺𝑨𝑨𝑽𝑵 & 𝑺𝑷𝑶𝑻𝑰𝑭𝒀
 │ 🎧 \`${prefix}gana <Song Name>\`
 │    ▸ Spotify official metadata + HD JioSaavn audio
-│ 💿 \`${prefix}album <Artist/Album>\`
-│    ▸ Search full artist tracklist
-╰──────────────────────
+│ 🎶 \`${prefix}songplay <Song Name>\`
+│    ▸ Instant voice note (PTT) player
+│ 🔁 \`${prefix}songloop <Song Name>\`
+│    ▸ Continuous audio loop in chat
+│ 🛑 \`${prefix}stopsong\`
+│    ▸ Stop any ongoing chat audio loop
 
-╭─ 🎼 𝑨𝑼𝑫𝑰𝑼𝑺 𝑭𝑹𝑬𝑬 𝑴𝑼𝑺𝑰𝑪
-│ 🎼 \`${prefix}geet <Song Name>\`
-│    ▸ Free Audius decentralized music stream
-╰──────────────────────
-
-╭─ 📻 𝑪𝑨𝑳𝑳 𝑨𝑼𝑫𝑰𝑶 𝑺𝑻𝑹𝑬𝑨𝑴𝑬𝑹
-│ 🔊 \`${prefix}play1call\`
-│    ▸ Play 51.mp3 in continuous 5s loop on call
-│ 🎶 \`${prefix}playjiocall <Song Name>\`
-│    ▸ Search JioSaavn & stream into call loop
-│ 💾 \`${prefix}saverd <name>\` / \`${prefix}playrd <name>\`
-│    ▸ Save & stream custom recordings on call
-╰──────────────────────
+╭─ 💾 𝑪𝑼𝑺𝑻𝑶𝑴 𝑹𝑬𝑪𝑶𝑹𝑫𝑰𝑵𝑮𝑺
+│ 💾 \`${prefix}saverd <name>\` / ▶️ \`${prefix}playrd <name>\`
+│    ▸ Save and replay custom audio on VoIP Call
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
@@ -3711,6 +3710,54 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           // 5. YOUTUBE MUSIC & VIDEO SUITE (YamzzBot-Caller Engine)
           // ==================================================================
 
+          // +playjio <name> / +jiosong <name> (Ultra-fast JioSaavn 320kbps MP3 delivery)
+          if (cmd === 'playjio' || cmd === 'jiosong' || cmd === 'jio') {
+            const query = fullArg || (lastSearchedTracks.get(jid)?.title);
+            if (!query) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}playjio <Song Name>\`\nExample: \`${sess.prefix}playjio Kesariya\`` }, { quoted: msg });
+              continue;
+            }
+
+            await sock.sendMessage(jid, { text: `⚡ *Searching & Downloading JioSaavn 320kbps HD Audio: \`${query}\`...*` }, { quoted: msg });
+
+            (async () => {
+              try {
+                const song = await searchJioSaavn(query);
+                if (!song || !song.audioUrl) {
+                  return sock.sendMessage(jid, { text: `❌ Song \`${query}\` not found on JioSaavn!` }, { quoted: msg });
+                }
+
+                const trackTitle = (song.title || query).replace(/[^a-zA-Z0-9_-]/g, '_');
+                const tempJioFile = path.join(__dirname, `jio_${Date.now()}_${trackTitle.slice(0, 15)}.mp3`);
+                const buf = await downloadBuffer(song.audioUrl);
+                if (!buf || buf.length < 5000) {
+                  return sock.sendMessage(jid, { text: `❌ Failed to download audio stream for \`${song.title}\`` }, { quoted: msg });
+                }
+
+                fs.writeFileSync(tempJioFile, buf);
+                const caption = `🎵 *${song.title}*\n👤 *Artist:* ${song.artist}\n💿 *Album:* ${song.album || 'Single'}\n⏱️ *Duration:* ${song.duration || 'Full'}\n⚡ *Source:* JioSaavn 320kbps HD\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
+
+                await sock.sendMessage(jid, {
+                  audio: { url: tempJioFile },
+                  mimetype: 'audio/mpeg',
+                  fileName: `${trackTitle}.mp3`,
+                  ptt: false,
+                  caption
+                }, { quoted: msg });
+
+                sess.sentCount = (sess.sentCount || 0) + 1;
+                setTimeout(() => {
+                  if (fs.existsSync(tempJioFile)) {
+                    try { fs.unlinkSync(tempJioFile); } catch (e) {}
+                  }
+                }, 5000);
+              } catch (e) {
+                await sock.sendMessage(jid, { text: `❌ JioSaavn Error: ${e.message}` }, { quoted: msg });
+              }
+            })();
+            continue;
+          }
+
           // +song <name> / +gana <name> / +play1 / +playaudio (Direct Audio MP3 Downloader & Sender)
           if (cmd === 'song' || cmd === 'gana' || cmd === 'music' || cmd === 'play1' || cmd === 'playaudio' || cmd === 'audio' || cmd === 'ytaudio' || cmd === 'yta') {
             const query = fullArg || (lastSearchedTracks.get(jid)?.url || lastSearchedTracks.get(jid)?.title);
@@ -3729,33 +3776,39 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 let audioBuf = null;
                 let actualFile = null;
                 if (dlRes.success && dlRes.filePath && fs.existsSync(dlRes.filePath)) {
-                  audioBuf = fs.readFileSync(dlRes.filePath);
                   actualFile = dlRes.filePath;
                 } else {
                   // Fallback via JioSaavn
                   const jio = await searchJioSaavn(query);
-                  if (jio?.audioUrl) audioBuf = await downloadBuffer(jio.audioUrl);
+                  if (jio?.audioUrl) {
+                    audioBuf = await downloadBuffer(jio.audioUrl);
+                    if (audioBuf) {
+                      actualFile = tempAudioPath;
+                      fs.writeFileSync(actualFile, audioBuf);
+                    }
+                  }
                 }
 
-                if (!audioBuf) {
+                if (!actualFile || !fs.existsSync(actualFile)) {
                   return sock.sendMessage(jid, { text: `❌ Could not download audio for \`${query}\`!` }, { quoted: msg });
                 }
 
                 const track = lastSearchedTracks.get(jid);
                 const trackTitle = (track?.title || query).replace(/[^a-zA-Z0-9_-]/g, '_');
                 const caption = `🎵 *${track?.title || query}*\n👤 *Artist:* ${track?.author || track?.artist || 'YouTube Music'}\n⏱️ *Duration:* ${track?.duration || 'Full'}\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
+                const stat = fs.statSync(actualFile);
 
-                if (audioBuf.length > 50 * 1024 * 1024) {
+                if (stat.size > 50 * 1024 * 1024) {
                   await sock.sendMessage(jid, {
-                    document: audioBuf,
+                    document: { url: actualFile },
                     mimetype: 'audio/mpeg',
                     fileName: `${trackTitle}.mp3`,
                     caption
                   }, { quoted: msg });
                 } else {
                   await sock.sendMessage(jid, {
-                    audio: audioBuf,
-                    mimetype: 'audio/mp4',
+                    audio: { url: actualFile },
+                    mimetype: 'audio/mpeg',
                     fileName: `${trackTitle}.mp3`,
                     ptt: false,
                     caption
@@ -3763,9 +3816,11 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 }
 
                 sess.sentCount = (sess.sentCount || 0) + 1;
-                if (actualFile && fs.existsSync(actualFile)) {
-                  try { fs.unlinkSync(actualFile); } catch (e) {}
-                }
+                setTimeout(() => {
+                  if (actualFile && fs.existsSync(actualFile)) {
+                    try { fs.unlinkSync(actualFile); } catch (e) {}
+                  }
+                }, 10000);
               } catch (e) {
                 logMsg(uid, `song/audio error: ${e.message}`);
                 await sock.sendMessage(jid, { text: `❌ Audio send error: ${e.message}` }, { quoted: msg });
@@ -3789,36 +3844,41 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const tempAudioPath = path.join(__dirname, `yt_audio_${Date.now()}.mp3`);
                 const dlRes = await downloadYouTubeMedia(query, 'audio', tempAudioPath);
                 
-                let audioBuf = null;
                 let actualFile = null;
                 if (dlRes.success && dlRes.filePath && fs.existsSync(dlRes.filePath)) {
-                  audioBuf = fs.readFileSync(dlRes.filePath);
                   actualFile = dlRes.filePath;
                 } else {
                   // Fallback via JioSaavn
                   const jio = await searchJioSaavn(query);
-                  if (jio?.audioUrl) audioBuf = await downloadBuffer(jio.audioUrl);
+                  if (jio?.audioUrl) {
+                    const audioBuf = await downloadBuffer(jio.audioUrl);
+                    if (audioBuf) {
+                      actualFile = tempAudioPath;
+                      fs.writeFileSync(actualFile, audioBuf);
+                    }
+                  }
                 }
 
-                if (!audioBuf) {
+                if (!actualFile || !fs.existsSync(actualFile)) {
                   return sock.sendMessage(jid, { text: `❌ Could not download audio for \`${query}\`!` }, { quoted: msg });
                 }
 
                 const track = lastSearchedTracks.get(jid);
                 const trackTitle = (track?.title || query).replace(/[^a-zA-Z0-9_-]/g, '_');
                 const caption = `🎵 *${track?.title || query}*\n👤 *Artist:* ${track?.author || 'YouTube Music'}\n⏱️ *Duration:* ${track?.duration || 'Full'}\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
+                const stat = fs.statSync(actualFile);
 
-                if (audioBuf.length > 50 * 1024 * 1024) {
+                if (stat.size > 50 * 1024 * 1024) {
                   await sock.sendMessage(jid, {
-                    document: audioBuf,
+                    document: { url: actualFile },
                     mimetype: 'audio/mpeg',
                     fileName: `${trackTitle}.mp3`,
                     caption
                   }, { quoted: msg });
                 } else {
                   await sock.sendMessage(jid, {
-                    audio: audioBuf,
-                    mimetype: 'audio/mp4',
+                    audio: { url: actualFile },
+                    mimetype: 'audio/mpeg',
                     fileName: `${trackTitle}.mp3`,
                     ptt: false,
                     caption
@@ -3826,9 +3886,11 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 }
 
                 sess.sentCount = (sess.sentCount || 0) + 1;
-                if (actualFile && fs.existsSync(actualFile)) {
-                  try { fs.unlinkSync(actualFile); } catch (e) {}
-                }
+                setTimeout(() => {
+                  if (actualFile && fs.existsSync(actualFile)) {
+                    try { fs.unlinkSync(actualFile); } catch (e) {}
+                  }
+                }, 10000);
               } catch (e) {
                 logMsg(uid, `play1 error: ${e.message}`);
                 await sock.sendMessage(jid, { text: `❌ Audio send error: ${e.message}` }, { quoted: msg });
@@ -3933,20 +3995,30 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                   return sock.sendMessage(jid, { text: `❌ Could not download video for \`${query}\`! Error: ${dlRes.error ? dlRes.error.slice(0, 100) : 'Stream unavailable'}` }, { quoted: msg });
                 }
 
-                logMsg(uid, `✅ [VIDEO DOWNLOAD COMPLETE] File: ${dlRes.filePath}`);
                 const stat = fs.statSync(dlRes.filePath);
+                logMsg(uid, `✅ [VIDEO DOWNLOAD COMPLETE] File: ${dlRes.filePath} (${Math.round(stat.size / 1024 / 1024)}MB)`);
                 const track = lastSearchedTracks.get(jid);
                 const trackTitle = (track?.title || query).replace(/[^a-zA-Z0-9_-]/g, '_');
                 const caption = `🎬 *${track?.title || query}*\n👤 *Channel:* ${track?.author || 'YouTube'}\n⏱️ *Duration:* ${track?.duration || 'Full'}\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
 
-                if (stat.size > 80 * 1024 * 1024) {
-                  await sock.sendMessage(jid, {
-                    document: { url: dlRes.filePath },
-                    mimetype: 'video/mp4',
-                    fileName: `${trackTitle}.mp4`,
-                    caption
-                  }, { quoted: msg });
-                } else {
+                try {
+                  const vBuf = fs.readFileSync(dlRes.filePath);
+                  if (stat.size > 70 * 1024 * 1024) {
+                    await sock.sendMessage(jid, {
+                      document: vBuf,
+                      mimetype: 'video/mp4',
+                      fileName: `${trackTitle}.mp4`,
+                      caption
+                    }, { quoted: msg });
+                  } else {
+                    await sock.sendMessage(jid, {
+                      video: vBuf,
+                      mimetype: 'video/mp4',
+                      caption
+                    }, { quoted: msg });
+                  }
+                } catch (sendErr) {
+                  logMsg(uid, `⚠️ Buffer send fallback to stream URL: ${sendErr.message}`);
                   await sock.sendMessage(jid, {
                     video: { url: dlRes.filePath },
                     mimetype: 'video/mp4',
@@ -3955,12 +4027,12 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 }
 
                 sess.sentCount = (sess.sentCount || 0) + 1;
-                logMsg(uid, `📤 [VIDEO SENT] ${dlRes.filePath} sent to ${jid}`);
+                logMsg(uid, `📤 [VIDEO SENT] Successfully dispatched to ${jid}`);
                 setTimeout(() => {
                   if (dlRes.filePath && fs.existsSync(dlRes.filePath)) {
                     try { fs.unlinkSync(dlRes.filePath); } catch (e) {}
                   }
-                }, 15000);
+                }, 10000);
               } catch (e) {
                 logMsg(uid, `play2 error: ${e.message}`);
                 await sock.sendMessage(jid, { text: `❌ Video send error: ${e.message}` }, { quoted: msg });

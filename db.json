@@ -1,54 +1,14 @@
 {
   "users": {
-    "spamkingxl400@gmail.com": {
-      "name": "Ewewd Master User",
-      "email": "spamkingxl400@gmail.com",
-      "phone": "+91 7777766666",
-      "password": "vippassword999",
+    "PUBLIC": {
+      "name": "PUBLIC USER",
+      "email": "public@igtgwp.com",
+      "phone": "+91 9507325677",
+      "password": "KING@12345",
       "role": "user",
       "status": "active",
-      "lastOtpVerifiedAt": "2026-08-17 02:06:52.971881",
-      "createdAt": "2026-08-16 19:36:20.564485"
-    },
-    "theycallmemonstergod@gmail.com": {
-      "name": "Monster",
-      "email": "theycallmemonstergod@gmail.com",
-      "phone": "+466318778774",
-      "password": "MONSTER@12345",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-17 02:24:18.303099",
-      "createdAt": "2026-08-17 02:24:18.303107"
-    },
-    "krishuenters102@gmail.com": {
-      "name": "Krishu",
-      "email": "krishuenters102@gmail.com",
-      "phone": "9552493818",
-      "password": "Krish@5919",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-17 07:35:44.779323",
-      "createdAt": "2026-08-17 07:35:44.779336"
-    },
-    "princexl09873@gmail.com": {
-      "name": "KING",
-      "email": "princexl09873@gmail.com",
-      "phone": "+91783221002",
-      "password": "PRINCE@9507325",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-17 13:07:10.139191",
-      "createdAt": "2026-08-17 13:07:10.140272"
-    },
-    "soo434320@gmail.com": {
-      "name": "king",
-      "email": "soo434320@gmail.com",
-      "phone": "+919507325678",
-      "password": "PRINCE@9507325",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-17 13:09:30.265121",
-      "createdAt": "2026-08-17 13:09:30.265121"
+      "lastOtpVerifiedAt": null,
+      "createdAt": "2026-08-25 19:31:34.351916"
     }
   },
   "members": [
@@ -56,95 +16,22 @@
     "PRINCE",
     "RIYA"
   ],
-  "accounts": {
-    "1": {
-      "uid": "1",
-      "name": "Multi-GC Bot #1 (Hater)",
-      "username": "Hater",
-      "messages": [
-        "Sour",
-        "Garib",
-        "R9"
-      ],
-      "renames": [
-        "SAY KING DADY"
-      ],
-      "delay": 2,
-      "cycle_delay": 10,
-      "owner": "OWNER",
-      "sessionid": "25559122094%3AvxTbuE6REKbIKB%3A0%3AAYgnfGxqdTfysj6XnEvIb1XPTZ5gp6MbT4RBOLfsC",
-      "settings": {},
-      "createdAt": "2026-08-17 06:03:14.969392"
-    }
-  },
+  "accounts": {},
   "gc_accounts": {},
   "tg_accounts": {},
   "wp_accounts": {
-    "wp_theycallmemo_bot1": {
-      "uid": "wp_theycallmemo_bot1",
-      "name": "bot1",
-      "owner_jid": "84925465462",
-      "target_numbers": [],
-      "prefix": "+",
-      "delay": 5,
-      "owner": "theycallmemonstergod@gmail.com",
-      "createdAt": "2026-08-17 05:02:26.408026"
-    },
-    "wp_Kingu1": {
-      "uid": "wp_Kingu1",
-      "name": "Kingu1",
-      "owner_jid": "+919507325677",
+    "wp_KINGU08": {
+      "uid": "wp_KINGU08",
+      "name": "KINGU08",
+      "owner_jid": "191525812211746@lid",
       "target_numbers": [],
       "prefix": "+",
       "delay": 5,
       "owner": "OWNER",
-      "createdAt": "2026-08-17 05:25:50.485901"
-    },
-    "wp_Kingu02": {
-      "uid": "wp_Kingu02",
-      "name": "Kingu02",
-      "owner_jid": "+919507325677",
-      "target_numbers": [],
-      "prefix": "+",
-      "delay": 5,
-      "owner": "OWNER",
-      "createdAt": "2026-08-17 05:26:30.446610"
-    },
-    "wp_theycallmemo_bot2": {
-      "uid": "wp_theycallmemo_bot2",
-      "name": "bot2",
-      "owner_jid": "84925465462",
-      "target_numbers": [],
-      "prefix": "+",
-      "delay": 5,
-      "owner": "theycallmemonstergod@gmail.com",
-      "createdAt": "2026-08-17 05:26:36.764062"
-    },
-    "wp_theycallmemo_bot3": {
-      "uid": "wp_theycallmemo_bot3",
-      "name": "bot3",
-      "owner_jid": "923165668274",
-      "target_numbers": [],
-      "prefix": "+",
-      "delay": 5,
-      "owner": "theycallmemonstergod@gmail.com",
-      "createdAt": "2026-08-17 05:57:14.888237"
-    },
-    "wp_theycallmemo_MONSTRR": {
-      "uid": "wp_theycallmemo_MONSTRR",
-      "name": "MONSTRR",
-      "owner_jid": "923165668274",
-      "target_numbers": [],
-      "prefix": "+",
-      "delay": 5,
-      "owner": "theycallmemonstergod@gmail.com",
-      "createdAt": "2026-08-17 05:57:40.978466"
+      "createdAt": "2026-08-25 12:30:07.324975",
+      "admin_name": "SERVER GOD CLAN EMPEROR",
+      "system_owner": "SERVER GOD CLAN KING",
+      "updatedAt": "2026-08-25T14:02:30.754Z"
     }
-  },
-  "owner_creds": {
-    "username": "OWNER",
-    "password": "PRINCE@9507325",
-    "name": "SERVER GOD CLAN EMPEROR",
-    "email": "spamkingxl400@gmail.com"
   }
 }
