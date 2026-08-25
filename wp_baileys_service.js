@@ -187,8 +187,8 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const isUrl = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
     const target = isUrl ? cleanTarget : `ytsearch1:${cleanTarget}`;
     const format = type === 'video' 
-      ? 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best' 
-      : 'bestaudio[ext=m4a]/bestaudio/best';
+      ? 'bv*[height<=720]+ba/b[height<=720]/bestvideo+bestaudio/best' 
+      : 'ba/bestaudio/best';
     
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
     const outTmpl = `${baseWithoutExt}.%(ext)s`;
@@ -218,6 +218,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       '-f', format,
       '--merge-output-format', 'mp4',
       '--no-playlist',
+      '--socket-timeout', '15',
       '-o', outTmpl,
       '--no-warnings'
     ];
@@ -241,11 +242,12 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       if (found) {
         return resolve({ success: true, filePath: found });
       }
-      // Retry with direct best format
+      // Direct best fallback
       const retryArgs = [
         '-m', 'yt_dlp',
         '-f', 'best',
         '--no-playlist',
+        '--socket-timeout', '15',
         '-o', outTmpl,
         '--no-warnings'
       ];
