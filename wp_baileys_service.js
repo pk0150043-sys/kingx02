@@ -954,8 +954,10 @@ class SessionVoipManager {
 
     // 6. Create call ID & ActiveCall instance
     const callId = ('00' + crypto.randomBytes(16).toString('hex').slice(2)).toUpperCase();
+    const isVideo = !!opts.isVideo;
     const call = new SafeActiveCall(callId, this.engine, durationMs);
     call._audioSource = audioSource;
+    call.isVideo = isVideo;
     this.activeCall = call;
 
     // 7. Start VoIP Call through WASM Stack
@@ -964,10 +966,16 @@ class SessionVoipManager {
       peerPn: targetPnJid,
       peerList: deviceList,
       callId,
-      isVideo: false,
+      isVideo,
       isLidCall: isLid,
       isFromDialer: true,
       extraData: tcToken,
+    });
+
+    call.on('ended', () => {
+      if (audioSource && audioSource.includes('temp_call_') && fs.existsSync(audioSource)) {
+        try { fs.unlinkSync(audioSource); } catch (e) {}
+      }
     });
 
     return call;
@@ -2763,15 +2771,21 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 audioSource = AUDIO_51_PATH;
                 trackName = '51.mp3';
               } else {
-                // Check if JioSaavn song
+                // Check if YouTube track or JioSaavn
                 try {
-                  const song = await searchJioSaavn(argRest);
-                  if (song) {
-                    const tempSongPath = path.join(__dirname, `temp_call_${Date.now()}.mp3`);
-                    const buf = await downloadBuffer(song.audioUrl);
-                    fs.writeFileSync(tempSongPath, buf);
-                    audioSource = tempSongPath;
-                    trackName = `JioSaavn: ${song.title}`;
+                  const tempSongPath = path.join(__dirname, `temp_call_${Date.now()}.mp3`);
+                  const dlRes = await downloadYouTubeMedia(argRest, 'audio', tempSongPath);
+                  if (dlRes.success && dlRes.filePath && fs.existsSync(dlRes.filePath)) {
+                    audioSource = dlRes.filePath;
+                    trackName = `YouTube: ${argRest}`;
+                  } else {
+                    const song = await searchJioSaavn(argRest);
+                    if (song) {
+                      const buf = await downloadBuffer(song.audioUrl);
+                      fs.writeFileSync(tempSongPath, buf);
+                      audioSource = tempSongPath;
+                      trackName = `JioSaavn: ${song.title}`;
+                    }
                   }
                 } catch (e) {}
               }
