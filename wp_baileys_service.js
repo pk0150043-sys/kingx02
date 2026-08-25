@@ -233,8 +233,32 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       spawnArgs.push('--cookies', cookiePath);
     }
 
-    const pythonBin = process.platform === 'win32' ? 'python' : (fs.existsSync('/usr/bin/python3') ? '/usr/bin/python3' : (fs.existsSync('/usr/local/bin/python3') ? '/usr/local/bin/python3' : 'python3'));
-    const proc = spawn(pythonBin, spawnArgs);
+    // Detect Python / yt-dlp binary
+    let execBin = 'yt-dlp';
+    let isDirectYtDlp = false;
+
+    if (process.platform === 'win32') {
+      execBin = 'python';
+    } else {
+      if (fs.existsSync('/usr/local/bin/yt-dlp')) {
+        execBin = '/usr/local/bin/yt-dlp';
+        isDirectYtDlp = true;
+      } else if (fs.existsSync('/usr/bin/yt-dlp')) {
+        execBin = '/usr/bin/yt-dlp';
+        isDirectYtDlp = true;
+      } else if (fs.existsSync('/usr/local/bin/python')) {
+        execBin = '/usr/local/bin/python';
+      } else if (fs.existsSync('/usr/local/bin/python3')) {
+        execBin = '/usr/local/bin/python3';
+      } else if (fs.existsSync('/usr/bin/python3')) {
+        execBin = '/usr/bin/python3';
+      } else {
+        execBin = 'python3';
+      }
+    }
+
+    const finalSpawnArgs = isDirectYtDlp ? spawnArgs.filter(a => a !== '-m' && a !== 'yt_dlp') : spawnArgs;
+    const proc = spawn(execBin, finalSpawnArgs);
 
     let errData = '';
     proc.stderr.on('data', (d) => { errData += d.toString(); });
@@ -259,7 +283,8 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       }
       retryArgs.push(target);
 
-      const retryProc = spawn(pythonBin, retryArgs);
+      const finalRetryArgs = isDirectYtDlp ? retryArgs.filter(a => a !== '-m' && a !== 'yt_dlp') : retryArgs;
+      const retryProc = spawn(execBin, finalRetryArgs);
       retryProc.on('close', () => {
         const retryFound = findDownloadedFile();
         if (retryFound) {

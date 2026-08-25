@@ -37,8 +37,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY package*.json ./
 COPY requirements.txt ./
 
-# Install Node & Python dependencies and install Playwright Chromium
+# Install Node & Python dependencies, yt-dlp standalone binary, and Playwright Chromium
 RUN pip install --no-cache-dir -r requirements.txt \
+    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp \
     && npm install \
     && python -m playwright install chromium
 
