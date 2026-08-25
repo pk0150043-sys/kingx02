@@ -754,7 +754,9 @@ class SessionVoipManager {
         });
 
         await this.engine.initialize();
-        this.signaling.attachEngine(this.engine);
+        if (this.signaling && typeof this.signaling.attachEngine === 'function') {
+          this.signaling.attachEngine(this.engine);
+        }
 
         const selfPnJid = currentSock.authState?.creds?.me?.id || (this.sess.connectedNumber ? `${cleanPhone(this.sess.connectedNumber)}@s.whatsapp.net` : '');
         const selfLidJid = currentSock.authState?.creds?.me?.lid || '';
