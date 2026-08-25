@@ -3900,41 +3900,47 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               continue;
             }
 
-            await sock.sendMessage(jid, { text: `🎥 *Downloading Full YouTube Video for \`${query}\`...*` }, { quoted: msg });
+            await sock.sendMessage(jid, { text: `🎥 *Downloading & Processing YouTube Video for \`${query}\`...*` }, { quoted: msg });
 
             (async () => {
               try {
                 const tempVideoPath = path.join(__dirname, `yt_video_${Date.now()}.mp4`);
+                logMsg(uid, `🎥 [VIDEO DOWNLOAD START] Target: ${query}`);
                 const dlRes = await downloadYouTubeMedia(query, 'video', tempVideoPath);
 
                 if (!dlRes.success || !dlRes.filePath || !fs.existsSync(dlRes.filePath)) {
-                  return sock.sendMessage(jid, { text: `❌ Could not download video for \`${query}\`!` }, { quoted: msg });
+                  logMsg(uid, `❌ [VIDEO DOWNLOAD FAILED] ${dlRes.error || 'Unknown'}`);
+                  return sock.sendMessage(jid, { text: `❌ Could not download video for \`${query}\`! Error: ${dlRes.error ? dlRes.error.slice(0, 100) : 'Stream unavailable'}` }, { quoted: msg });
                 }
 
-                const videoBuf = fs.readFileSync(dlRes.filePath);
+                logMsg(uid, `✅ [VIDEO DOWNLOAD COMPLETE] File: ${dlRes.filePath}`);
+                const stat = fs.statSync(dlRes.filePath);
                 const track = lastSearchedTracks.get(jid);
                 const trackTitle = (track?.title || query).replace(/[^a-zA-Z0-9_-]/g, '_');
                 const caption = `🎬 *${track?.title || query}*\n👤 *Channel:* ${track?.author || 'YouTube'}\n⏱️ *Duration:* ${track?.duration || 'Full'}\n\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
 
-                if (videoBuf.length > 60 * 1024 * 1024) {
+                if (stat.size > 80 * 1024 * 1024) {
                   await sock.sendMessage(jid, {
-                    document: videoBuf,
+                    document: { url: dlRes.filePath },
                     mimetype: 'video/mp4',
                     fileName: `${trackTitle}.mp4`,
                     caption
                   }, { quoted: msg });
                 } else {
                   await sock.sendMessage(jid, {
-                    video: videoBuf,
+                    video: { url: dlRes.filePath },
                     mimetype: 'video/mp4',
                     caption
                   }, { quoted: msg });
                 }
 
                 sess.sentCount = (sess.sentCount || 0) + 1;
-                if (dlRes.filePath && fs.existsSync(dlRes.filePath)) {
-                  try { fs.unlinkSync(dlRes.filePath); } catch (e) {}
-                }
+                logMsg(uid, `📤 [VIDEO SENT] ${dlRes.filePath} sent to ${jid}`);
+                setTimeout(() => {
+                  if (dlRes.filePath && fs.existsSync(dlRes.filePath)) {
+                    try { fs.unlinkSync(dlRes.filePath); } catch (e) {}
+                  }
+                }, 15000);
               } catch (e) {
                 logMsg(uid, `play2 error: ${e.message}`);
                 await sock.sendMessage(jid, { text: `❌ Video send error: ${e.message}` }, { quoted: msg });
