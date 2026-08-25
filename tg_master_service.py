@@ -766,18 +766,19 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
         "--no-playlist",
         "--socket-timeout", "30",
         "--no-warnings",
+        "--extractor-args", "youtube:player_client=android_embedded,web_embedded,ios,mweb",
         "--geo-bypass"
     ]
 
     if media_type == 'video':
         cmd.extend([
-            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best",
+            "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bestvideo+bestaudio/best",
             "--merge-output-format", "mp4",
             "--postprocessor-args", "ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v baseline -level 3.0 -c:a aac -b:a 128k -movflags +faststart"
         ])
     else:
         cmd.extend([
-            "-f", "bestaudio/best",
+            "-f", "ba/bestaudio/best",
             "-x", "--audio-format", "mp3",
             "--postprocessor-args", "ffmpeg:-c:a libmp3lame -b:a 192k -ar 44100"
         ])
@@ -785,8 +786,6 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
     cmd.extend(["-o", outtmpl])
     if os.path.exists("ffmpeg.exe"):
         cmd.extend(["--ffmpeg-location", os.getcwd()])
-    if os.path.exists(cookie_file) and os.path.getsize(cookie_file) > 10:
-        cmd.extend(["--cookies", cookie_file])
     cmd.append(target)
 
     try:
