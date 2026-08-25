@@ -187,8 +187,8 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const isUrl = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
     const target = isUrl ? cleanTarget : `ytsearch1:${cleanTarget}`;
     const format = type === 'video' 
-      ? 'bv*[height<=720]+ba/b[height<=720]/bestvideo+bestaudio/best' 
-      : 'ba/bestaudio/best';
+      ? 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best' 
+      : 'bestaudio/best';
     
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
     const outTmpl = `${baseWithoutExt}.%(ext)s`;
@@ -216,10 +216,8 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const spawnArgs = [
       '-m', 'yt_dlp',
       '--no-playlist',
-      '--socket-timeout', '20',
+      '--socket-timeout', '30',
       '--no-warnings',
-      '--extractor-args', 'youtube:player_client=android,web,ios,tvhtml5',
-      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
       '--geo-bypass'
     ];
 
@@ -237,7 +235,7 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       spawnArgs.push('--ffmpeg-location', __dirname);
     }
 
-    if (fs.existsSync(cookiePath)) {
+    if (fs.existsSync(cookiePath) && fs.statSync(cookiePath).size > 10) {
       spawnArgs.push('--cookies', cookiePath);
     }
 
