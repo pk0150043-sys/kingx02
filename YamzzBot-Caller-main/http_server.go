@@ -124,8 +124,14 @@ func startHTTPServer(ctx context.Context, port string) {
 			s := pool.findByName(uid)
 			isOnline := s != nil && s.connected()
 			num := ""
+			pairingCode := ""
+			qrCode := ""
 			if s != nil {
 				num = s.number()
+				s.mu.Lock()
+				pairingCode = s.pairingCode
+				qrCode = s.qrCode
+				s.mu.Unlock()
 			}
 			stat := "DISCONNECTED"
 			if isOnline {
@@ -135,8 +141,8 @@ func startHTTPServer(ctx context.Context, port string) {
 				"status":          stat,
 				"isOnline":        isOnline,
 				"connectedNumber": num,
-				"qr":              "",
-				"pairingCode":     "",
+				"qr":              qrCode,
+				"pairingCode":     pairingCode,
 			})
 
 		case "pair":
@@ -177,7 +183,15 @@ func startHTTPServer(ctx context.Context, port string) {
 			}
 			json.NewEncoder(w).Encode(map[string]any{"success": true})
 
-		case "start_worker", "stop_worker", "refresh_qr":
+		case "refresh_qr":
+			qr, err := pool.startQRLogin(r.Context(), uid)
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]any{"success": false, "message": err.Error()})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"success": true, "qr": qr})
+
+		case "start_worker", "stop_worker":
 			json.NewEncoder(w).Encode(map[string]any{"success": true, "status": "ok"})
 
 		case "disconnect":

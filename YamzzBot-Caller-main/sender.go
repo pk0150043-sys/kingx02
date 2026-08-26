@@ -29,6 +29,9 @@ type Sender struct {
 	call   *meowcaller.Client
 	device *store.Device
 
+	pairingCode string
+	qrCode      string
+
 	mu        sync.Mutex
 	sess      *callSession  // audio call (.playcall) yang lagi jalan di sender ini (nil = nganggur)
 	videoSess *videoSession // video call (.playvideo) yang lagi jalan (nil = nganggur)
@@ -295,7 +298,48 @@ func (p *senderPool) addSender(ctx context.Context, phone string) (code string, 
 	if err != nil {
 		return "", "", fmt.Errorf("pair: %w", err)
 	}
+	s.mu.Lock()
+	s.pairingCode = code
+	s.mu.Unlock()
 	return code, s.name, nil
+}
+
+// startQRLogin generates QR code for web panel linking
+func (p *senderPool) startQRLogin(ctx context.Context, name string) (string, error) {
+	s := p.findByName(name)
+	if s == nil {
+		dev := p.container.NewDevice()
+		p.mu.Lock()
+		index := len(p.senders)
+		s = p.buildSender(index, dev)
+		p.senders = append(p.senders, s)
+		p.mu.Unlock()
+	}
+
+	if s.connected() {
+		return "", nil
+	}
+
+	qrChan, _ := s.wa.GetQRChannel(ctx)
+	if err := s.wa.Connect(); err != nil {
+		return "", err
+	}
+
+	select {
+	case evt := <-qrChan:
+		if evt.Event == "code" {
+			s.mu.Lock()
+			s.qrCode = evt.Code
+			s.mu.Unlock()
+			return evt.Code, nil
+		}
+	case <-time.After(8 * time.Second):
+	}
+
+	s.mu.Lock()
+	qr := s.qrCode
+	s.mu.Unlock()
+	return qr, nil
 }
 
 // removeSender: disconnect & buang sender dari pool. Dipake tombol "Batalkan"
