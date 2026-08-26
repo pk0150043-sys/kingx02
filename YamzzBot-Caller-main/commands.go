@@ -751,17 +751,43 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 			}
 		}
 
-	case "listadmin", "admins":
+	case "listadmin", "admins", "showadmins":
 		if !requireAdmin() {
 			return
 		}
 		adms := listSubAdmins()
 		var b strings.Builder
-		fmt.Fprintf(&b, "👑 *AUTHORIZED BOT ADMINS*\n\n")
+		fmt.Fprintf(&b, "👑 *AUTHORIZED BOT ADMINS & USERS*\n\n")
 		fmt.Fprintf(&b, "• 👑 *Primary Owner:* `+%s`\n", OwnerNumber)
 		for _, a := range adms {
 			if a != OwnerNumber {
 				fmt.Fprintf(&b, "• 🛡️ *Sub-Admin:* `+%s`\n", a)
+			}
+		}
+		fmt.Fprintf(&b, "\n📊 *Active Calling Senders:* %d online\n", len(pool.list()))
+		fmt.Fprintf(&b, "🔒 *Mode:* `%s`\n", Mode)
+		sendText(ctx, evt.Info.Chat, b.String())
+
+	case "auditlog", "audit", "useractivity", "activity", "logs":
+		if !requireAdmin() {
+			return
+		}
+		gLogsMu.Lock()
+		count := len(gLogs)
+		startIdx := 0
+		if count > 15 {
+			startIdx = count - 15
+		}
+		recent := append([]string(nil), gLogs[startIdx:]...)
+		gLogsMu.Unlock()
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "📋 *RECENT USER ACTIONS & COMMAND AUDIT LOG*\n\n")
+		if len(recent) == 0 {
+			fmt.Fprintf(&b, "_No user activity recorded yet._")
+		} else {
+			for i, l := range recent {
+				fmt.Fprintf(&b, "%d. %s\n", i+1, l)
 			}
 		}
 		sendText(ctx, evt.Info.Chat, b.String())
