@@ -1094,13 +1094,23 @@ def telegram_master():
     )
 
 @app.route("/whatsapp_master")
-@app.route("/whatsapp_call_setup")
 @app.route("/wp_bots_nc_setup")
 def whatsapp_master():
     if not is_authenticated():
         return redirect("/login")
     return render_template(
         "whatsapp_dashboard.html",
+        role=session.get("role"),
+        name=session.get("name"),
+        user=session.get("user")
+    )
+
+@app.route("/whatsapp_call_setup")
+def whatsapp_call_setup():
+    if not is_authenticated():
+        return redirect("/login")
+    return render_template(
+        "whatsapp_call_dashboard.html",
         role=session.get("role"),
         name=session.get("name"),
         user=session.get("user")
