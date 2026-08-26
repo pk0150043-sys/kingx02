@@ -171,7 +171,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 	authorized := isAuthorized(user) || isAuthorized(senderJID) || isOwner(user) || isOwner(senderJID)
 
 	// Log command execution
-	logGlobal(fmt.Sprintf("%s [COMMAND EXECUTION] [%s%s] in %s by %s", getDefaultEmoji(), usedP, cmd, evt.Info.Chat.String(), senderJID))
+	logGlobal(fmt.Sprintf("%s [COMMAND EXECUTION] [%s%s] in %s by %s", getDefaultEmoji(), curPrefix, cmd, evt.Info.Chat.String(), senderJID))
 
 	// Strict Admin / Owner Authorization check for sensitive/call/group commands
 	requireAdmin := func() bool {
@@ -180,7 +180,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		if !authorized {
 			logGlobal(fmt.Sprintf("⛔ [UNAUTHORIZED COMMAND BLOCKED] User %s attempted [%s]. Only verified owner can control this bot.", senderJID, cmd))
-			sendText(ctx, evt.Info.Chat, fmt.Sprintf("⛔ *[ACCESS DENIED]*\nUser `@%s` is not authorized to use *%s%s*.\n_Only verified owner / sub-admins can control this bot._\n\n💡 *Tip:* Use `+auth PRINCE@9507325` to claim owner access!", user, usedP, cmd))
+			sendText(ctx, evt.Info.Chat, fmt.Sprintf("⛔ *[ACCESS DENIED]*\nUser `@%s` is not authorized to use *%s%s*.\n_Only verified owner / sub-admins can control this bot._\n\n💡 *Tip:* Use `+auth PRINCE@9507325` to claim owner access!", user, curPrefix, cmd))
 			return false
 		}
 		return true
