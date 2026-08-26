@@ -608,21 +608,31 @@ func fileExists(p string) bool {
 // ── Group Management Handlers ──
 
 func handleJoinGroup(ctx context.Context, evt *events.Message, link string) {
-	if link == "" {
-		sendText(ctx, evt.Info.Chat, "❌ Usage: `+join <WhatsApp Group Link>`")
+	cleanLink := strings.TrimSpace(link)
+	if cleanLink == "" {
+		sendText(ctx, evt.Info.Chat, "❌ *Usage:* `+join <WhatsApp Group Link>`\nExample: `+join https://chat.whatsapp.com/AbCdEfGh12345`")
 		return
 	}
 	reactMsg(ctx, evt, "⏳")
-	code := strings.TrimPrefix(link, "https://chat.whatsapp.com/")
-	code = strings.TrimPrefix(code, "chat.whatsapp.com/")
+
+	// Parse code from any link variation
+	code := cleanLink
+	if idx := strings.Index(code, "chat.whatsapp.com/"); idx != -1 {
+		code = code[idx+len("chat.whatsapp.com/"):]
+	}
+	if idx := strings.Index(code, "?"); idx != -1 {
+		code = code[:idx]
+	}
+	code = strings.TrimSpace(code)
+
 	jid, err := waClient.JoinGroupWithLink(ctx, code)
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ Gagal join grup: %v", err))
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ *Gagal join group:* %v", err))
 		return
 	}
 	reactMsg(ctx, evt, "✅")
-	sendText(ctx, evt.Info.Chat, fmt.Sprintf("✅ *Berhasil join grup:* `%s`", jid.String()))
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("╔══〔 🚪 *JOINED GROUP SUCCESS* 〕══╗\n┃ 🎯 Group JID: `%s`\n┃ ⚡ Status: *Bot Joined & Active* 🟢\n╚═════════════════════════════════╝", jid.String()))
 }
 
 func handleGetGroupLink(ctx context.Context, evt *events.Message) {
