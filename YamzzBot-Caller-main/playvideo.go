@@ -348,7 +348,7 @@ func handlePlayVideo(ctx context.Context, evt *events.Message, args string) {
 		}
 		reactMsg(ctx, evt, "✅")
 		startVideoStream(vs, call, myGen, stop)
-		startAudioOnce()
+		playAudioLoop()
 		sendText(ctx, chat, fmt.Sprintf(
 			"✅ *Tersambung ke +%s*\n▶️ *%s*\n\n⏭️ Skip: *%sskipvideo %s* | 🛑 Stop: *%sstopvideo %s*",
 			cleanTarget, title, Prefix, snd.name, Prefix, snd.name,
