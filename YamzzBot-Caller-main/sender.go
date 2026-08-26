@@ -287,33 +287,47 @@ func (p *senderPool) addSenderForUID(ctx context.Context, uid string, phone stri
 		return "", s.name, fmt.Errorf("node is already connected to +%s", s.number())
 	}
 
-	if err := s.wa.Connect(); err != nil {
-		return "", "", fmt.Errorf("connect: %w", err)
+	if !s.wa.IsConnected() {
+		if err := s.wa.Connect(); err != nil {
+			return "", "", fmt.Errorf("connect: %w", err)
+		}
 	}
 
 	s.wa.AddEventHandler(func(evt any) {
 		switch evt.(type) {
 		case *events.PairSuccess:
 			p.logger.Info().Str("uid", s.uid).Str("sender", s.name).Str("num", s.number()).Msg("✅ sender pairing sukses")
+			if waClient == nil {
+				waClient = s.wa
+				callClient = s.call
+			}
 		case *events.Connected:
 			_ = s.wa.SendPresence(context.Background(), types.PresenceAvailable)
 		}
 	})
 
-	ctx2, cancel := context.WithTimeout(ctx, 25*time.Second)
+	ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+
+	// Use official pairing client identifier
 	code, err = s.wa.PairPhone(ctx2, phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
 		return "", "", fmt.Errorf("pair: %w", err)
 	}
+
+	// Format 8-digit code with hyphen (e.g. ABCD-1234) if not formatted
+	formatted := code
+	if len(code) == 8 && !strings.Contains(code, "-") {
+		formatted = code[:4] + "-" + code[4:]
+	}
+
 	s.mu.Lock()
-	s.pairingCode = code
+	s.pairingCode = formatted
 	s.mu.Unlock()
-	return code, s.name, nil
+	return formatted, s.name, nil
 }
 
 // addSender bikin device baru, mulai pairing pakai nomor telpon, balikin pairing code.
-// Sender-nya langsung dimasukin pool (status connecting sampai PairSuccess).
 func (p *senderPool) addSender(ctx context.Context, phone string) (code string, name string, err error) {
 	return p.addSenderForUID(ctx, fmt.Sprintf("sender%d", len(p.senders)+1), phone)
 }
@@ -350,14 +364,30 @@ func (p *senderPool) startQRLogin(ctx context.Context, name string) (string, err
 		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes)
 	}
 
-	qrChan, _ := s.wa.GetQRChannel(ctx)
-	if err := s.wa.Connect(); err != nil {
+	qrChan, err := s.wa.GetQRChannel(ctx)
+	if err != nil {
 		return "", err
 	}
 
+	if !s.wa.IsConnected() {
+		if err := s.wa.Connect(); err != nil {
+			return "", err
+		}
+	}
+
+	s.wa.AddEventHandler(func(evt any) {
+		switch evt.(type) {
+		case *events.PairSuccess, *events.Connected:
+			if waClient == nil {
+				waClient = s.wa
+				callClient = s.call
+			}
+		}
+	})
+
 	select {
-	case evt := <-qrChan:
-		if evt.Event == "code" {
+	case evt, ok := <-qrChan:
+		if ok && evt.Event == "code" {
 			dataURL := formatQRDataURL(evt.Code)
 			s.mu.Lock()
 			s.qrCode = dataURL
