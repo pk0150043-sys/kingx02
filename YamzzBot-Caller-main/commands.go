@@ -132,7 +132,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 	raidMu.Unlock()
 
 	if isMuted && !evt.Info.IsFromMe {
-		_, _ = waClient.RevokeMessage(ctx, evt.Info.Chat, evt.Info.Sender, evt.Info.ID)
+		_, _ = waClient.RevokeMessage(ctx, evt.Info.Chat, evt.Info.ID)
 		return
 	}
 
@@ -164,12 +164,6 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 	fields := strings.Fields(body)
 	cmd := strings.ToLower(fields[0])
 	args := strings.TrimSpace(strings.TrimPrefix(body, fields[0]))
-
-	senderJID := evt.Info.Sender.ToNonAD().String()
-	if !evt.Info.MessageSource.SenderAlt.IsEmpty() {
-		senderJID = evt.Info.MessageSource.SenderAlt.ToNonAD().String()
-	}
-	user := strings.Split(senderJID, "@")[0]
 
 	authorized := isAuthorized(user) || isAuthorized(senderJID)
 
@@ -454,7 +448,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 			return
 		}
 		if evt.Info.IsGroup {
-			_, _ = waClient.RevokeGroupInviteLink(ctx, evt.Info.Chat)
+			_, _ = waClient.GetGroupInviteLink(ctx, evt.Info.Chat, true)
 			sendText(ctx, evt.Info.Chat, "🔄 *Group link revoked!*")
 		}
 

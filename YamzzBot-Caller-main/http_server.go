@@ -252,8 +252,8 @@ func startHTTPServer(ctx context.Context, port string) {
 			if s != nil {
 				if s.wa != nil {
 					s.wa.Disconnect()
-					if s.dev != nil {
-						_ = s.dev.Delete(r.Context())
+					if s.device != nil {
+						_ = s.device.Delete(r.Context())
 					}
 				}
 			}

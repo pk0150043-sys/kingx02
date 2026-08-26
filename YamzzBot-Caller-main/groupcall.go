@@ -109,7 +109,7 @@ func handleGroupCall(ctx context.Context, evt *events.Message, args string, isVi
 		sess.player = p
 		sess.mu.Unlock()
 
-		sendText(ctx, chat, fmt.Sprintf("🎉 *Group %s Connected!*\n🤖 %s | 🔖 `%s`\n🔊 Auto-Unmute: *ACTIVE (LIVE)*\n▶️ Stream: *%s*", map[bool]string{true: "Video Call", false: "Voice Call"}[isVideo], snd.name, shortID, trackTitle))
+		sendText(ctx, chat, fmt.Sprintf("🎉 *Group %s Connected!*\n🤖 %s | 🔖 `%s`\n🔊 Auto-Unmute: *ACTIVE (LIVE)*\n▶️ Stream: *%s* by *%s*", map[bool]string{true: "Video Call", false: "Voice Call"}[isVideo], snd.name, shortID, trackTitle, trackArtist))
 		reactMsg(ctx, evt, "🎉")
 
 		if filePath != "" {
