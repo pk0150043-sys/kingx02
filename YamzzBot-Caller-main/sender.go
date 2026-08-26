@@ -107,6 +107,23 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 	call := meowcaller.NewClient(wa, meowcaller.WithLogger(p.logger))
 	s := &Sender{name: name, wa: wa, call: call, device: dev}
 
+	call.OnIncomingCall(func(inCall *meowcaller.Call) {
+		p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Msg("📞 [INCOMING CALL] Answering & auto-accepting call...")
+		ansCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := inCall.Answer(ansCtx); err != nil {
+			p.logger.Warn().Err(err).Msg("failed to answer incoming call")
+			return
+		}
+		inCall.OnReady(func() {
+			player := meowcaller.NewPlayer()
+			inCall.Subscribe(player)
+			if src, err := meowcaller.MP3File("51.mp3"); err == nil {
+				player.Play(src)
+			}
+		})
+	})
+
 	// Cuma sender utama (index 0) yang nangkep command & event chat.
 	if index == 0 {
 		wa.AddEventHandler(func(evt any) { mainSenderEvents(s, evt) })

@@ -259,11 +259,27 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       } catch(e) {}
     }
 
-    const isUrl = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
-    const target = isUrl ? cleanTarget : `ytsearch1:${cleanTarget}`;
+    let isUrl = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
+    let target = cleanTarget;
+
+    // Resolve query to exact YouTube URL first for 100% reliable yt-dlp mobile client extraction
+    if (!isUrl) {
+      try {
+        const track = await searchYouTubeTrack(cleanTarget);
+        if (track && track.url && !track.url.includes('search_')) {
+          target = track.url;
+          isUrl = true;
+        } else {
+          target = `ytsearch1:${cleanTarget}`;
+        }
+      } catch (e) {
+        target = `ytsearch1:${cleanTarget}`;
+      }
+    }
+
     const format = type === 'video' 
-      ? 'best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best[height<=720]/best' 
-      : 'bestaudio[ext=m4a]/bestaudio/best';
+      ? 'best[height<=720]/bestvideo[height<=720]+bestaudio/best[height<=720]/best' 
+      : 'bestaudio/best';
     
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
     const outTmpl = `${baseWithoutExt}.%(ext)s`;
@@ -303,18 +319,20 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const ffmpegPath = path.join(__dirname, 'ffmpeg.exe');
     const { bin: execBin, argsPrefix } = getYtDlpExec();
 
-    // Strategy 1: Anti-bot bypass extractor args (android_creator + tv_embedded + ios bypasses Railway datacenter IP block)
     const runYtDlp = (playerClient, useCookies = false) => {
       return new Promise((resProc) => {
         const spawnArgs = [
           ...argsPrefix,
           '--no-playlist',
-          '--socket-timeout', '25',
+          '--socket-timeout', '30',
           '--no-warnings',
           '--geo-bypass',
           '--user-agent', 'Mozilla/5.0 (Android 14; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0',
-          '--extractor-args', `youtube:player_client=${playerClient};player_skip=configs,webpage`
         ];
+
+        if (playerClient) {
+          spawnArgs.push('--extractor-args', `youtube:player_client=${playerClient};player_skip=configs,webpage`);
+        }
 
         if (process.env.YTDL_PROXY) {
           spawnArgs.push('--proxy', process.env.YTDL_PROXY.trim());
@@ -354,26 +372,20 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       });
     };
 
-    // Attempt 1: android_creator,tv_embedded,ios,android (best for datacenter IPs)
+    // Attempt 1: android_creator,tv_embedded,ios,android (anti-bot client)
     let res = await runYtDlp('android_creator,tv_embedded,ios,android', false);
     if (res.success) return resolve(res);
 
-    // Attempt 2: tv_embedded,ios (pure embedded client)
-    res = await runYtDlp('tv_embedded,ios', false);
+    // Attempt 2: default yt-dlp client without restrictions
+    res = await runYtDlp('ios,tv_embedded', false);
     if (res.success) return resolve(res);
 
-    // Attempt 3: If cookie is available, try with cookies + android
-    if (cookiePath && fs.existsSync(cookiePath)) {
-      res = await runYtDlp('android,web', true);
-      if (res.success) return resolve(res);
-    }
-
-    // Attempt 4: JioSaavn fallback for audio
+    // Attempt 3: JioSaavn fallback for audio (100% reliable for all Indian / International songs)
     if (type === 'audio') {
       try {
         const jio = await searchJioSaavn(cleanTarget);
         if (jio && jio.audioUrl) {
-          const dlRes = await axios.get(jio.audioUrl, { responseType: 'arraybuffer', timeout: 20000 });
+          const dlRes = await axios.get(jio.audioUrl, { responseType: 'arraybuffer', timeout: 25000 });
           const finalAudioPath = `${baseWithoutExt}.mp3`;
           fs.writeFileSync(finalAudioPath, Buffer.from(dlRes.data));
           if (fs.existsSync(finalAudioPath) && fs.statSync(finalAudioPath).size > 1000) {
@@ -383,12 +395,16 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       } catch (e) {}
     }
 
-    // Attempt 5: Public API fallback (Invidious / Piped)
+    // Attempt 4: Fallback to public Invidious / Piped API
     const fallbackPath = `${baseWithoutExt}.${type === 'video' ? 'mp4' : 'mp3'}`;
     const fallbackDownloaded = await downloadViaFallbackApi(cleanTarget, type, fallbackPath);
     if (fallbackDownloaded) {
       return resolve({ success: true, filePath: fallbackDownloaded });
     }
+
+    // Attempt 5: Final try with standard yt-dlp
+    res = await runYtDlp(null, false);
+    if (res.success) return resolve(res);
 
     return resolve({ success: false, error: res.error || 'YouTube media download failed across all fallback strategies' });
   });
@@ -2503,23 +2519,36 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               try {
                 await sock.rejectCall(callId, from);
                 logMsg(uid, `🚫 [AUTO-REJECT] Incoming call ${callId} from ${from} rejected successfully.`);
-                await sock.sendMessage(from, { text: `🚫 *[AUTO-CALL SENTINEL]* This bot does not accept voice or video calls.` });
               } catch (rejErr) {
                 logMsg(uid, `Auto-reject error: ${rejErr.message}`);
               }
             } else {
-              const notiDest = sess.callNotiChat || (sess.ownerJid && sess.ownerJid.includes('@') ? sess.ownerJid : null);
-              if (notiDest) {
-                const fromNum = cleanPhone(from);
-                const notiText = `╔══〔 📞 *INCOMING CALL NOTIFICATION* 〕══╗\n┃ 👤 *Caller:* +${fromNum}\n┃ 🆔 *Caller JID:* \`${from}\`\n┃ 🔑 *Call ID:* \`${callId}\`\n┃ 🎥 *Call Type:* *${isVideo ? 'Video Call' : 'Voice Call'}*\n┃ ⏱️ *Time:* *${new Date().toLocaleTimeString()}*\n╚═════════════════════════════════════╝\n⚡ *Quick Actions:*\n▸ \`${sess.prefix}acceptcall\` ➔ *Accept & Stream 51.mp3 Live*\n▸ \`${sess.prefix}acceptcall <song>\` ➔ *Accept & Stream Custom Song*\n▸ \`${sess.prefix}rejectcall\` ➔ *Decline Call*`;
-                try {
-                  await sock.sendMessage(notiDest, { text: notiText });
-                } catch (e) {}
+              logMsg(uid, `📞 [AUTO-ACCEPT] Answering incoming call ${callId} from ${from}...`);
+              if (!sess.voipManager) {
+                sess.voipManager = new SessionVoipManager(sess, uid);
               }
-
-              const sessCall = sess.activeCalls?.get(from);
-              if (sessCall && sessCall.autoUnmute) {
-                logMsg(uid, `🔊 [AUTO-UNMUTE] Unmuting active call with ${from}`);
+              const audioSource = fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence';
+              try {
+                await sess.voipManager.acceptCall({
+                  callId,
+                  callerJid: from,
+                  audioSource
+                });
+              } catch (accErr) {
+                const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_acc_${Date.now()}`;
+                await sock.sendNode({
+                  tag: 'call',
+                  attrs: { to: from, id: stanzaId },
+                  content: [{
+                    tag: 'accept',
+                    attrs: {
+                      'call-id': callId,
+                      'call-creator': creator || from,
+                      't': String(Math.floor(Date.now() / 1000))
+                    },
+                    content: []
+                  }]
+                }).catch(() => {});
               }
             }
           } else if (status === 'terminate' || status === 'timeout' || status === 'reject') {
