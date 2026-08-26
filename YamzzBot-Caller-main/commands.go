@@ -199,8 +199,8 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 	switch cmd {
 	case "start", "hello", "hi", "king":
 		startCaption := fmt.Sprintf(`╔══════════════════════════════════════════╗
-║  👑 ⚡ 𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽2.0 ⚡ 👑  ║
-║  🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 • 𝑴𝑨𝑺𝑻𝑬𝑹 𝑬𝑵𝑮𝑰𝑵𝑬 🛡️  ║
+║  📞 ⚡ 𝑾𝑯𝑨𝑻𝑺𝑨𝑷𝑷 𝑪𝑨𝑳𝑳 𝑩𝑶𝑻 𝑬𝑵𝑮𝑰𝑵𝑬 ⚡ 📞  ║
+║  🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 • 𝑽𝑶𝑰𝑷 𝑴𝑨𝑺𝑻𝑬𝑹 🛡️  ║
 ╚══════════════════════════════════════════╝
   ✨ *PREFIX* : [  %s  ]  •  🚀 *SPEED* : 0.01s+ (10ms)
 
@@ -208,15 +208,15 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 📱 *Linked Account:* Connected
 👑 *Admin ID:* %s
 🔥 *Active Bots:* Online Nodes
-🎯 *VoIP Calling:* MeowCaller Full-Duplex WebRTC
+🎯 *VoIP Calling:* MeowCaller Full-Duplex WebRTC (51.mp3 Default)
 
 ╭──────────────────────────────╮
 │ 💡 *QUICK ACTIONS & NAVIGATION*
-│ • Type %smenu for Interactive Dashboard Selector
-│ • Type %smenu 1 for 👑 Ultra Raid Dashboard
-│ • Type %smenu 2 for 📞 VoIP Caller Engine
-│ • Type %smenu 3 for 🎵 Music & Song Engine
-│ • Type %smenu 4 for 🎙️ AI Voice Studio & OpenVoice
+│ • Type %smenu for VoIP Calling Menu & Controls
+│ • Type %soutcall <Number> [Song] to place VoIP Call
+│ • Type %sgroupcall [Song] for WhatsApp Group Call
+│ • Type %svideocall <Number> for Video Call
+│ • Type %sviewfiles to see saved recordings
 │ • Type %sping to test network latency
 ╰──────────────────────────────╯`, curPrefix, OwnerJID, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix)
 		sendImage(ctx, evt.Info.Chat, "main.png", startCaption)
