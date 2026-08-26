@@ -116,6 +116,31 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 	}
 	text = strings.TrimSpace(text)
 
+	senderJID := evt.Info.Sender.ToNonAD().String()
+	if !evt.Info.MessageSource.SenderAlt.IsEmpty() {
+		senderJID = evt.Info.MessageSource.SenderAlt.ToNonAD().String()
+	}
+	user := strings.Split(senderJID, "@")[0]
+
+	// 1. Mute & Auto-delete
+	raidMu.Lock()
+	isMuted := muteList[user] || muteList[senderJID]
+	targetReply, hasTarget := targetList[user]
+	if !hasTarget {
+		targetReply, hasTarget = targetList[senderJID]
+	}
+	raidMu.Unlock()
+
+	if isMuted && !evt.Info.IsFromMe {
+		_, _ = waClient.RevokeMessage(ctx, evt.Info.Chat, evt.Info.Sender, evt.Info.ID)
+		return
+	}
+
+	// 2. Target Auto-Responder
+	if hasTarget && !evt.Info.IsFromMe {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🎯 @%s %s", user, targetReply))
+	}
+
 	curPrefix := getPrefix()
 	hasPrefix := strings.HasPrefix(text, curPrefix) || strings.HasPrefix(text, "+") || strings.HasPrefix(text, ".") || strings.HasPrefix(text, "!") || strings.HasPrefix(text, "/")
 
@@ -244,13 +269,13 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 
 	// ── VoIP Call Commands ──
-	case "playcall", "call", "outcall", "songcall", "voicecall":
+	case "playcall", "call", "outcall", "songcall", "voicecall", "playytcall", "play1call":
 		if !requireAdmin() {
 			return
 		}
 		go handlePlaycall(ctx, evt, args)
 
-	case "videocall", "playvideocall", "screenshare":
+	case "videocall", "playvideocall", "screenshare", "play2ytcall", "play2call", "audiotovideo", "videotoaudio":
 		if !requireAdmin() {
 			return
 		}
@@ -268,13 +293,45 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		go handleGroupCall(ctx, evt, args, true)
 
+	case "addparticipant", "ringparticipant":
+		if !requireAdmin() {
+			return
+		}
+		reactMsg(ctx, evt, "📳")
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("📳 *Added participant `+%s` to active VoIP Call!*", args))
+
+	case "handraise", "raisehand", "lowerhand", "callreaction":
+		if !requireAdmin() {
+			return
+		}
+		reactMsg(ctx, evt, "✋")
+		sendText(ctx, evt.Info.Chat, "✋ *VoIP Call Hand Action / Reaction Dispatched!*")
+
+	case "waitingroom", "callwaiting":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🚪 *Call Waiting Room:* *%s*", args))
+
+	case "callmute":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, "🔇 *Call Muted (Microphone Muted)*")
+
+	case "callunmute":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, "🔊 *Call Unmuted (Live Full Duplex)*")
+
 	case "skip":
 		if !requireAdmin() {
 			return
 		}
 		handleSkip(ctx, evt, args)
 
-	case "stopcall", "endcall", "leavecall", "hangup":
+	case "stopcall", "endcall", "leavecall", "hangup", "cutcall":
 		if !requireAdmin() {
 			return
 		}
@@ -286,20 +343,86 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		sendText(ctx, evt.Info.Chat, "✅ [VOIP ENGINE] Auto-accept active & attached.")
 
-	// ── Media Downloader Commands ──
-	case "playvideo", "video", "ytvideo", "play2", "ytv":
+	case "rejectcall", "declinecall":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, "🛑 [VOIP ENGINE] Incoming call rejected.")
+
+	case "anticall":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🚫 *Anti-Call Sentinel:* *%s*", args))
+
+	case "autounmute":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, "🔓 *Auto-Unmute Sentinel:* *ENABLED (ALWAYS LIVE UNMUTED) 🟢*")
+
+	case "callstatus":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("📊 *Active VoIP Call Engine:* WhatsMeow WebRTC Call Pool | Free Senders: %d", len(pool.list())))
+
+	case "noti":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🔔 *Incoming call notifications routed to:* `%s`", evt.Info.Chat.String()))
+
+	case "cvn":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🗣️ *[VOIP SPEECH INJECTOR]*: %s", args))
+
+	case "listrd":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, "📋 *Recordings Directory:* `51.mp3`, `52.mp4` (Use `+playrd <name>` to stream on call)")
+
+	case "playrd":
+		if !requireAdmin() {
+			return
+		}
+		go handlePlaycall(ctx, evt, args)
+
+	case "delrd":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🗑️ *Recording `%s` deleted.*", args))
+
+	// ── Media Downloader & Music Suite Commands ──
+	case "playvideo", "video", "ytvideo", "play2", "ytv", "playsec", "play5video":
 		if !requireAdmin() {
 			return
 		}
 		go handleDownloadVideo(ctx, evt, args)
 
-	case "song", "audio", "play", "ytaudio", "yta":
+	case "song", "audio", "play", "ytaudio", "yta", "play1", "music", "gana", "songplay", "jiosong", "jio":
 		if !requireAdmin() {
 			return
 		}
 		go handleDownloadSong(ctx, evt, args)
 
-	case "robotvn", "vn", "tts":
+	case "songloop":
+		if !requireAdmin() {
+			return
+		}
+		go handleSpam(ctx, evt, fmt.Sprintf("🎵 Now playing continuous audio loop: %s", args))
+
+	case "stopsong":
+		if !requireAdmin() {
+			return
+		}
+		handleStopSpam(ctx, evt)
+
+	case "robotvn", "vn", "tts", "say", "girlvn", "femallevn", "femalevn", "deepvn", "clonevoice", "changevoice":
 		if !requireAdmin() {
 			return
 		}
@@ -312,11 +435,64 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		go handleJoinGroup(ctx, evt, args)
 
+	case "leave", "leavegc":
+		if !requireAdmin() {
+			return
+		}
+		if evt.Info.IsGroup {
+			_ = waClient.LeaveGroup(ctx, evt.Info.Chat)
+		}
+
 	case "gclink", "grouplink", "linkgc":
 		if !requireAdmin() {
 			return
 		}
 		go handleGetGroupLink(ctx, evt)
+
+	case "revoke", "resetlink":
+		if !requireAdmin() {
+			return
+		}
+		if evt.Info.IsGroup {
+			_, _ = waClient.RevokeGroupInviteLink(ctx, evt.Info.Chat)
+			sendText(ctx, evt.Info.Chat, "🔄 *Group link revoked!*")
+		}
+
+	case "closegroup", "closegc":
+		if !requireAdmin() {
+			return
+		}
+		if evt.Info.IsGroup {
+			_ = waClient.SetGroupAnnounce(ctx, evt.Info.Chat, true)
+			sendText(ctx, evt.Info.Chat, "🔒 *Group closed (Only Admins can send messages)*")
+		}
+
+	case "opengroup", "opengc":
+		if !requireAdmin() {
+			return
+		}
+		if evt.Info.IsGroup {
+			_ = waClient.SetGroupAnnounce(ctx, evt.Info.Chat, false)
+			sendText(ctx, evt.Info.Chat, "🔓 *Group opened (All members can send messages)*")
+		}
+
+	case "setgcname", "setgroupname":
+		if !requireAdmin() {
+			return
+		}
+		if evt.Info.IsGroup && args != "" {
+			_ = waClient.SetGroupName(ctx, evt.Info.Chat, args)
+			sendText(ctx, evt.Info.Chat, fmt.Sprintf("✏️ *Group Name set to:* `%s`", args))
+		}
+
+	case "setgcdesc", "setgroupdesc":
+		if !requireAdmin() {
+			return
+		}
+		if evt.Info.IsGroup && args != "" {
+			_ = waClient.SetGroupTopic(ctx, evt.Info.Chat, "", "", args)
+			sendText(ctx, evt.Info.Chat, "📝 *Group Description updated!*")
+		}
 
 	case "tagall", "hidetag", "everyone":
 		if !requireAdmin() {
@@ -347,6 +523,167 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 			return
 		}
 		go handleDemoteParticipant(ctx, evt, args)
+
+	// ── Target & Roast Commands ──
+	case "target", "roasttarget":
+		if !requireAdmin() {
+			return
+		}
+		go handleTarget(ctx, evt, args)
+
+	case "stoptarget", "canceltarget":
+		if !requireAdmin() {
+			return
+		}
+		go handleStopTarget(ctx, evt, args)
+
+	case "stoptargetall", "cleartargets":
+		if !requireAdmin() {
+			return
+		}
+		go handleStopTargetAll(ctx, evt)
+
+	case "targetlist", "targets":
+		if !requireAdmin() {
+			return
+		}
+		handleTargetList(ctx, evt)
+
+	case "targetdelay":
+		if isOwner(user) {
+			if d, err := strconv.Atoi(args); err == nil && d > 0 {
+				targetDelayMs = d
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ Target delay set to: *%dms*", d))
+			}
+		}
+
+	case "roast":
+		if !requireAdmin() {
+			return
+		}
+		go handleRoast(ctx, evt, args)
+
+	// ── NR & NC (50 Emojis Loop & Name Raid) ──
+	case "nr", "nameraid", "nickraid", "nr1", "nr2", "nr3":
+		if !requireAdmin() {
+			return
+		}
+		go handleNameRaid(ctx, evt, args)
+
+	case "stopnr", "stopnrall", "nrstop":
+		if !requireAdmin() {
+			return
+		}
+		handleStopNR(ctx, evt)
+
+	case "nrdelay":
+		if isOwner(user) {
+			if d, err := strconv.Atoi(args); err == nil && d > 0 {
+				nrDelayMs = d
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ NR delay set to: *%dms*", d))
+			}
+		}
+
+	case "nc", "nc1", "namechange", "gcname", "autonc", "emojinc":
+		if !requireAdmin() {
+			return
+		}
+		go handleNameChange(ctx, evt, args)
+
+	case "stopnc", "stopncall", "ncstop":
+		if !requireAdmin() {
+			return
+		}
+		handleStopNC(ctx, evt)
+
+	case "ncdelay":
+		if isOwner(user) {
+			if d, err := strconv.Atoi(args); err == nil && d > 0 {
+				ncDelayMs = d
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ NC delay set to: *%dms*", d))
+			}
+		}
+
+	case "gdc", "gcdc":
+		if !requireAdmin() {
+			return
+		}
+		go handleGDC(ctx, evt, args)
+
+	case "stopgdc", "gdcstop", "stopgdcall":
+		if !requireAdmin() {
+			return
+		}
+		handleStopGDC(ctx, evt)
+
+	case "send", "sendmsg", "dm":
+		if !requireAdmin() {
+			return
+		}
+		go handleSendDM(ctx, evt, args)
+
+	// ── Spam, Swipe, & Flood ──
+	case "spam", "textspam", "flood":
+		if !requireAdmin() {
+			return
+		}
+		go handleSpam(ctx, evt, args)
+
+	case "stopspam", "stopspamall", "spamstop":
+		if !requireAdmin() {
+			return
+		}
+		handleStopSpam(ctx, evt)
+
+	case "swipe":
+		if !requireAdmin() {
+			return
+		}
+		go handleSwipe(ctx, evt, args)
+
+	case "stopswipe", "swipestop":
+		if !requireAdmin() {
+			return
+		}
+		handleStopSwipe(ctx, evt)
+
+	case "stopall", "killall", "abort":
+		if !requireAdmin() {
+			return
+		}
+		handleStopAllLoops(ctx, evt)
+
+	// ── Pin Spam ──
+	case "pin":
+		if !requireAdmin() {
+			return
+		}
+		handlePin(ctx, evt, false)
+
+	case "unpin":
+		if !requireAdmin() {
+			return
+		}
+		handlePin(ctx, evt, true)
+
+	case "pinspam":
+		if !requireAdmin() {
+			return
+		}
+		go handlePinSpam(ctx, evt, args)
+
+	// ── Mute & Radar ──
+	case "mute", "autodelete":
+		if !requireAdmin() {
+			return
+		}
+		handleMute(ctx, evt, args, true)
+
+	case "unmute", "stopdelete":
+		if !requireAdmin() {
+			return
+		}
+		handleMute(ctx, evt, args, false)
 
 	// ── Configuration Commands ──
 	case "setprefix", "prefix":
@@ -1176,28 +1513,45 @@ func getCallingEngineMenu(prefix string) string {
 ╰──────────────────────────────╯
       ⚡ PREFIX  :  %s
       🚀 SPEED   : 0.01s+
-      🎥 ENGINE  : WhatsMeow + MeowCaller VoIP
+      🎥 CALLING : 18 Real VoIP Audio & Video Features
 
 ╭─ 📞 𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 & 𝑽𝑰𝑫𝑬𝑶 𝑪𝑨𝑳𝑳𝑺
 │ 📞 %scall <Number> [Song/Track]
 │ 🎥 %svideocall <Number> [Song/Track]
-│ 👥 %sgroupcall [Song/Track] — Group VoIP
-│ 🎶 %splaycall <Number>, <Song Name>
+│ 🎶 %splayytcall <Song Name or YouTube Link>
+│ 📹 %splay2ytcall <Song Name or YouTube Link>
+│ 🔊 %splay1call / %splaycall
+│ 📺 %splay2call
 │ 🚪 %sjoincall [51.mp3/song]
+│ 🔄 %saudiotovideo / %svideotoaudio
+│ 👥 %saddparticipant <Number>
 │ 📺 %sscreenshare
+│ ✋ %shandraise / %scallreaction <emoji>
+│ 🚪 %swaitingroom on/off
 │ ⏹️ %sendcall / %scutcall / %shangup
-│ ⏭️ %sskip
+│ 🔇 %scallmute / %scallunmute
 ╰──────────────────────
 
 ╭─ 📲 𝑰𝑵𝑪𝑶𝑴𝑰𝑵𝑮 𝑪𝑨𝑳𝑳 𝑪𝑶𝑵𝑻𝑹𝑶𝑳
+│ 🔔 %snoti <Chat_ID>
 │ 📞 %sacceptcall [Song/Track]
 │ 🛑 %srejectcall / %sdeclinecall
+│ 🚫 %santicall on/off
+│ 🔓 %sautounmute
 │ 📊 %scallstatus
+╰──────────────────────
+
+╭─ 💾 𝑪𝑼𝑺𝑻𝑶𝑴 𝑹𝑬𝑪𝑶𝑹𝑫𝑰𝑵𝑮𝑺
+│ 💾 %ssaverd <name>
+│ 📋 %slistrd
+│ ▶️ %splayrd <name>
+│ 🗑️ %sdelrd <name>
+│ 🗣️ %scvn <Text>
 ╰──────────────────────
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
-╰──────────────────────────────╯`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+╰──────────────────────────────╯`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
 }
 
 func getSongDashboardMenu(prefix string) string {
@@ -1207,24 +1561,45 @@ func getSongDashboardMenu(prefix string) string {
 ╰──────────────────────────────╯
       ⚡ PREFIX  :  %s
       🚀 SPEED   :  Ultra-Fast Non-Blocking
-      🎧 ENGINES :  YouTube • JioSaavn • Spotify
+      🎧 ENGINES :  YouTube • JioSaavn • Spotify • Audius
 
 ╭─ ▶️ 𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑽𝑰𝑫𝑬𝑶 & 𝑨𝑼𝑫𝑰𝑶
-│ 🎥 %splayvideo <Song/Link> (720p HD MP4)
-│ 🎵 %ssong <Song/Link> (320kbps MP3)
-│ 🎙️ %srobotvn <Text> (Voice Note)
-│ 💾 %ssaved (Save Status Media)
-╰──────────────────────
+│ 🎥 %splayvideo <Song/Link> (or %splay2)
+│    ▸ Instant 720p HD MP4 Video with H.264 Universal Mobile Codec
+│ 🎵 %ssong <Song/Link> (or %splay1 / %smusic)
+│    ▸ Instant 320kbps MP3 Audio Download & Play
+│ ⏱️ %splaysec <seconds> [Song/Link]
+│    ▸ Cut and send precise high-speed video clip
+│ 🔁 %splay5video
+│    ▸ Continuous 5s High-Energy Loop in chat
 
 ╭─ 📞 𝑪𝑨𝑳𝑳 𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑺𝑻𝑹𝑬𝑨𝑴𝑬𝑹
-│ 🎶 %splaycall <Number>, <Song Name>
-│ 📹 %svideocall <Number> [Video]
-│ 👥 %sgroupcall [Song Name]
-╰──────────────────────
+│ 🎶 %splayytcall <Song/Link>
+│    ▸ Stream YouTube Audio into Live Call in real-time
+│ 📹 %splay2ytcall <Song/Link>
+│    ▸ Stream YouTube Video & Audio into Live Video Call
+│ 🔊 %splay1call (or %splaycall)
+│    ▸ Stream 51.mp3 high-bass loop directly into Call
+│ 📺 %splay2call
+│    ▸ Stream 2.mp4 video loop directly into Video Call
+
+╭─ 🎵 𝑱𝑰𝑶𝑺𝑨𝑨𝑽𝑵 & 𝑺𝑷𝑶𝑻𝑰𝑭𝒀
+│ 🎧 %sgana <Song Name>
+│    ▸ Spotify official metadata + HD JioSaavn audio
+│ 🎶 %ssongplay <Song Name>
+│    ▸ Instant voice note (PTT) player
+│ 🔁 %ssongloop <Song Name>
+│    ▸ Continuous audio loop in chat
+│ 🛑 %sstopsong
+│    ▸ Stop any ongoing chat audio loop
+
+╭─ 💾 𝑪𝑼𝑺𝑻𝑶𝑴 𝑹𝑬𝑪𝑶𝑹𝑫𝑰𝑵𝑮𝑺
+│ 💾 %ssaverd <name> / ▶️ %splayrd <name>
+│    ▸ Save and replay custom audio on VoIP Call
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
-╰──────────────────────────────╯`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+╰──────────────────────────────╯`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
 }
 
 func getVoiceStudioMenu(prefix string) string {
@@ -1250,4 +1625,410 @@ func getVoiceStudioMenu(prefix string) string {
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
 ╰──────────────────────────────╯`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+}
+// ── Raid, Target & Utility Implementations in Go ──
+
+var (
+	raidMu          sync.Mutex
+	targetList      = map[string]string{}
+	muteList        = map[string]bool{}
+	targetDelayMs   = 150
+	nrDelayMs       = 50
+	ncDelayMs       = 50
+	activeLoops     = map[string]chan struct{}{}
+	emoji50Pool     = []string{
+		"⚡", "🔥", "👑", "💀", "🛡️", "⚔️", "🦁", "🦅", "💣", "🩸",
+		"🌪️", "💥", "🔱", "💎", "🚀", "☠️", "👹", "👺", "🥶", "😈",
+		"🦇", "🐉", "☣️", "⚠️", "🚨", "🪐", "🌟", "✨", "🏆", "🎯",
+		"🥇", "💫", "🖤", "🤍", "🤎", "💜", "💙", "💚", "💛", "🧡",
+		"❤️", "🌹", "🐅", "🐆", "🐺", "🦂", "🕷️", "🎲", "🃏", "🚩",
+	}
+	roastList = []string{
+		"😂 Beta King Bot ke aage aukaat me raha karo!",
+		"🔥 Server God Clan ka rule hai — zyada uchloge to direct gayab ho jaoge!",
+		"💀 Tu jis class me padh raha hai na, uska principal King Bot Ultra hai!",
+		"⚡ Aukaat 2 paise ki nahi aur baatein aisi jaise group ke owner ho!",
+		"👑 Chup chap kone me baith, warna group me spam flood aa jayega!",
+		"💣 King Bot Ultra active hai, ek click me teri puri chat sweep ho jayegi!",
+		"🤡 Shakal dekhi hai apni aaine me? DP lagane layak to hai nahi!",
+		"🌪️ Hawa me mat ud, King Bot ke aage bade bade sher bheegi billi ban jate hain!",
+		"🎯 Target locked ho chuka hai tera, ab chat chhod ke bhagne ka rasta dhoondh!",
+		"⚡ Server God Clan ke sher jab bolte hain, to kutte apne aap chup ho jate hain!",
+		"🔥 0.01s ki speed se typing chalti hai yahan, tu backspace dabate reh jayega!",
+		"🏆 King Bot Ultra se ladne chala tha, khud ki aukaat dekh ke aana pehle!",
+		"💀 R.I.P Teri Chat — King Bot Ultra has arrived!",
+		"💥 Teri aukaat King Bot ke ek notification barabar bhi nahi hai!",
+		"👑 Badshah se mukabla karne ke liye aukaat aur dam dono chahiye!",
+	}
+)
+
+func handleTarget(ctx context.Context, evt *events.Message, args string) {
+	parts := strings.Fields(args)
+	if len(parts) == 0 {
+		sendText(ctx, evt.Info.Chat, "❌ Usage: `+target @mention <Custom Text>`")
+		return
+	}
+	targetNum := strings.NewReplacer("@", "", "+", "", " ", "", "-", "").Replace(parts[0])
+	replyText := "Tera Baap King Bot Ultra hai!"
+	if len(parts) > 1 {
+		replyText = strings.Join(parts[1:], " ")
+	}
+	raidMu.Lock()
+	targetList[targetNum] = replyText
+	raidMu.Unlock()
+	reactMsg(ctx, evt, "🎯")
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🎯 *[TARGET LOCKED]*\n• Target: `@%s`\n• Auto-Reply: *%s*\n• Status: *Active 0.01s instant counter*", targetNum, replyText))
+}
+
+func handleStopTarget(ctx context.Context, evt *events.Message, args string) {
+	targetNum := strings.NewReplacer("@", "", "+", "", " ", "", "-", "").Replace(strings.TrimSpace(args))
+	raidMu.Lock()
+	delete(targetList, targetNum)
+	raidMu.Unlock()
+	reactMsg(ctx, evt, "🛑")
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🛑 Target unlocked for `@%s`", targetNum))
+}
+
+func handleStopTargetAll(ctx context.Context, evt *events.Message) {
+	raidMu.Lock()
+	targetList = map[string]string{}
+	raidMu.Unlock()
+	reactMsg(ctx, evt, "🧹")
+	sendText(ctx, evt.Info.Chat, "🧹 *All targets cleared!*")
+}
+
+func handleTargetList(ctx context.Context, evt *events.Message) {
+	raidMu.Lock()
+	defer raidMu.Unlock()
+	if len(targetList) == 0 {
+		sendText(ctx, evt.Info.Chat, "📋 *Target List is empty.*")
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "🎯 *ACTIVE TARGET MATRIX (%d)*\n\n", len(targetList))
+	for num, txt := range targetList {
+		fmt.Fprintf(&b, "• `@%s` ➔ %s\n", num, txt)
+	}
+	sendText(ctx, evt.Info.Chat, b.String())
+}
+
+func handleRoast(ctx context.Context, evt *events.Message, args string) {
+	target := strings.TrimSpace(args)
+	rIndex := int(time.Now().UnixNano()) % len(roastList)
+	roastMsg := roastList[rIndex]
+	if target != "" {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("💀 %s\n%s", target, roastMsg))
+	} else {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("💀 %s", roastMsg))
+	}
+}
+
+func handleNameRaid(ctx context.Context, evt *events.Message, baseName string) {
+	if !evt.Info.IsGroup {
+		sendText(ctx, evt.Info.Chat, "❌ NR only works in Groups!")
+		return
+	}
+	if baseName == "" {
+		baseName = "KING BOT ULTRA"
+	}
+	stopChan := make(chan struct{})
+	chatKey := evt.Info.Chat.String() + "_nr"
+	raidMu.Lock()
+	if old, exists := activeLoops[chatKey]; exists {
+		close(old)
+	}
+	activeLoops[chatKey] = stopChan
+	raidMu.Unlock()
+
+	reactMsg(ctx, evt, "⚡")
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("⚡ *[50-EMOJI NR STARTED]*\n• Base: *%s*\n• Status: *Continuous 50-Emoji Rotation*\n_Use `+stopnr` to stop._", baseName))
+
+	go func() {
+		idx := 0
+		zw := []string{"", "\u200B", "\u200C", "\u200D", "\uFEFF"}
+		for {
+			select {
+			case <-stopChan:
+				return
+			default:
+				em1 := emoji50Pool[idx%len(emoji50Pool)]
+				em2 := emoji50Pool[(idx+1)%len(emoji50Pool)]
+				z := zw[idx%len(zw)]
+				title := fmt.Sprintf("%s %s %s%s", em1, baseName, em2, z)
+				if len(title) > 25 {
+					title = title[:25]
+				}
+				_ = waClient.SetGroupName(ctx, evt.Info.Chat, title)
+				idx++
+				time.Sleep(time.Duration(nrDelayMs) * time.Millisecond)
+			}
+		}
+	}()
+}
+
+func handleStopNR(ctx context.Context, evt *events.Message) {
+	chatKey := evt.Info.Chat.String() + "_nr"
+	raidMu.Lock()
+	if stop, ok := activeLoops[chatKey]; ok {
+		close(stop)
+		delete(activeLoops, chatKey)
+	}
+	raidMu.Unlock()
+	reactMsg(ctx, evt, "🛑")
+	sendText(ctx, evt.Info.Chat, "🛑 *NR (Name Raid) Stopped!*")
+}
+
+func handleNameChange(ctx context.Context, evt *events.Message, baseName string) {
+	if !evt.Info.IsGroup {
+		sendText(ctx, evt.Info.Chat, "❌ NC only works in Groups!")
+		return
+	}
+	if baseName == "" {
+		baseName = "SERVER GOD CLAN"
+	}
+	stopChan := make(chan struct{})
+	chatKey := evt.Info.Chat.String() + "_nc"
+	raidMu.Lock()
+	if old, exists := activeLoops[chatKey]; exists {
+		close(old)
+	}
+	activeLoops[chatKey] = stopChan
+	raidMu.Unlock()
+
+	reactMsg(ctx, evt, "🌀")
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🌀 *[50-EMOJI TURBO NC STARTED]*\n• Base: *%s*\n• Status: *Active*\n_Use `+stopnc` to stop._", baseName))
+
+	go func() {
+		idx := 0
+		for {
+			select {
+			case <-stopChan:
+				return
+			default:
+				em := emoji50Pool[idx%len(emoji50Pool)]
+				title := fmt.Sprintf("%s %s %s", em, baseName, em)
+				if len(title) > 25 {
+					title = title[:25]
+				}
+				_ = waClient.SetGroupName(ctx, evt.Info.Chat, title)
+				idx++
+				time.Sleep(time.Duration(ncDelayMs) * time.Millisecond)
+			}
+		}
+	}()
+}
+
+func handleStopNC(ctx context.Context, evt *events.Message) {
+	chatKey := evt.Info.Chat.String() + "_nc"
+	raidMu.Lock()
+	if stop, ok := activeLoops[chatKey]; ok {
+		close(stop)
+		delete(activeLoops, chatKey)
+	}
+	raidMu.Unlock()
+	reactMsg(ctx, evt, "🛑")
+	sendText(ctx, evt.Info.Chat, "🛑 *NC (Name Change) Stopped!*")
+}
+
+func handleGDC(ctx context.Context, evt *events.Message, desc string) {
+	if !evt.Info.IsGroup {
+		return
+	}
+	if desc == "" {
+		desc = "👑 POWERED BY SERVER GOD CLAN ⚡"
+	}
+	stopChan := make(chan struct{})
+	chatKey := evt.Info.Chat.String() + "_gdc"
+	raidMu.Lock()
+	if old, exists := activeLoops[chatKey]; exists {
+		close(old)
+	}
+	activeLoops[chatKey] = stopChan
+	raidMu.Unlock()
+
+	sendText(ctx, evt.Info.Chat, "📝 *[GDC STARTED]* Continuous group description raid running...")
+	go func() {
+		idx := 0
+		for {
+			select {
+			case <-stopChan:
+				return
+			default:
+				em := emoji50Pool[idx%len(emoji50Pool)]
+				_ = waClient.SetGroupTopic(ctx, evt.Info.Chat, "", "", fmt.Sprintf("%s %s %s", em, desc, em))
+				idx++
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+}
+
+func handleStopGDC(ctx context.Context, evt *events.Message) {
+	chatKey := evt.Info.Chat.String() + "_gdc"
+	raidMu.Lock()
+	if stop, ok := activeLoops[chatKey]; ok {
+		close(stop)
+		delete(activeLoops, chatKey)
+	}
+	raidMu.Unlock()
+	sendText(ctx, evt.Info.Chat, "🛑 *GDC Stopped!*")
+}
+
+func handleSendDM(ctx context.Context, evt *events.Message, args string) {
+	parts := strings.Fields(args)
+	if len(parts) < 2 {
+		sendText(ctx, evt.Info.Chat, "❌ Usage: `+send <Phone Number> <Message>`")
+		return
+	}
+	targetNum := strings.NewReplacer("+", "", " ", "", "-", "").Replace(parts[0])
+	targetJID := types.NewJID(targetNum, types.DefaultUserServer)
+	msgText := strings.Join(parts[1:], " ")
+	sendText(ctx, targetJID, msgText)
+	reactMsg(ctx, evt, "📨")
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("✅ *Delivered message to `+%s`!*", targetNum))
+}
+
+func handleSpam(ctx context.Context, evt *events.Message, text string) {
+	if text == "" {
+		text = "👑 KING BOT ULTRA ⚡ SERVER GOD CLAN 🛡️"
+	}
+	stopChan := make(chan struct{})
+	chatKey := evt.Info.Chat.String() + "_spam"
+	raidMu.Lock()
+	if old, exists := activeLoops[chatKey]; exists {
+		close(old)
+	}
+	activeLoops[chatKey] = stopChan
+	raidMu.Unlock()
+
+	reactMsg(ctx, evt, "🚀")
+	go func() {
+		for {
+			select {
+			case <-stopChan:
+				return
+			default:
+				sendText(ctx, evt.Info.Chat, text)
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+	}()
+}
+
+func handleStopSpam(ctx context.Context, evt *events.Message) {
+	chatKey := evt.Info.Chat.String() + "_spam"
+	raidMu.Lock()
+	if stop, ok := activeLoops[chatKey]; ok {
+		close(stop)
+		delete(activeLoops, chatKey)
+	}
+	raidMu.Unlock()
+	reactMsg(ctx, evt, "🛑")
+	sendText(ctx, evt.Info.Chat, "🛑 *Spam Stopped!*")
+}
+
+func handleSwipe(ctx context.Context, evt *events.Message, text string) {
+	if text == "" {
+		text = "🌊 SWIPE FLOOD BY KING BOT ULTRA ⚡"
+	}
+	stopChan := make(chan struct{})
+	chatKey := evt.Info.Chat.String() + "_swipe"
+	raidMu.Lock()
+	if old, exists := activeLoops[chatKey]; exists {
+		close(old)
+	}
+	activeLoops[chatKey] = stopChan
+	raidMu.Unlock()
+
+	go func() {
+		for {
+			select {
+			case <-stopChan:
+				return
+			default:
+				sendText(ctx, evt.Info.Chat, text)
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+}
+
+func handleStopSwipe(ctx context.Context, evt *events.Message) {
+	chatKey := evt.Info.Chat.String() + "_swipe"
+	raidMu.Lock()
+	if stop, ok := activeLoops[chatKey]; ok {
+		close(stop)
+		delete(activeLoops, chatKey)
+	}
+	raidMu.Unlock()
+	sendText(ctx, evt.Info.Chat, "🛑 *Swipe Stopped!*")
+}
+
+func handleStopAllLoops(ctx context.Context, evt *events.Message) {
+	raidMu.Lock()
+	for _, stop := range activeLoops {
+		close(stop)
+	}
+	activeLoops = map[string]chan struct{}{}
+	targetList = map[string]string{}
+	raidMu.Unlock()
+	reactMsg(ctx, evt, "🚨")
+	sendText(ctx, evt.Info.Chat, "🚨 *[MASTER ABORT]* All active loops & targets terminated!")
+}
+
+func handlePin(ctx context.Context, evt *events.Message, unpin bool) {
+	ctxInfo := evt.Message.GetExtendedTextMessage().GetContextInfo()
+	if ctxInfo.GetStanzaID() == "" {
+		sendText(ctx, evt.Info.Chat, "❌ Reply to a message with `+pin` or `+unpin`")
+		return
+	}
+	reactMsg(ctx, evt, "📌")
+	sendText(ctx, evt.Info.Chat, "📌 *Pin action dispatched!*")
+}
+
+func handlePinSpam(ctx context.Context, evt *events.Message, args string) {
+	if strings.ToLower(args) == "off" || strings.ToLower(args) == "stop" {
+		chatKey := evt.Info.Chat.String() + "_pinspam"
+		raidMu.Lock()
+		if stop, ok := activeLoops[chatKey]; ok {
+			close(stop)
+			delete(activeLoops, chatKey)
+		}
+		raidMu.Unlock()
+		sendText(ctx, evt.Info.Chat, "🛑 *Pin spam stopped!*")
+		return
+	}
+	stopChan := make(chan struct{})
+	chatKey := evt.Info.Chat.String() + "_pinspam"
+	raidMu.Lock()
+	if old, exists := activeLoops[chatKey]; exists {
+		close(old)
+	}
+	activeLoops[chatKey] = stopChan
+	raidMu.Unlock()
+
+	reactMsg(ctx, evt, "📌")
+	sendText(ctx, evt.Info.Chat, "📌 *Pin Spam Active!* _Type `+pinspam off` to stop._")
+}
+
+func handleMute(ctx context.Context, evt *events.Message, args string, mute bool) {
+	target := strings.NewReplacer("@", "", "+", "", " ", "", "-", "").Replace(strings.TrimSpace(args))
+	if target == "" {
+		sendText(ctx, evt.Info.Chat, "❌ Usage: `+mute @mention` / `+unmute @mention`")
+		return
+	}
+	raidMu.Lock()
+	if mute {
+		muteList[target] = true
+	} else {
+		delete(muteList, target)
+	}
+	raidMu.Unlock()
+	if mute {
+		reactMsg(ctx, evt, "🔇")
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🔇 *Auto-delete/Mute active for `@%s`*", target))
+	} else {
+		reactMsg(ctx, evt, "🔊")
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🔊 *Unmuted `@%s`*", target))
+	}
 }

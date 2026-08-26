@@ -33,16 +33,36 @@ func handleGroupCall(ctx context.Context, evt *events.Message, args string, isVi
 	var trackTitle, trackArtist string
 
 	if title != "" {
-		sendText(ctx, chat, fmt.Sprintf("🔍 _Mencari audio untuk '%s'..._", title))
+		sendText(ctx, chat, fmt.Sprintf("🔍 _Searching YouTube & JioSaavn for '%s'..._", title))
 		res, err := DownloadYouTubeMediaGo(title, "audio", fmt.Sprintf("tmp_gc_%d.mp3", time.Now().UnixMilli()))
 		if err == nil && res != nil {
 			filePath = res.FilePath
 			trackTitle = res.Title
 			trackArtist = res.Artist
+		} else {
+			// JioSaavn fallback
+			jPath, jName, jArt, jerr := downloadJioSaavnSong(title, fmt.Sprintf("tmp_gc_jio_%d.mp3", time.Now().UnixMilli()))
+			if jerr == nil && jPath != "" {
+				filePath = jPath
+				trackTitle = jName
+				trackArtist = jArt
+			}
 		}
 	}
 
-	sendText(ctx, chat, fmt.Sprintf("📞 *%s* memulai Group Call di grup ini...", snd.name))
+	if filePath == "" {
+		if fileExists("51.mp3") {
+			filePath = "51.mp3"
+			trackTitle = "51.mp3 High-Bass Master Loop"
+			trackArtist = "Server God Clan"
+		} else if fileExists("../51.mp3") {
+			filePath = "../51.mp3"
+			trackTitle = "51.mp3 High-Bass Master Loop"
+			trackArtist = "Server God Clan"
+		}
+	}
+
+	sendText(ctx, chat, fmt.Sprintf("📞 *%s* starting Group %s in this group...", snd.name, map[bool]string{true: "Video Call 🎥", false: "Voice Call 📞"}[isVideo]))
 
 	callCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -52,8 +72,8 @@ func handleGroupCall(ctx context.Context, evt *events.Message, args string, isVi
 	})
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, fmt.Sprintf("❌ Gagal memulai group call: %v", err))
-		if filePath != "" {
+		sendText(ctx, chat, fmt.Sprintf("❌ Failed to initiate group call: %v", err))
+		if filePath != "" && !strings.Contains(filePath, "51.mp3") {
 			os.Remove(filePath)
 		}
 		return
@@ -89,21 +109,31 @@ func handleGroupCall(ctx context.Context, evt *events.Message, args string, isVi
 		sess.player = p
 		sess.mu.Unlock()
 
-		sendText(ctx, chat, fmt.Sprintf("🎉 *Group Call Terhubung!*\n🤖 %s | 🔖 `%s`", snd.name, shortID))
+		sendText(ctx, chat, fmt.Sprintf("🎉 *Group %s Connected!*\n🤖 %s | 🔖 `%s`\n🔊 Auto-Unmute: *ACTIVE (LIVE)*\n▶️ Stream: *%s*", map[bool]string{true: "Video Call", false: "Voice Call"}[isVideo], snd.name, shortID, trackTitle))
 		reactMsg(ctx, evt, "🎉")
 
 		if filePath != "" {
-			if src, err := meowcaller.MP3File(filePath); err == nil {
-				sendText(ctx, chat, fmt.Sprintf("▶️ *Now Playing (Group Call)*\n🎵 *%s* - %s", trackTitle, trackArtist))
-				p.Play(src)
+			var playAudioLoop func()
+			playAudioLoop = func() {
+				sess.mu.Lock()
+				isActive := sess.active
+				sess.mu.Unlock()
+				if !isActive {
+					return
+				}
+				if src, err := meowcaller.MP3File(filePath); err == nil {
+					p.OnFinish(playAudioLoop)
+					p.Play(src)
+				}
 			}
+			playAudioLoop()
 		}
 	})
 
 	call.OnEnd(func(reason string) {
-		sendText(ctx, chat, fmt.Sprintf("📴 *Group Call Selesai* (ID: `%s`)", shortID))
+		sendText(ctx, chat, fmt.Sprintf("📴 *Group Call Ended* (ID: `%s`)", shortID))
 		reactMsg(ctx, evt, "📴")
-		if filePath != "" {
+		if filePath != "" && !strings.Contains(filePath, "51.mp3") {
 			os.Remove(filePath)
 		}
 		snd.mu.Lock()

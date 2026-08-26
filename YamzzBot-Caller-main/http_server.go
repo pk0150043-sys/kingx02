@@ -248,6 +248,15 @@ func startHTTPServer(ctx context.Context, port string) {
 			json.NewEncoder(w).Encode(map[string]any{"success": true})
 
 		case "delete":
+			s := pool.findByName(uid)
+			if s != nil {
+				if s.wa != nil {
+					s.wa.Disconnect()
+					if s.dev != nil {
+						_ = s.dev.Delete(r.Context())
+					}
+				}
+			}
 			_ = pool.removeSender(uid)
 			json.NewEncoder(w).Encode(map[string]any{"success": true})
 
