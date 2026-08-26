@@ -26,8 +26,15 @@ func DownloadYouTubeMediaGo(queryOrUrl string, mediaType string, outPath string)
 	cleanTarget := strings.TrimSpace(queryOrUrl)
 	isURL := strings.HasPrefix(cleanTarget, "http://") || strings.HasPrefix(cleanTarget, "https://")
 	target := cleanTarget
+
+	// If title query, resolve video ID/URL first
 	if !isURL {
-		target = fmt.Sprintf("ytsearch1:%s", cleanTarget)
+		if vidID := resolveYouTubeVideoID(cleanTarget); vidID != "" {
+			target = fmt.Sprintf("https://www.youtube.com/watch?v=%s", vidID)
+			isURL = true
+		} else {
+			target = fmt.Sprintf("ytsearch1:%s", cleanTarget)
+		}
 	}
 
 	baseNoExt := strings.TrimSuffix(outPath, filepath.Ext(outPath))
@@ -43,60 +50,66 @@ func DownloadYouTubeMediaGo(queryOrUrl string, mediaType string, outPath string)
 		}
 	}
 
-	// Strategy 1: Anti-bot bypass extractor args
-	var args []string
-	if pyBin == "yt-dlp" {
-		args = []string{
-			"--no-playlist",
-			"--socket-timeout", "25",
-			"--no-warnings",
-			"--geo-bypass",
-			"--user-agent", "Mozilla/5.0 (Android 14; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0",
-			"--extractor-args", "youtube:player_client=android_creator,tv_embedded,ios,android;player_skip=configs,webpage",
+	runExtractor := func(playerClient string) bool {
+		var args []string
+		if pyBin == "yt-dlp" {
+			args = []string{
+				"--no-playlist",
+				"--socket-timeout", "30",
+				"--no-warnings",
+				"--geo-bypass",
+				"--user-agent", "Mozilla/5.0 (Android 14; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0",
+			}
+		} else {
+			args = []string{
+				"-m", "yt_dlp",
+				"--no-playlist",
+				"--socket-timeout", "30",
+				"--no-warnings",
+				"--geo-bypass",
+				"--user-agent", "Mozilla/5.0 (Android 14; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0",
+			}
 		}
-	} else {
-		args = []string{
-			"-m", "yt_dlp",
-			"--no-playlist",
-			"--socket-timeout", "25",
-			"--no-warnings",
-			"--geo-bypass",
-			"--user-agent", "Mozilla/5.0 (Android 14; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0",
-			"--extractor-args", "youtube:player_client=android_creator,tv_embedded,ios,android;player_skip=configs,webpage",
+
+		if playerClient != "" {
+			args = append(args, "--extractor-args", fmt.Sprintf("youtube:player_client=%s;player_skip=configs,webpage", playerClient))
 		}
+
+		if mediaType == "video" {
+			args = append(args,
+				"-f", "best[height<=720]/bestvideo[height<=720]+bestaudio/best",
+				"--merge-output-format", "mp4",
+				"--postprocessor-args", "ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v main -c:a aac -b:a 128k -ar 44100 -movflags +faststart",
+			)
+		} else {
+			args = append(args,
+				"-f", "bestaudio/best",
+				"-x", "--audio-format", "mp3",
+				"--postprocessor-args", "ffmpeg:-c:a libmp3lame -b:a 192k -ar 44100",
+			)
+		}
+
+		args = append(args, "-o", outTmpl, target)
+		cmd := exec.Command(pyBin, args...)
+		_ = cmd.Run()
+		return findGeneratedFile(baseNoExt) != ""
 	}
 
-	if mediaType == "video" {
-		args = append(args,
-			"-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
-			"--merge-output-format", "mp4",
-			"--postprocessor-args", "ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v main -c:a aac -b:a 128k -ar 44100 -movflags +faststart",
-		)
-	} else {
-		args = append(args,
-			"-f", "bestaudio[ext=m4a]/bestaudio/best",
-			"-x", "--audio-format", "mp3",
-			"--postprocessor-args", "ffmpeg:-c:a libmp3lame -b:a 192k -ar 44100",
-		)
-	}
-
-	args = append(args, "-o", outTmpl, target)
-
-	cmd := exec.Command(pyBin, args...)
-	_ = cmd.Run()
-
-	// Check if file exists
-	found := findGeneratedFile(baseNoExt)
-	if found != "" {
+	// Attempt 1: android_creator,tv_embedded,ios,android (best for datacenter IPs)
+	if runExtractor("android_creator,tv_embedded,ios,android") {
+		found := findGeneratedFile(baseNoExt)
 		fi, _ := os.Stat(found)
-		return &MediaDownloadResult{
-			FilePath: found,
-			Title:    cleanTarget,
-			FileSize: fi.Size(),
-		}, nil
+		return &MediaDownloadResult{FilePath: found, Title: cleanTarget, FileSize: fi.Size()}, nil
 	}
 
-	// Strategy 2: Fallback to JioSaavn for audio
+	// Attempt 2: ios,tv_embedded
+	if runExtractor("ios,tv_embedded") {
+		found := findGeneratedFile(baseNoExt)
+		fi, _ := os.Stat(found)
+		return &MediaDownloadResult{FilePath: found, Title: cleanTarget, FileSize: fi.Size()}, nil
+	}
+
+	// Attempt 3: JioSaavn fallback for audio
 	if mediaType == "audio" {
 		jioFile, jioTitle, jioArtist, err := downloadJioSaavnSong(cleanTarget, baseNoExt+".mp3")
 		if err == nil && jioFile != "" {
@@ -110,7 +123,77 @@ func DownloadYouTubeMediaGo(queryOrUrl string, mediaType string, outPath string)
 		}
 	}
 
-	return nil, fmt.Errorf("media download failed")
+	// Attempt 4: Invidious API fallback for video/audio
+	if invFile := downloadInvidiousStream(cleanTarget, mediaType, baseNoExt); invFile != "" {
+		fi, _ := os.Stat(invFile)
+		return &MediaDownloadResult{FilePath: invFile, Title: cleanTarget, FileSize: fi.Size()}, nil
+	}
+
+	return nil, fmt.Errorf("media download failed across all fallback strategies")
+}
+
+func resolveYouTubeVideoID(query string) string {
+	// Search Invidious or JioSaavn or Piped for video ID
+	apiURL := fmt.Sprintf("https://inv.tux.pizza/api/v1/search?q=%s&type=video", url.QueryEscape(query))
+	client := &http.Client{Timeout: 6 * time.Second}
+	resp, err := client.Get(apiURL)
+	if err == nil {
+		defer resp.Body.Close()
+		var res []struct {
+			VideoID string `json:"videoId"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&res) == nil && len(res) > 0 {
+			return res[0].VideoID
+		}
+	}
+	return ""
+}
+
+func downloadInvidiousStream(query string, mediaType string, baseNoExt string) string {
+	vidID := resolveYouTubeVideoID(query)
+	if vidID == "" {
+		return ""
+	}
+	instances := []string{"https://inv.tux.pizza", "https://invidious.nerdvpn.de", "https://invidious.jing.rocks"}
+	client := &http.Client{Timeout: 20 * time.Second}
+
+	for _, inst := range instances {
+		apiURL := fmt.Sprintf("%s/api/v1/videos/%s", inst, vidID)
+		resp, err := client.Get(apiURL)
+		if err != nil {
+			continue
+		}
+		var vData struct {
+			FormatStreams []struct {
+				Resolution string `json:"resolution"`
+				Url        string `json:"url"`
+			} `json:"formatStreams"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&vData) == nil && len(vData.FormatStreams) > 0 {
+			resp.Body.Close()
+			streamURL := vData.FormatStreams[0].Url
+			ext := ".mp4"
+			if mediaType == "audio" {
+				ext = ".mp3"
+			}
+			outFilePath := baseNoExt + ext
+			dlResp, err := client.Get(streamURL)
+			if err == nil {
+				defer dlResp.Body.Close()
+				outF, err := os.Create(outFilePath)
+				if err == nil {
+					_, _ = io.Copy(outF, dlResp.Body)
+					outF.Close()
+					if fi, err := os.Stat(outFilePath); err == nil && fi.Size() > 1000 {
+						return outFilePath
+					}
+				}
+			}
+		} else {
+			resp.Body.Close()
+		}
+	}
+	return ""
 }
 
 func findGeneratedFile(baseNoExt string) string {
@@ -134,7 +217,8 @@ func findGeneratedFile(baseNoExt string) string {
 // downloadJioSaavnSong searches and downloads track from JioSaavn API
 func downloadJioSaavnSong(query string, outPath string) (string, string, string, error) {
 	apiURL := fmt.Sprintf("https://saavn.dev/api/search/songs?query=%s", url.QueryEscape(query))
-	resp, err := http.Get(apiURL)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(apiURL)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -158,46 +242,46 @@ func downloadJioSaavnSong(query string, outPath string) (string, string, string,
 		} `json:"data"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil || len(data.Data.Results) == 0 {
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil || !data.Success || len(data.Data.Results) == 0 {
 		return "", "", "", fmt.Errorf("song not found")
 	}
 
-	track := data.Data.Results[0]
-	var dlURL string
-	for _, d := range track.DownloadUrl {
+	res := data.Data.Results[0]
+	var audioURL string
+	for _, d := range res.DownloadUrl {
 		if d.Quality == "320kbps" || d.Quality == "160kbps" {
-			dlURL = d.Url
+			audioURL = d.Url
 			break
 		}
 	}
-	if dlURL == "" && len(track.DownloadUrl) > 0 {
-		dlURL = track.DownloadUrl[len(track.DownloadUrl)-1].Url
+	if audioURL == "" && len(res.DownloadUrl) > 0 {
+		audioURL = res.DownloadUrl[len(res.DownloadUrl)-1].Url
 	}
-	if dlURL == "" {
+	if audioURL == "" {
 		return "", "", "", fmt.Errorf("no download url")
 	}
 
-	dlResp, err := http.Get(dlURL)
+	dlResp, err := client.Get(audioURL)
 	if err != nil {
 		return "", "", "", err
 	}
 	defer dlResp.Body.Close()
 
-	out, err := os.Create(outPath)
+	outF, err := os.Create(outPath)
 	if err != nil {
 		return "", "", "", err
 	}
-	defer out.Close()
+	defer outF.Close()
 
-	_, err = io.Copy(out, dlResp.Body)
+	_, err = io.Copy(outF, dlResp.Body)
 	if err != nil {
 		return "", "", "", err
 	}
 
-	artist := "JioSaavn Artist"
-	if len(track.Artists.Primary) > 0 {
-		artist = track.Artists.Primary[0].Name
+	var artistName string
+	if len(res.Artists.Primary) > 0 {
+		artistName = res.Artists.Primary[0].Name
 	}
 
-	return outPath, track.Name, artist, nil
+	return outPath, res.Name, artistName, nil
 }
