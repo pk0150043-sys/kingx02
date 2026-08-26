@@ -77,24 +77,24 @@ def ensure_baileys_service():
 
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        node_file = os.path.join(script_dir, "wp_baileys_service.js")
         go_bin = os.path.join(script_dir, "wp_whatsmeow_service")
         yamzz_bin = os.path.join(script_dir, "YamzzBot-Caller-main", "yamzzbot")
+        node_file = os.path.join(script_dir, "wp_baileys_service.js")
 
         child_env = os.environ.copy()
         child_env["PORT"] = "20824"
         child_env["WP_PORT"] = "20824"
         child_env["BAILEYS_PORT"] = "20824"
 
-        if os.path.exists(node_file):
-            print(f"[BAILEYS] Starting King Bot Baileys Multi-Session Hub 2.0: {node_file}")
-            baileys_process = subprocess.Popen(["node", "--expose-gc", "--max-old-space-size=512", "wp_baileys_service.js"], cwd=script_dir, env=child_env)
-        elif os.path.exists(go_bin):
+        if os.path.exists(go_bin):
             print(f"[WHATSAPP GO] Starting WhatsMeow + MeowCaller Go Microservice: {go_bin}")
             baileys_process = subprocess.Popen([go_bin], cwd=script_dir, env=child_env)
         elif os.path.exists(yamzz_bin):
             print(f"[WHATSAPP GO] Starting WhatsMeow + MeowCaller Go Microservice: {yamzz_bin}")
             baileys_process = subprocess.Popen([yamzz_bin], cwd=os.path.join(script_dir, "YamzzBot-Caller-main"), env=child_env)
+        elif os.path.exists(node_file):
+            print(f"[BAILEYS] Starting King Bot Baileys Multi-Session Hub 2.0: {node_file}")
+            baileys_process = subprocess.Popen(["node", "--expose-gc", "--max-old-space-size=512", "wp_baileys_service.js"], cwd=script_dir, env=child_env)
 
         for _ in range(12):
             time.sleep(0.5)
