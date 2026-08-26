@@ -296,7 +296,7 @@ func handlePlayVideo(ctx context.Context, evt *events.Message, args string) {
 	var call *meowcaller.Call
 	for attempt := 1; attempt <= 3; attempt++ {
 		callCtx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-		call, err = snd.call.CallVideo(callCtx, target)
+		call, err = snd.call.CallWithOptions(callCtx, target, meowcaller.CallOptions{Video: true})
 		cancel()
 		if err == nil {
 			break
@@ -338,22 +338,6 @@ func handlePlayVideo(ctx context.Context, evt *events.Message, args string) {
 		player.OnFinish(playAudioLoop)
 		player.Play(src)
 	}
-	// startAudioOnce: OnVideoReady & OnReady DUA-DUANYA manggil ini (video pipeline
-	// duluan biasanya, OnReady jaga-jaga kalau itu gak fire) — sync.Once mastiin
-	// audio CUMA START SEKALI, gak restart dari 0 kalau kedua handler ke-trigger.
-	var audioStartOnce sync.Once
-	startAudioOnce := func() { audioStartOnce.Do(playAudioLoop) }
-
-	// OnVideoReady: pipeline OUTBOUND siap kirim, tapi ini fire pas MASIH RINGING
-	// (peer belum angkat) — sengaja GAK dipakai buat mulai video/audio di sini lagi.
-	// Percobaan sebelumnya mulai video DI SINI bikin video "jalan diem-diem" selama
-	// nge-ring (goroutine ticker custom kita gak peduli peer udah angkat apa belum),
-	// sementara audio (di-pull sama call engine internal) baru beneran mulai progress
-	// PAS connect asli — hasilnya video udah maju sekian detik (=lama nge-ring) duluan
-	// pas audio baru mulai dari 0:00. Itu akar masalah "video duluan + loop di waktu
-	// random" yang dilaporin. Gak dipakai lagi — biarin OnReady yang mulai DUA-DUANYA
-	// di titik waktu yang SAMA PERSIS.
-	call.OnVideoReady(func() {})
 
 	// OnReady: fire pas ADA INBOUND dari peer (dia beneran angkat) — SATU-SATUNYA
 	// titik video & audio mulai, bareng, biar clock start-nya identik.

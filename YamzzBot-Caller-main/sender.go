@@ -109,9 +109,7 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 
 	call.OnIncomingCall(func(inCall *meowcaller.Call) {
 		p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Msg("📞 [INCOMING CALL] Answering & auto-accepting call...")
-		ansCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		if err := inCall.Answer(ansCtx); err != nil {
+		if err := inCall.Answer(); err != nil {
 			p.logger.Warn().Err(err).Msg("failed to answer incoming call")
 			return
 		}

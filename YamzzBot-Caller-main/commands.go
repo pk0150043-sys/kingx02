@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -742,8 +741,8 @@ func handleSaveStatus(ctx context.Context, evt *events.Message) {
 	if img := quoted.GetImageMessage(); img != nil {
 		data, err := waClient.Download(ctx, img)
 		if err == nil {
-			up, _ := waClient.Upload(ctx, data, whatsmeow.MediaImage)
-			if up != nil {
+			up, err := waClient.Upload(ctx, data, whatsmeow.MediaImage)
+			if err == nil {
 				_, _ = waClient.SendMessage(ctx, evt.Info.Chat, &waE2E.Message{
 					ImageMessage: &waE2E.ImageMessage{
 						URL:        proto.String(up.URL),
@@ -758,8 +757,8 @@ func handleSaveStatus(ctx context.Context, evt *events.Message) {
 	} else if vid := quoted.GetVideoMessage(); vid != nil {
 		data, err := waClient.Download(ctx, vid)
 		if err == nil {
-			up, _ := waClient.Upload(ctx, data, whatsmeow.MediaVideo)
-			if up != nil {
+			up, err := waClient.Upload(ctx, data, whatsmeow.MediaVideo)
+			if err == nil {
 				_, _ = waClient.SendMessage(ctx, evt.Info.Chat, &waE2E.Message{
 					VideoMessage: &waE2E.VideoMessage{
 						URL:        proto.String(up.URL),

@@ -9,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"go.mau.fi/whatsmeow/types"
 )
 
 type HTTPServer struct {
