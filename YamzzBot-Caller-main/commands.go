@@ -348,31 +348,52 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		if !requireAdmin() {
 			return
 		}
-		sendText(ctx, evt.Info.Chat, "✅ [VOIP ENGINE] Auto-accept active & attached.")
+		reactMsg(ctx, evt, "📞")
+		sendText(ctx, evt.Info.Chat, `╔══〔 📞 *INCOMING CALL ACCEPTED* 〕══╗
+┃ 🎯 Action: *Auto-Accept & Stream Connected*
+┃ 📡 Output: *Live WebRTC Opus Audio Stream*
+┃ ⚡ Status: *ANSWERED & STREAMING AUDIO LIVE* 🟢
+╚═════════════════════════════════════╝
+_Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 
 	case "rejectcall", "declinecall":
 		if !requireAdmin() {
 			return
 		}
-		sendText(ctx, evt.Info.Chat, "🛑 [VOIP ENGINE] Incoming call rejected.")
+		reactMsg(ctx, evt, "🚫")
+		sendText(ctx, evt.Info.Chat, `╔══〔 🚫 *CALL REJECTED* 〕══╗
+┃ Action: *Call Disconnected*
+┃ ⚡ Status: *CALL DECLINED BY BOT* 🛑
+╚══════════════════════════╝`)
 
 	case "anticall":
 		if !requireAdmin() {
 			return
 		}
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🚫 *Anti-Call Sentinel:* *%s*", args))
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf(`╔══〔 🚫 *ANTI-CALL SENTINEL* 〕══╗
+┃ Status: *AUTO-REJECT CALLS %s*
+┃ Engine: *WhatsMeow VoIP Guard*
+┃ Action: *Auto-Decline Incoming Calls*
+╚════════════════════════════════╝`, strings.ToUpper(args)))
 
 	case "autounmute":
 		if !requireAdmin() {
 			return
 		}
-		sendText(ctx, evt.Info.Chat, "🔓 *Auto-Unmute Sentinel:* *ENABLED (ALWAYS LIVE UNMUTED) 🟢*")
+		sendText(ctx, evt.Info.Chat, `╔══〔 🔓 *AUTO-UNMUTE SENTINEL* 〕══╗
+┃ Status: *ENABLED (ALWAYS UNMUTED) 🟢*
+┃ Engine: *Full-Duplex WebRTC*
+╚════════════════════════════════╝`)
 
 	case "callstatus":
 		if !requireAdmin() {
 			return
 		}
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf("📊 *Active VoIP Call Engine:* WhatsMeow WebRTC Call Pool | Free Senders: %d", len(pool.list())))
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf(`╔══〔 📊 *LIVE VOIP CALL STATUS* 〕══╗
+┃ ⚡ Engine: *WhatsMeow WebRTC VoIP Pool*
+┃ 🤖 Active Senders: *%d Nodes Online*
+┃ 🔊 51.mp3 Master Loop: *READY*
+╚════════════════════════════════╝`, len(pool.list())))
 
 	case "noti":
 		if !requireAdmin() {
@@ -1367,11 +1388,30 @@ func resolveTarget(ctx context.Context, evt *events.Message, args string) (targe
 	return "", "", fmt.Errorf("format salah. contoh: %splaycall 9199xxxx, tum hi ho", getPrefix())
 }
 
+func getActiveClient() *whatsmeow.Client {
+	if waClient != nil && waClient.IsConnected() {
+		return waClient
+	}
+	for _, s := range pool.list() {
+		if s.connected() {
+			waClient = s.wa
+			callClient = s.call
+			return s.wa
+		}
+	}
+	if mainS := pool.main(); mainS != nil {
+		return mainS.wa
+	}
+	return waClient
+}
+
 func sendText(ctx context.Context, to types.JID, text string) {
-	if waClient == nil {
+	cli := getActiveClient()
+	if cli == nil {
+		fmt.Println("[send] no active whatsmeow client for:", to.String())
 		return
 	}
-	_, err := waClient.SendMessage(ctx, to, &waE2E.Message{
+	_, err := cli.SendMessage(ctx, to, &waE2E.Message{
 		Conversation: proto.String(text),
 	})
 	if err != nil {
@@ -1380,7 +1420,8 @@ func sendText(ctx context.Context, to types.JID, text string) {
 }
 
 func sendImage(ctx context.Context, to types.JID, imgName string, caption string) {
-	if waClient == nil {
+	cli := getActiveClient()
+	if cli == nil {
 		return
 	}
 	candidates := []string{
@@ -1388,6 +1429,7 @@ func sendImage(ctx context.Context, to types.JID, imgName string, caption string
 		filepath.Join(".", imgName),
 		filepath.Join("..", imgName),
 		filepath.Join("/app", imgName),
+		filepath.Join("/app/YamzzBot-Caller-main", imgName),
 	}
 	var data []byte
 	var err error
@@ -1401,9 +1443,9 @@ func sendImage(ctx context.Context, to types.JID, imgName string, caption string
 	}
 
 	if len(data) > 500 {
-		up, uperr := waClient.Upload(ctx, data, whatsmeow.MediaImage)
+		up, uperr := cli.Upload(ctx, data, whatsmeow.MediaImage)
 		if uperr == nil {
-			_, err = waClient.SendMessage(ctx, to, &waE2E.Message{
+			_, err = cli.SendMessage(ctx, to, &waE2E.Message{
 				ImageMessage: &waE2E.ImageMessage{
 					URL:        proto.String(up.URL),
 					DirectPath: proto.String(up.DirectPath),
@@ -1421,10 +1463,11 @@ func sendImage(ctx context.Context, to types.JID, imgName string, caption string
 }
 
 func reactMsg(ctx context.Context, evt *events.Message, emoji string) {
-	if waClient == nil {
+	cli := getActiveClient()
+	if cli == nil {
 		return
 	}
-	_, _ = waClient.SendMessage(ctx, evt.Info.Chat, &waE2E.Message{
+	_, _ = cli.SendMessage(ctx, evt.Info.Chat, &waE2E.Message{
 		ReactionMessage: &waE2E.ReactionMessage{
 			Key: &waCommon.MessageKey{
 				RemoteJID:   proto.String(evt.Info.Chat.String()),
