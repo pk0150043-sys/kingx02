@@ -296,11 +296,18 @@
       <span>WHATSAPP CALL SETUP <span class="badge-brand">GO LANG WEBRTC VOIP ENGINE</span></span>
     </div>
     <div class="topbar-actions">
-      <span class="session-timer" id="sessionTimerDisplay">--h --m --s</span>
-      <a href="/mode" class="btn-nav">⇄ Switch Platform</a>
-      <a href="/wp_bots_nc_setup" class="btn-nav" style="background:rgba(37,211,102,0.15);border-color:#25d366;color:#25d366;">👑 Switch to Baileys NC</a>
-      <button class="btn-nav" onclick="openProfileModal()">👤 Profile</button>
-      <a href="/logout" class="btn-nav btn-logout">Logout ➜</a>
+      <a href="/mode" class="btn-nav">🎛️ MODES</a>
+      <a href="/gc_creator" class="btn-nav">🎯 SINGLE GC</a>
+      <a href="/multi_gc" class="btn-nav">👑 MULTI GC</a>
+      <a href="/telegram_master" class="btn-nav">✈️ TELEGRAM</a>
+      <a href="/wp_bots_nc_setup" class="btn-nav" style="background:rgba(37,211,102,0.15);border-color:#25d366;color:#25d366;">👑 BAILEYS NC</a>
+      <a href="/whatsapp_call_setup" class="btn-nav" style="border-color:#38bdf8;background:rgba(56,189,248,0.25);color:#38bdf8;">📞 WP CALL SETUP</a>
+      {% if role == 'owner' %}
+      <a href="/owner" class="btn-nav" style="border-color:var(--accent);background:rgba(250,204,21,0.25);color:var(--accent);">👑 OWNER</a>
+      {% endif %}
+      <button class="btn-nav" style="border-color:#38bdf8;background:rgba(56,189,248,0.15);color:#38bdf8;" onclick="openProfileModal()">👤 PROFILE</button>
+      <span class="session-timer" id="sessionTimerDisplay">06h 00m 00s</span>
+      <a href="/logout" class="btn-nav btn-logout">🚪 LOGOUT</a>
     </div>
   </header>
 
