@@ -135,8 +135,10 @@ func (p *senderPool) connectAll() {
 	senders := append([]*Sender(nil), p.senders...)
 	p.mu.Unlock()
 	for _, s := range senders {
-		if err := s.wa.Connect(); err != nil {
-			p.logger.Warn().Err(err).Str("sender", s.name).Msg("gagal connect sender")
+		if s.device != nil && s.device.ID != nil {
+			if err := s.wa.Connect(); err != nil {
+				p.logger.Warn().Err(err).Str("sender", s.name).Msg("gagal connect sender")
+			}
 		}
 	}
 }

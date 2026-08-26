@@ -63,15 +63,6 @@ func main() {
 		logger.Fatal().Err(err).Msg("failed to load devices from store")
 	}
 
-	if len(devices) == 0 {
-		device := container.NewDevice()
-		devices = []*store.Device{device}
-		// If pairing code or QR is triggered
-		go func() {
-			firstTimeQRLogin(ctx, logger, device)
-		}()
-	}
-
 	pool.initFromDevices(ctx, devices)
 
 	mainS := pool.main()
@@ -80,7 +71,7 @@ func main() {
 		callClient = mainS.call
 	}
 
-	// Connect all sender accounts
+	// Connect all logged-in sender accounts
 	pool.connectAll()
 
 	logGlobal(fmt.Sprintf("👑 [WHATSMEOW GO ENGINE ONLINE] WhatsApp Go Bot Active (%d senders) with MeowCaller VoIP!", len(pool.list())))
