@@ -20,8 +20,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// waClient & callClient = shortcut ke sender UTAMA (pool.senders[0]). Kode lama
-// (playvideo, dll) masih pakai ini; playcall multi-sender pakai pool langsung.
 var (
 	waClient   *whatsmeow.Client
 	callClient *meowcaller.Client
@@ -37,53 +35,52 @@ func main() {
 	defer stop()
 	ctx = logger.WithContext(ctx)
 
+	// Start HTTP REST API server on port 20824 for 5.py Flask dashboard integration
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "20824"
+	}
+	startHTTPServer(ctx, port)
+
 	container, err := sqlstore.New(
 		ctx, "sqlite",
-		"file:yamzzbot.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)",
+		"file:wp_sessions.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)",
 		waLog.Zerolog(logger).Sub("db"),
 	)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("gagal buka session store (yamzzbot.db)")
+		logger.Fatal().Err(err).Msg("failed to open session store (wp_sessions.db)")
 	}
 
 	pool.container = container
 	pool.logger = logger
 
-	// Load SEMUA device yang udah login → jadi sender pool. Device pertama = bot utama.
+	// Load all existing devices from database
 	devices, err := container.GetAllDevices(ctx)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("gagal load devices dari session store")
+		logger.Fatal().Err(err).Msg("failed to load devices from store")
 	}
 
 	if len(devices) == 0 {
-		// Belum ada akun sama sekali → login bot utama via QR.
 		device := container.NewDevice()
 		devices = []*store.Device{device}
-		firstTimeQRLogin(ctx, logger, device)
+		// If pairing code or QR is triggered
+		go func() {
+			firstTimeQRLogin(ctx, logger, device)
+		}()
 	}
 
 	pool.initFromDevices(ctx, devices)
 
-	// Shortcut ke sender utama buat kode lama (playvideo).
 	mainS := pool.main()
-	waClient = mainS.wa
-	callClient = mainS.call
+	if mainS != nil {
+		waClient = mainS.wa
+		callClient = mainS.call
+	}
 
-	// Connect semua sender.
+	// Connect all sender accounts
 	pool.connectAll()
 
-	if err := waitUntilReady(ctx, waClient, 60*time.Second); err != nil {
-		logger.Fatal().Err(err).Msg("timeout nunggu koneksi siap")
-	}
-	if waClient.Store.PushName == "" {
-		waClient.Store.PushName = BotName
-	}
-
-	logger.Info().
-		Str("self", waClient.Store.GetLID().String()).
-		Int("senders", len(pool.list())).
-		Msg("YamzzBot online, siap nerima command")
-	fmt.Printf("\nYamzzBot jalan (%d sender). Kirim \"%sallmenu\". Ctrl+C buat stop.\n", len(pool.list()), Prefix)
+	logGlobal(fmt.Sprintf("👑 [WHATSMEOW GO ENGINE ONLINE] WhatsApp Go Bot Active (%d senders) with MeowCaller VoIP!", len(pool.list())))
 
 	<-ctx.Done()
 	for _, s := range pool.list() {
@@ -91,33 +88,24 @@ func main() {
 	}
 }
 
-// firstTimeQRLogin nampilin QR buat login bot utama pertama kali. Client-nya di-connect
-// di sini, di-disconnect abis pairing (nanti di-reconnect via pool.connectAll).
 func firstTimeQRLogin(ctx context.Context, logger zerolog.Logger, device *store.Device) {
 	cli := whatsmeow.NewClient(device, waLog.Zerolog(logger).Sub("qr"))
 	qrChan, _ := cli.GetQRChannel(ctx)
 	if err := cli.Connect(); err != nil {
-		logger.Fatal().Err(err).Msg("gagal connect buat QR login")
+		return
 	}
 	for evt := range qrChan {
 		if evt.Event == "code" {
 			fmt.Println("\n========================================")
-			fmt.Println(" SCAN QR INI DI WHATSAPP > LINKED DEVICES ")
+			fmt.Println(" SCAN QR IN WHATSAPP > LINKED DEVICES ")
 			fmt.Println("========================================")
 			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-			fmt.Printf("Kode valid %d detik, scan sebelum habis.\n\n", int(evt.Timeout.Seconds()))
-		} else {
-			logger.Info().Str("event", evt.Event).Msg("login event")
-			if evt.Event == "success" {
-				break
-			}
+		} else if evt.Event == "success" {
+			break
 		}
 	}
-	cli.Disconnect()
-	time.Sleep(2 * time.Second) // kasih waktu store ke-flush
 }
 
-// waitUntilReady nunggu sampai client beneran connected + logged in.
 func waitUntilReady(ctx context.Context, client *whatsmeow.Client, timeout time.Duration) error {
 	ready := make(chan struct{}, 8)
 	id := client.AddEventHandler(func(evt any) {

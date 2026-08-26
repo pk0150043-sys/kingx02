@@ -686,11 +686,9 @@ def search_youtube_py(query: str) -> Optional[Dict]:
                 'quiet': True,
                 'extract_flat': True,
                 'no_warnings': True,
-                'extractor_args': {'youtube': {'player_client': ['ios', 'android']}}
+                'geo_bypass': True,
+                'extractor_args': {'youtube': {'player_client': ['android_creator', 'tv_embedded', 'ios', 'android'], 'player_skip': ['configs', 'webpage']}}
             }
-            cookie_file = os.path.abspath("cookies.txt")
-            if os.path.exists(cookie_file):
-                ydl_opts['cookiefile'] = cookie_file
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 res = ydl.extract_info(f"ytsearch1:{query}", download=False)
@@ -804,9 +802,11 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
     cmd = [
         sys.executable, "-m", "yt_dlp",
         "--no-playlist",
-        "--socket-timeout", "20",
+        "--socket-timeout", "25",
         "--no-warnings",
-        "--geo-bypass"
+        "--geo-bypass",
+        "--user-agent", "Mozilla/5.0 (Android 14; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0",
+        "--extractor-args", "youtube:player_client=android_creator,tv_embedded,ios,android;player_skip=configs,webpage"
     ]
 
     if media_type == 'video':
@@ -825,8 +825,6 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
     cmd.extend(["-o", outtmpl])
     if os.path.exists("ffmpeg.exe"):
         cmd.extend(["--ffmpeg-location", os.getcwd()])
-    if os.path.exists(cookie_file) and os.path.getsize(cookie_file) > 10:
-        cmd.extend(["--cookies", cookie_file])
     cmd.append(target)
 
     try:
@@ -836,6 +834,26 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
             return os.path.abspath(found)
     except Exception as e:
         logger.warning(f"download_youtube_media_py subprocess error: {e}")
+
+    # Fallback attempt with tv_embedded
+    try:
+        retry_cmd = [
+            sys.executable, "-m", "yt_dlp",
+            "--no-playlist",
+            "--socket-timeout", "25",
+            "--no-warnings",
+            "--geo-bypass",
+            "--extractor-args", "youtube:player_client=tv_embedded,ios;player_skip=configs,webpage",
+            "-f", "best[height<=720][ext=mp4]/bestvideo+bestaudio/best" if media_type == 'video' else "bestaudio/best",
+            "-o", outtmpl,
+            target
+        ]
+        subprocess.run(retry_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+        found = find_file()
+        if found:
+            return os.path.abspath(found)
+    except Exception:
+        pass
 
     # Fallback to JioSaavn for audio
     if media_type == 'audio':
@@ -851,7 +869,6 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
                         f.write(res.content)
                     return os.path.abspath(final_p)
                 except Exception: pass
-    return None
     return None
 
 def download_full_audio(query_or_url: str, output_path: str) -> Optional[Dict]:
@@ -3045,13 +3062,13 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                 "--merge-output-format", "mp4",
                 "--postprocessor-args", "ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v baseline -level 3.0 -c:a aac -b:a 128k -movflags +faststart",
                 "--no-playlist",
-                "--socket-timeout", "15",
+                "--socket-timeout", "25",
                 "-o", temp_filename,
-                "--no-warnings"
+                "--no-warnings",
+                "--geo-bypass",
+                "--user-agent", "Mozilla/5.0 (Android 14; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0",
+                "--extractor-args", "youtube:player_client=android_creator,tv_embedded,ios,android;player_skip=configs,webpage"
             ]
-            cookie_p = os.path.join(os.getcwd(), "cookies.txt")
-            if os.path.exists(cookie_p):
-                cmd_args.extend(["--cookies", cookie_p])
             
             target = query if (query.startswith("http://") or query.startswith("https://")) else f"ytsearch1:{query}"
             cmd_args.append(target)

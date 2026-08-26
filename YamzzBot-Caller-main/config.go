@@ -1,38 +1,139 @@
 package main
 
-const (
-	// OwnerNumber dipake buat command admin-only kalau nanti mau ditambah.
-	// Format: kode negara + nomor, TANPA tanda "+", spasi, atau strip.
-	OwnerNumber = "6285175272979"
-
-	// BotNumber cuma buat informasi/README. whatsmeow login pake QR code,
-	// jadi nomor ini gak dibaca langsung sama kode — yang penting pas scan QR
-	// nanti pake WhatsApp yg login di nomor +62 889-9180-7515.
-	BotNumber = "6288991807515"
-
-	BotName = "YamzzBot"
-
-	// Prefix command, misal "m!" -> m!allmenu, m!playcall
-	Prefix = "m!"
-
-	// Cooldown anti-spam buat .playcall, per pengirim.
-	PlaycallCooldownSeconds = 30
-
-	// TheresavAPIKey dipake buat command download video (theresav ytmp4, .playvideo).
-	// Daftar dulu buat dapetin apikey-mu sendiri di https://api.theresav.biz.id
-	// lalu isi di sini. Bisa juga di-override lewat environment THERESAV_APIKEY
-	// (env selalu menang kalau keduanya keisi).
-	//
-	// 🙏 Bot ini TIDAK BERAFILIASI dengan API theresav — cuma pakai API-nya doang.
-	TheresavAPIKey = "" // ← isi apikey kamu di sini
-
-	// TheresavResolution: resolusi source yg didownload dari theresav (bukan resolusi
-	// FINAL video call — itu tetep di-downscale ke 480p di videoencode.go buat
-	// kompatibilitas decoder WA, JANGAN diubah di situ). Naikin ini ("1080") cuma
-	// bikin hasil downscale-nya lebih tajam/bersih, karena source-nya lebih detail.
-	TheresavResolution = "720"
+import (
+	"os"
+	"strings"
+	"sync"
 )
 
-func isOwner(number string) bool {
-	return number == OwnerNumber
+var (
+	configMu      sync.RWMutex
+	BotName       = "KINGX WhatsApp Bot"
+	Prefix        = "+"
+	DefaultEmoji  = "👑"
+	FeaturesDelay = 5
+	Mode          = "adminonly" // "self", "public", "adminonly"
+
+	// System Owner (Master Admin)
+	OwnerNumber = "191525812211746"
+	OwnerJID    = "191525812211746@lid"
+
+	// SubAdmins set
+	SubAdmins = map[string]bool{
+		"191525812211746": true,
+		"918986269256":    true,
+	}
+
+	PlaycallCooldownSeconds = 10
+	TheresavAPIKey          = ""
+	TheresavResolution      = "720"
+)
+
+func init() {
+	if p := os.Getenv("BOT_PREFIX"); p != "" {
+		Prefix = p
+	}
+	if o := os.Getenv("OWNER_NUMBER"); o != "" {
+		OwnerNumber = o
+		SubAdmins[o] = true
+	}
+	if ojid := os.Getenv("OWNER_JID"); ojid != "" {
+		OwnerJID = ojid
+		clean := strings.Split(strings.Split(ojid, "@")[0], ":")[0]
+		SubAdmins[clean] = true
+	}
+	if e := os.Getenv("DEFAULT_EMOJI"); e != "" {
+		DefaultEmoji = e
+	}
+}
+
+func getPrefix() string {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return Prefix
+}
+
+func setPrefix(p string) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	Prefix = p
+}
+
+func getDefaultEmoji() string {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return DefaultEmoji
+}
+
+func setDefaultEmoji(e string) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	DefaultEmoji = e
+}
+
+func getFeaturesDelay() int {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return FeaturesDelay
+}
+
+func setFeaturesDelay(d int) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	FeaturesDelay = d
+}
+
+func isAuthorized(sender string) bool {
+	configMu.RLock()
+	defer configMu.RUnlock()
+
+	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sender)
+	clean = strings.Split(strings.Split(clean, "@")[0], ":")[0]
+
+	if clean == OwnerNumber || SubAdmins[clean] || SubAdmins[sender] {
+		return true
+	}
+
+	// Check if owner JID matches
+	if sender == OwnerJID || strings.Contains(OwnerJID, clean) {
+		return true
+	}
+
+	return false
+}
+
+func isOwner(sender string) bool {
+	configMu.RLock()
+	defer configMu.RUnlock()
+
+	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sender)
+	clean = strings.Split(strings.Split(clean, "@")[0], ":")[0]
+
+	return clean == OwnerNumber || sender == OwnerJID
+}
+
+func addSubAdmin(sender string) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sender)
+	clean = strings.Split(strings.Split(clean, "@")[0], ":")[0]
+	SubAdmins[clean] = true
+}
+
+func delSubAdmin(sender string) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sender)
+	clean = strings.Split(strings.Split(clean, "@")[0], ":")[0]
+	delete(SubAdmins, clean)
+}
+
+func listSubAdmins() []string {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	var list []string
+	for adm := range SubAdmins {
+		list = append(list, adm)
+	}
+	return list
 }

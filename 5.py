@@ -77,8 +77,17 @@ def ensure_baileys_service():
 
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
+        go_bin = os.path.join(script_dir, "wp_whatsmeow_service")
+        yamzz_bin = os.path.join(script_dir, "YamzzBot-Caller-main", "yamzzbot")
         node_file = os.path.join(script_dir, "wp_baileys_service.js")
-        if os.path.exists(node_file):
+
+        if os.path.exists(go_bin):
+            print(f"[WHATSAPP GO] Starting WhatsMeow + MeowCaller Go Microservice: {go_bin}")
+            baileys_process = subprocess.Popen([go_bin], cwd=script_dir)
+        elif os.path.exists(yamzz_bin):
+            print(f"[WHATSAPP GO] Starting WhatsMeow + MeowCaller Go Microservice: {yamzz_bin}")
+            baileys_process = subprocess.Popen([yamzz_bin], cwd=os.path.join(script_dir, "YamzzBot-Caller-main"))
+        elif os.path.exists(node_file):
             print(f"[BAILEYS] Starting Baileys Node microservice (max memory: 512MB): {node_file}")
             baileys_process = subprocess.Popen(["node", "--expose-gc", "--max-old-space-size=512", "wp_baileys_service.js"], cwd=script_dir)
             for _ in range(12):
