@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1040,27 +1041,41 @@ func sendText(ctx context.Context, to types.JID, text string) {
 	}
 }
 
-func sendImage(ctx context.Context, to types.JID, imgPath string, caption string) {
+func sendImage(ctx context.Context, to types.JID, imgName string, caption string) {
 	if waClient == nil {
 		return
 	}
-	if fileExists(imgPath) {
-		data, err := os.ReadFile(imgPath)
-		if err == nil {
-			up, uperr := waClient.Upload(ctx, data, whatsmeow.MediaImage)
-			if uperr == nil {
-				_, err = waClient.SendMessage(ctx, to, &waE2E.Message{
-					ImageMessage: &waE2E.ImageMessage{
-						URL:        proto.String(up.URL),
-						DirectPath: proto.String(up.DirectPath),
-						MediaKey:   up.MediaKey,
-						Mimetype:   proto.String("image/jpeg"),
-						Caption:    proto.String(caption),
-					},
-				})
-				if err == nil {
-					return
-				}
+	candidates := []string{
+		imgName,
+		filepath.Join(".", imgName),
+		filepath.Join("..", imgName),
+		filepath.Join("/app", imgName),
+	}
+	var data []byte
+	var err error
+	for _, p := range candidates {
+		if fileExists(p) {
+			data, err = os.ReadFile(p)
+			if err == nil && len(data) > 500 {
+				break
+			}
+		}
+	}
+
+	if len(data) > 500 {
+		up, uperr := waClient.Upload(ctx, data, whatsmeow.MediaImage)
+		if uperr == nil {
+			_, err = waClient.SendMessage(ctx, to, &waE2E.Message{
+				ImageMessage: &waE2E.ImageMessage{
+					URL:        proto.String(up.URL),
+					DirectPath: proto.String(up.DirectPath),
+					MediaKey:   up.MediaKey,
+					Mimetype:   proto.String("image/png"),
+					Caption:    proto.String(caption),
+				},
+			})
+			if err == nil {
+				return
 			}
 		}
 	}

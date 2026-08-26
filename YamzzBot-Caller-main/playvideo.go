@@ -388,16 +388,26 @@ func handlePlayVideo(ctx context.Context, evt *events.Message, args string) {
 // buildVideoAssets fetch link (theresav) → download mp4 → encode (h264 + mp3) → pecah
 // jadi access unit. Balikin juga title.
 func buildVideoAssets(ytURL string) (aus [][]byte, audioPath, title string, err error) {
-	track, err := fetchVideoPlay(ytURL)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("video gak ke-resolve: %w", err)
+	// First try local high-performance yt-dlp extraction
+	tempVid := fmt.Sprintf("tmp_vstream_%d.mp4", time.Now().UnixMilli())
+	res, yerr := DownloadYouTubeMediaGo(ytURL, "video", tempVid)
+	var mp4Path string
+	if yerr == nil && res != nil && fileExists(res.FilePath) {
+		mp4Path = res.FilePath
+		title = res.Title
+	} else {
+		// Fallback to theresav API
+		track, ferr := fetchVideoPlay(ytURL)
+		if ferr != nil {
+			return nil, "", "", fmt.Errorf("video resolve failed: %w", ferr)
+		}
+		title = track.Title
+		mp4Path, err = downloadVideo(track.DownloadURL)
+		if err != nil {
+			return nil, "", title, fmt.Errorf("download: %w", err)
+		}
 	}
-	title = track.Title
 
-	mp4Path, err := downloadVideo(track.DownloadURL)
-	if err != nil {
-		return nil, "", title, fmt.Errorf("download: %w", err)
-	}
 	h264Path, audioPath, err := extractVideoAssets(mp4Path)
 	os.Remove(mp4Path)
 	if err != nil {
