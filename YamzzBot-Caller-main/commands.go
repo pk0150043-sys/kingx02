@@ -1264,7 +1264,7 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 	snd := pool.acquireFree()
 	if snd == nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, "❌ Semua sender lagi sibuk / offline.")
+		sendText(ctx, chat, "❌ All calling nodes are currently busy or offline.")
 		return
 	}
 
@@ -1273,7 +1273,7 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 	res, err := DownloadYouTubeMediaGo(title, "audio", tmpFile)
 	if err != nil || res == nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, "❌ Gagal download audio untuk call.")
+		sendText(ctx, chat, "❌ Failed to download audio stream for call.")
 		return
 	}
 
@@ -1298,7 +1298,7 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 	call, err := snd.call.Call(callCtx, target)
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, fmt.Sprintf("❌ Gagal nelpon +%s: %v", cleanTarget, err))
+		sendText(ctx, chat, fmt.Sprintf("❌ Failed to call +%s: %v", cleanTarget, err))
 		os.Remove(res.FilePath)
 		snd.mu.Lock()
 		sess.reset()
