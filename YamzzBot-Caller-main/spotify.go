@@ -47,10 +47,10 @@ func fetchSpotifyPlay(query string) (*spotifyTrack, error) {
 
 	var parsed nexrayResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("response gak valid: %w", err)
+		return nil, fmt.Errorf("response invalid: %w", err)
 	}
 	if !parsed.Status || parsed.Result.DownloadURL == "" {
-		return nil, fmt.Errorf("lagu \"%s\" gak ketemu", query)
+		return nil, fmt.Errorf("track \"%s\" not found", query)
 	}
 	return &parsed.Result, nil
 }

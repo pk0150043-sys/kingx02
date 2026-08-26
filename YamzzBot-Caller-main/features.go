@@ -16,13 +16,13 @@ import (
 
 // ─── addsender ────────────────────────────────────────────────────────────────
 
-// handleAddSender bikin sender baru & mulai pairing. Balikin pairing code buat
-// dimasukin di HP: WhatsApp → Perangkat Tertaut → Tautkan dgn nomor telepon.
+// handleAddSender initializes a new sender and starts pairing. Returns pairing code for:
+// WhatsApp → Linked Devices → Link a Device → Link with phone number.
 func handleAddSender(ctx context.Context, evt *events.Message, args string) {
 	chat := evt.Info.Chat
 	phone := strings.NewReplacer(" ", "", "-", "", "+", "").Replace(strings.TrimSpace(args))
 	if len(phone) < 8 {
-		sendText(ctx, chat, fmt.Sprintf("❌ Format: *%saddsender 628xxxxxxxx* (nomor lengkap + kode negara)", Prefix))
+		sendText(ctx, chat, fmt.Sprintf("❌ Format: *%saddsender <PhoneNumber>* (Country code + Phone Number)", Prefix))
 		return
 	}
 
@@ -30,17 +30,16 @@ func handleAddSender(ctx context.Context, evt *events.Message, args string) {
 	code, name, err := pool.addSender(ctx, phone)
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, "❌ gagal mulai pairing: "+err.Error())
+		sendText(ctx, chat, "❌ Pairing generation failed: "+err.Error())
 		return
 	}
 	reactMsg(ctx, evt, "✅")
 	sendText(ctx, chat, fmt.Sprintf(
-		"🔗 *Pairing %s* (+%s)\n\nKode: *%s*\n\n"+
-			"Di HP nomor itu:\nWhatsApp → *Perangkat Tertaut* → *Tautkan perangkat* → "+
-			"*Tautkan dengan nomor telepon* → masukin kode di atas.\n\n"+
-			"⏱️ Buruan, kode cuma valid ~1 menit. Cek *%slistsender* buat mastiin udah connect.\n"+
-			"Salah nomor? Batalin: *%scanceladd %s*",
-		name, phone, code, Prefix, Prefix, name,
+		"🔗 *Pairing Code for Node %s* (+%s)\n\n🔑 *Code:* `%s`\n\n"+
+			"📱 On your phone:\nWhatsApp → *Linked Devices* → *Link a Device* → "+
+			"*Link with phone number* → enter the code above.\n\n"+
+			"⏱️ Valid for 15 minutes. Check *%slistsender* to view active senders.",
+		name, phone, code, Prefix,
 	))
 }
 
@@ -49,40 +48,39 @@ func handleAddSender(ctx context.Context, evt *events.Message, args string) {
 func handleListSender(ctx context.Context, evt *events.Message) {
 	senders := pool.list()
 	if len(senders) == 0 {
-		sendText(ctx, evt.Info.Chat, "📭 Belum ada sender.")
+		sendText(ctx, evt.Info.Chat, "📭 No active senders found.")
 		return
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "🤖 *Daftar Sender* (%d)\n\n", len(senders))
+	fmt.Fprintf(&b, "🤖 *Active Bot Senders Pool* (%d Online)\n\n", len(senders))
 	for _, s := range senders {
 		status := "🔴 Offline"
 		if s.connected() {
 			status = "🟢 Online"
 		}
-		call := "nganggur"
+		call := "Standby / Free"
 		s.mu.Lock()
 		if s.sess != nil && s.sess.active {
-			call = "📞 nelpon +" + s.sess.target
+			call = "📞 In Call +" + s.sess.target
 		} else if s.videoSess != nil && s.videoSess.isActive() {
-			call = "🎬 video call"
+			call = "🎬 Video Call Active"
 		}
 		s.mu.Unlock()
-		fmt.Fprintf(&b, "• *%s* (+%s)\n  %s | %s\n", s.name, s.number(), status, call)
+		fmt.Fprintf(&b, "• *%s* (+%s)\n  Status: %s | Mode: %s\n", s.name, s.number(), status, call)
 	}
 	sendText(ctx, evt.Info.Chat, b.String())
 }
 
 // ─── prank ────────────────────────────────────────────────────────────────────
 
-// handlePrank: reply sebuah audio/voice-note + "m!prank sender1". Audio itu di-swap
-// ke call sender1 (motong lagu yang lagi jalan sebentar), abis audio prank habis,
-// lagu lama lanjut lagi. 😹
+// handlePrank: replies to an audio/voice-note + "m!prank sender1". Audio is swapped
+// into the call of sender1, replacing the current track, then resuming afterwards.
 func handlePrank(ctx context.Context, evt *events.Message, args string) {
 	chat := evt.Info.Chat
 	fields := strings.Fields(args)
 	if len(fields) == 0 {
-		sendText(ctx, chat, fmt.Sprintf("❌ Reply sebuah AUDIO + ketik *%sprank sender1*", Prefix))
+		sendText(ctx, chat, fmt.Sprintf("❌ Reply to an AUDIO message with *%sprank sender1*", Prefix))
 		return
 	}
 	name := strings.ToLower(fields[0])
@@ -93,16 +91,15 @@ func handlePrank(ctx context.Context, evt *events.Message, args string) {
 		return
 	}
 
-	// Ambil audio yang di-reply.
 	ci := evt.Message.GetExtendedTextMessage().GetContextInfo()
 	quoted := ci.GetQuotedMessage()
 	if quoted == nil {
-		sendText(ctx, chat, "❌ Kamu harus REPLY ke pesan audio/voice note-nya.")
+		sendText(ctx, chat, "❌ You must reply to an audio or voice note.")
 		return
 	}
 	audio := quoted.GetAudioMessage()
 	if audio == nil {
-		sendText(ctx, chat, "❌ Yang di-reply bukan audio/voice note.")
+		sendText(ctx, chat, "❌ Quoted message is not an audio / voice note.")
 		return
 	}
 
@@ -110,15 +107,14 @@ func handlePrank(ctx context.Context, evt *events.Message, args string) {
 	raw, err := waClient.Download(ctx, audio)
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, "❌ gagal download audio prank: "+err.Error())
+		sendText(ctx, chat, "❌ Failed to download audio: "+err.Error())
 		return
 	}
 
-	// WA audio biasanya ogg/opus → convert ke mp3 buat MP3File.
 	mp3Path, err := convertToMP3(raw)
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, "❌ gagal convert audio: "+err.Error())
+		sendText(ctx, chat, "❌ Audio conversion failed: "+err.Error())
 		return
 	}
 
@@ -126,7 +122,7 @@ func handlePrank(ctx context.Context, evt *events.Message, args string) {
 	if err != nil {
 		os.Remove(mp3Path)
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, "❌ gagal load audio prank: "+err.Error())
+		sendText(ctx, chat, "❌ Failed to load audio track: "+err.Error())
 		return
 	}
 
@@ -134,7 +130,7 @@ func handlePrank(ctx context.Context, evt *events.Message, args string) {
 	if sess.player == nil {
 		sess.mu.Unlock()
 		os.Remove(mp3Path)
-		sendText(ctx, chat, "❌ Call-nya belum tersambung / belum ada yang diputar.")
+		sendText(ctx, chat, "❌ No active audio player connected on this call.")
 		return
 	}
 	sess.pranking = true
@@ -143,29 +139,26 @@ func handlePrank(ctx context.Context, evt *events.Message, args string) {
 	sess.mu.Unlock()
 
 	reactMsg(ctx, evt, "😹")
-	sendText(ctx, chat, fmt.Sprintf("😹 *PRANK* ke call %s!\n(abis ini *%s* lanjut lagi)", name, orig))
-	p.Play(src) // OnFinish di playcall bakal resume lagu lama pas prank habis
+	sendText(ctx, chat, fmt.Sprintf("😹 *AUDIO INJECTED* into call %s!\n(Track *%s* will resume after finish)", name, orig))
+	p.Play(src)
 }
 
-// convertToMP3 nulis raw audio ke temp lalu convert ke mp3 mono 16k via ffmpeg.
+// convertToMP3 writes raw audio to temp and converts to mp3 mono 16k via ffmpeg.
 func convertToMP3(raw []byte) (string, error) {
-	if err := os.MkdirAll("temp", 0o755); err != nil {
-		return "", err
-	}
-	inPath := filepath.Join("temp", "prank_"+uuid.New().String())
-	if err := os.WriteFile(inPath, raw, 0o644); err != nil {
+	tmpDir := os.TempDir()
+	inPath := filepath.Join(tmpDir, "in_"+uuid.New().String()+".ogg")
+	outPath := filepath.Join(tmpDir, "out_"+uuid.New().String()+".mp3")
+
+	if err := os.WriteFile(inPath, raw, 0600); err != nil {
 		return "", err
 	}
 	defer os.Remove(inPath)
 
-	outPath := inPath + ".mp3"
-	var stderr bytes.Buffer
-	cmd := exec.Command("ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-		"-i", inPath, "-ac", "1", "-ar", "16000", "-codec:a", "libmp3lame", outPath)
-	cmd.Stderr = &stderr
+	cmd := exec.Command("ffmpeg", "-y", "-i", inPath, "-ar", "16000", "-ac", "1", outPath)
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		os.Remove(outPath)
-		return "", fmt.Errorf("ffmpeg: %s", lastLines(stderr.String(), 3))
+		return "", fmt.Errorf("%v: %s", err, errBuf.String())
 	}
 	return outPath, nil
 }
