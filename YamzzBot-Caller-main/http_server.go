@@ -33,7 +33,10 @@ func logGlobal(msg string) {
 
 func startHTTPServer(ctx context.Context, port string) {
 	if port == "" {
-		port = os.Getenv("PORT")
+		port = os.Getenv("WP_PORT")
+		if port == "" {
+			port = os.Getenv("BAILEYS_PORT")
+		}
 		if port == "" {
 			port = "20824"
 		}

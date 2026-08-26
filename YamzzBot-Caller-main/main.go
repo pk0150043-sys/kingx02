@@ -36,7 +36,10 @@ func main() {
 	ctx = logger.WithContext(ctx)
 
 	// Start HTTP REST API server on port 20824 for 5.py Flask dashboard integration
-	port := os.Getenv("PORT")
+	port := os.Getenv("WP_PORT")
+	if port == "" {
+		port = os.Getenv("BAILEYS_PORT")
+	}
 	if port == "" {
 		port = "20824"
 	}
