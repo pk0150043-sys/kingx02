@@ -164,30 +164,62 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 	}
 
 	switch cmd {
+	case "start", "hello", "hi", "king":
+		startCaption := fmt.Sprintf(`╔══════════════════════════════════════════╗
+║  👑 ⚡ 𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽2.0 ⚡ 👑  ║
+║  🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 • 𝑴𝑨𝑺𝑻𝑬𝑹 𝑬𝑵𝑮𝑰𝑵𝑬 🛡️  ║
+╚══════════════════════════════════════════╝
+  ✨ *PREFIX* : [  %s  ]  •  🚀 *SPEED* : 0.01s+ (10ms)
+
+🤖 *Node Session:* Active WhatsMeow Go Engine
+📱 *Linked Account:* Connected
+👑 *Admin ID:* %s
+🔥 *Active Bots:* Online Nodes
+🎯 *VoIP Calling:* MeowCaller Full-Duplex WebRTC
+
+╭──────────────────────────────╮
+│ 💡 *QUICK ACTIONS & NAVIGATION*
+│ • Type %smenu for Interactive Dashboard Selector
+│ • Type %smenu 1 for 👑 Ultra Raid Dashboard
+│ • Type %smenu 2 for 📞 VoIP Caller Engine
+│ • Type %smenu 3 for 🎵 Music & Song Engine
+│ • Type %smenu 4 for 🎙️ AI Voice Studio & OpenVoice
+│ • Type %sping to test network latency
+╰──────────────────────────────╯`, curPrefix, OwnerJID, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix)
+		sendImage(ctx, evt.Info.Chat, "main.png", startCaption)
+
 	case "allmenu", "menu", "help", "cmd":
 		if args == "1" {
-			sendText(ctx, evt.Info.Chat, getUltraDashboardMenu(curPrefix))
+			pic := "dashbaord.png"
+			if !fileExists(pic) {
+				pic = "dashboard.png"
+			}
+			sendImage(ctx, evt.Info.Chat, pic, getUltraDashboardMenu(curPrefix))
 		} else if args == "2" {
-			sendText(ctx, evt.Info.Chat, getCallingEngineMenu(curPrefix))
+			sendImage(ctx, evt.Info.Chat, "main.png", getCallingEngineMenu(curPrefix))
 		} else if args == "3" {
-			sendText(ctx, evt.Info.Chat, getSongDashboardMenu(curPrefix))
+			sendImage(ctx, evt.Info.Chat, "main.png", getSongDashboardMenu(curPrefix))
 		} else if args == "4" {
-			sendText(ctx, evt.Info.Chat, getVoiceStudioMenu(curPrefix))
+			sendImage(ctx, evt.Info.Chat, "main.png", getVoiceStudioMenu(curPrefix))
 		} else {
-			sendText(ctx, evt.Info.Chat, getMenuPortalText(curPrefix))
+			sendImage(ctx, evt.Info.Chat, "main.png", getMenuPortalText(curPrefix))
 		}
 
 	case "1", "ultramenu":
-		sendText(ctx, evt.Info.Chat, getUltraDashboardMenu(curPrefix))
+		pic := "dashbaord.png"
+		if !fileExists(pic) {
+			pic = "dashboard.png"
+		}
+		sendImage(ctx, evt.Info.Chat, pic, getUltraDashboardMenu(curPrefix))
 
 	case "2", "callmenu":
-		sendText(ctx, evt.Info.Chat, getCallingEngineMenu(curPrefix))
+		sendImage(ctx, evt.Info.Chat, "main.png", getCallingEngineMenu(curPrefix))
 
 	case "3", "songmenu":
-		sendText(ctx, evt.Info.Chat, getSongDashboardMenu(curPrefix))
+		sendImage(ctx, evt.Info.Chat, "main.png", getSongDashboardMenu(curPrefix))
 
 	case "4", "voicemenu", "openvoice":
-		sendText(ctx, evt.Info.Chat, getVoiceStudioMenu(curPrefix))
+		sendImage(ctx, evt.Info.Chat, "main.png", getVoiceStudioMenu(curPrefix))
 
 	case "ping", "runtime", "speed", "status", "stats":
 		handlePing(ctx, evt)
@@ -1006,6 +1038,33 @@ func sendText(ctx context.Context, to types.JID, text string) {
 	if err != nil {
 		fmt.Println("[send] error:", to.String(), err)
 	}
+}
+
+func sendImage(ctx context.Context, to types.JID, imgPath string, caption string) {
+	if waClient == nil {
+		return
+	}
+	if fileExists(imgPath) {
+		data, err := os.ReadFile(imgPath)
+		if err == nil {
+			up, uperr := waClient.Upload(ctx, data, whatsmeow.MediaImage)
+			if uperr == nil {
+				_, err = waClient.SendMessage(ctx, to, &waE2E.Message{
+					ImageMessage: &waE2E.ImageMessage{
+						URL:        proto.String(up.URL),
+						DirectPath: proto.String(up.DirectPath),
+						MediaKey:   up.MediaKey,
+						Mimetype:   proto.String("image/jpeg"),
+						Caption:    proto.String(caption),
+					},
+				})
+				if err == nil {
+					return
+				}
+			}
+		}
+	}
+	sendText(ctx, to, caption)
 }
 
 func reactMsg(ctx context.Context, evt *events.Message, emoji string) {
