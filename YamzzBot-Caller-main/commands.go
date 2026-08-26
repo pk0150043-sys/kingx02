@@ -198,95 +198,94 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 
 	switch cmd {
 	case "start", "hello", "hi", "king":
-		startText := fmt.Sprintf(`╔══════════════════════════════════════════════╗
+		startText := `╔══════════════════════════════════════════════╗
 ║  📞 ⚡ 𝑾𝑯𝑨𝑻𝑺𝑨𝑷𝑷 𝑪𝑨𝑳𝑳 𝑬𝑵𝑮𝑰𝑵𝑬 𝑩𝑶𝑻 𝑨𝑪𝑻𝑰𝑽𝑬 ⚡ 📞  ║
 ║  🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 • 𝑽𝑶𝑰𝑷 𝑴𝑨𝑺𝑻𝑬𝑹 🛡️      ║
 ╚══════════════════════════════════════════════╝
-      ⚡ PREFIX  :  %s
+      ⚡ PREFIX  :  {P}
       🚀 SPEED   :  0.01s+ (10ms) Real-Time
       🔊 DEFAULT :  51.mp3 High-Bass Master Loop
-      👑 OWNER   :  %s
+      👑 OWNER   :  {OWNER}
 
 ╭─ 💡 QUICK CALLING CONTROLS
-│ • %soutcall <Number/@tag> [Song Name / 51.mp3]
-│ • %sgroupcall [Song Name / 51.mp3]
-│ • %svideocall <Number> [Song Name]
-│ • %sgroupvideocall [Song Name]
-│ • %sjoincall [51.mp3/song]
-│ • %sendcall / %sleavecall / %shangup
-│ • %smenu (View Full Command Suite)
-╰─────────────────────────────────────────────`,
-			curPrefix, OwnerJID, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix)
+│ • {P}outcall <Number/@tag> [Song Name / 51.mp3]
+│ • {P}groupcall [Song Name / 51.mp3]
+│ • {P}videocall <Number> [Song Name]
+│ • {P}groupvideocall [Song Name]
+│ • {P}joincall [51.mp3/song]
+│ • {P}endcall / {P}leavecall / {P}hangup
+│ • {P}menu (View Full Command Suite)
+╰─────────────────────────────────────────────`
+		startText = strings.ReplaceAll(startText, "{P}", curPrefix)
+		startText = strings.ReplaceAll(startText, "{OWNER}", OwnerJID)
 		reactMsg(ctx, evt, "👑")
 		sendText(ctx, evt.Info.Chat, startText)
 
 	case "allmenu", "menu", "help", "cmd", "1", "2", "3", "4", "callmenu":
-		menuText := fmt.Sprintf(`╔══〔 📞 GO LANG WEBRTC CALLING SUITE 〕══╗
+		menuText := `╔══〔 📞 GO LANG WEBRTC CALLING SUITE 〕══╗
 ║ ⚡ Engine: SERVER GOD CLAN VOIP ENGINE    ║
 ║ 🛡️ SERVER GOD CLAN • VOIP MASTER         ║
 ╚══════════════════════════════════════════╝
-      ⚡ PREFIX  :  %s
+      ⚡ PREFIX  :  {P}
       🔊 DEFAULT : 51.mp3 High-Bass Master Loop
 
 ╭─ 📞 OUTBOUND REAL VOIP & GROUP CALLS
-│ 📞 %soutcall <Number/@tag> [Song / 51.mp3]
+│ 📞 {P}outcall <Number/@tag> [Song / 51.mp3]
 │    ▸ Dial target and live stream 51.mp3 or YouTube song
-│ 👥 %sgroupcall [Song Name]
+│ 👥 {P}groupcall [Song Name]
 │    ▸ Create native Group Voice Call and stream audio
-│ 🎥 %svideocall <Number> [Song Name]
+│ 🎥 {P}videocall <Number> [Song Name]
 │    ▸ 1-on-1 High-Definition Video Call
-│ 📹 %sgroupvideocall [Song Name]
+│ 📹 {P}groupvideocall [Song Name]
 │    ▸ Group Video Call with live stream
-│ 🚪 %sjoincall [51.mp3/song]
+│ 🚪 {P}joincall [51.mp3/song]
 │    ▸ Join active voice chat and stream loop
-│ 📺 %sscreenshare on/off
+│ 📺 {P}screenshare on/off
 │    ▸ Enable/disable live screen sharing
-│ ✋ %shandraise / %scallreaction <emoji>
+│ ✋ {P}handraise / {P}callreaction <emoji>
 │    ▸ Dispatch live WebRTC reactions
-│ ⏹️ %sendcall / %shangup / %scutcall / %sleavecall
+│ ⏹️ {P}endcall / {P}hangup / {P}cutcall / {P}leavecall
 │    ▸ Terminate active call and loops immediately
-│ 🔇 %scallmute / %scallunmute
+│ 🔇 {P}callmute / {P}callunmute
 │    ▸ Mute/Unmute microphone stream
 ╰──────────────────────────────────────────
 
 ╭─ 📲 INCOMING CALL SENTINEL
-│ 🔔 %snoti <Chat_JID>
+│ 🔔 {P}noti <Chat_JID>
 │    ▸ Route incoming call alerts to specific group/chat
-│ 📞 %sacceptcall [Song/Track]
+│ 📞 {P}acceptcall [Song/Track]
 │    ▸ Answer incoming call with live audio stream
-│ 🛑 %srejectcall / %sdeclinecall
+│ 🛑 {P}rejectcall / {P}declinecall
 │    ▸ Instantly decline incoming call
-│ 🚫 %santicall on/off
+│ 🚫 {P}anticall on/off
 │    ▸ Auto-reject incoming calls sentinel
-│ 🔓 %sautounmute
+│ 🔓 {P}autounmute
 │    ▸ Keep microphone stream continuously open
-│ 📊 %scallstatus
+│ 📊 {P}callstatus
 │    ▸ View active VoIP nodes and running calls
 ╰──────────────────────────────────────────
 
 ╭─ 📋 AUDIT & USER MANAGEMENT
-│ 📋 %sauditlog / %saudit / %slogs
+│ 📋 {P}auditlog / {P}audit / {P}logs
 │    ▸ Trace recent user commands and calling actions
-│ 👑 %sadmins / %sshowadmins
+│ 👑 {P}admins / {P}showadmins
 │    ▸ View primary owner and authorized sub-admins
-│ ➕ %saddadmin <Number/@tag>
-│ 🗑️ %sdeladmin <Number/@tag>
+│ ➕ {P}addadmin <Number/@tag>
+│ 🗑️ {P}deladmin <Number/@tag>
 ╰──────────────────────────────────────────
 
 ╭─ 🎵 MEDIA DOWNLOADER & FILE VAULT
-│ 🎥 %splayvideo <Song/Link> (720p HD MP4)
-│ 🎵 %ssong <Song/Link> (320kbps MP3)
-│ 📁 %sviewfiles / %sfiles (List saved recordings)
-│ 🗑️ %sdelfile <filename> (Remove saved file)
-│ 💾 %ssaverd <name> (Save voice note to vault)
+│ 🎥 {P}playvideo <Song/Link> (720p HD MP4)
+│ 🎵 {P}song <Song/Link> (320kbps MP3)
+│ 📁 {P}viewfiles / {P}files (List saved recordings)
+│ 🗑️ {P}delfile <filename> (Remove saved file)
+│ 💾 {P}saverd <name> (Save voice note to vault)
 ╰──────────────────────────────────────────
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
-╰──────────────────────────────╯`,
-			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
-			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
-			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+╰──────────────────────────────╯`
+		menuText = strings.ReplaceAll(menuText, "{P}", curPrefix)
 		reactMsg(ctx, evt, "👑")
 		sendText(ctx, evt.Info.Chat, menuText)
 
