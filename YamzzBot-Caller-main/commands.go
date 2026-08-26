@@ -170,6 +170,13 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 
 	authorized := isAuthorized(user) || isAuthorized(senderJID) || isOwner(user) || isOwner(senderJID)
 
+	// Strict Admin / Owner Authorization: In owner/adminonly mode, only panel-authorized admins can control the bot
+	// Unauthorized users are silently ignored (NO REPLY IS SENT)
+	if Mode != "public" && !authorized {
+		logGlobal(fmt.Sprintf("⛔ [UNAUTHORIZED COMMAND SILENTLY IGNORED] User %s attempted [%s%s]. Ignored without reply.", senderJID, curPrefix, cmd))
+		return
+	}
+
 	// Log command execution
 	logGlobal(fmt.Sprintf("%s [COMMAND EXECUTION] [%s%s] in %s by %s", getDefaultEmoji(), curPrefix, cmd, evt.Info.Chat.String(), senderJID))
 
@@ -180,7 +187,6 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		if !authorized {
 			logGlobal(fmt.Sprintf("⛔ [UNAUTHORIZED COMMAND BLOCKED] User %s attempted [%s]. Only verified owner can control this bot.", senderJID, cmd))
-			sendText(ctx, evt.Info.Chat, fmt.Sprintf("⛔ *[ACCESS DENIED]*\nUser `@%s` is not authorized to use *%s%s*.\n_Only verified owner / sub-admins can control this bot._\n\n💡 *Tip:* Use `+auth PRINCE@9507325` to claim owner access!", user, curPrefix, cmd))
 			return false
 		}
 		return true

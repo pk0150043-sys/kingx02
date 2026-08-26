@@ -96,12 +96,35 @@ func isAuthorized(sender string) bool {
 		return true
 	}
 
-	if cleanUser == OwnerNumber || SubAdmins[cleanUser] || SubAdmins[raw] {
+	cleanOwner := strings.NewReplacer("+", "", " ", "", "-", "").Replace(OwnerNumber)
+	cleanOwner = strings.Split(strings.Split(cleanOwner, "@")[0], ":")[0]
+
+	if cleanUser == cleanOwner || raw == OwnerJID || strings.EqualFold(raw, OwnerJID) {
+		return true
+	}
+	if len(cleanOwner) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanOwner) || strings.HasSuffix(cleanOwner, cleanUser)) {
 		return true
 	}
 
-	// Check if owner JID matches
-	if raw == OwnerJID || strings.EqualFold(raw, OwnerJID) || strings.Contains(OwnerJID, cleanUser) {
+	if SubAdmins[cleanUser] || SubAdmins[raw] || SubAdmins[clean] {
+		return true
+	}
+
+	for adm := range SubAdmins {
+		if strings.EqualFold(adm, raw) || strings.EqualFold(adm, cleanUser) {
+			return true
+		}
+		cleanAdm := strings.NewReplacer("+", "", " ", "", "-", "").Replace(adm)
+		cleanAdm = strings.Split(strings.Split(cleanAdm, "@")[0], ":")[0]
+		if cleanAdm == cleanUser {
+			return true
+		}
+		if len(cleanAdm) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanAdm) || strings.HasSuffix(cleanAdm, cleanUser)) {
+			return true
+		}
+	}
+
+	if OwnerJID != "" && strings.Contains(OwnerJID, cleanUser) {
 		return true
 	}
 
@@ -120,7 +143,17 @@ func isOwner(sender string) bool {
 		return true
 	}
 
-	return cleanUser == OwnerNumber || raw == OwnerJID || strings.EqualFold(raw, OwnerJID)
+	cleanOwner := strings.NewReplacer("+", "", " ", "", "-", "").Replace(OwnerNumber)
+	cleanOwner = strings.Split(strings.Split(cleanOwner, "@")[0], ":")[0]
+
+	if cleanUser == cleanOwner || raw == OwnerJID || strings.EqualFold(raw, OwnerJID) {
+		return true
+	}
+	if len(cleanOwner) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanOwner) || strings.HasSuffix(cleanOwner, cleanUser)) {
+		return true
+	}
+
+	return false
 }
 
 func addSubAdmin(sender string) {
