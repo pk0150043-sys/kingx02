@@ -77,48 +77,48 @@ def ensure_baileys_service():
 
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
+        node_file = os.path.join(script_dir, "wp_baileys_service.js")
         go_bin = os.path.join(script_dir, "wp_whatsmeow_service")
         yamzz_bin = os.path.join(script_dir, "YamzzBot-Caller-main", "yamzzbot")
-        node_file = os.path.join(script_dir, "wp_baileys_service.js")
 
         child_env = os.environ.copy()
         child_env["PORT"] = "20824"
         child_env["WP_PORT"] = "20824"
         child_env["BAILEYS_PORT"] = "20824"
 
-        if os.path.exists(go_bin):
+        if os.path.exists(node_file):
+            print(f"[BAILEYS] Starting Baileys Node microservice: {node_file}")
+            baileys_process = subprocess.Popen(["node", "--expose-gc", "--max-old-space-size=512", "wp_baileys_service.js"], cwd=script_dir, env=child_env)
+        elif os.path.exists(go_bin):
             print(f"[WHATSAPP GO] Starting WhatsMeow + MeowCaller Go Microservice: {go_bin}")
             baileys_process = subprocess.Popen([go_bin], cwd=script_dir, env=child_env)
         elif os.path.exists(yamzz_bin):
             print(f"[WHATSAPP GO] Starting WhatsMeow + MeowCaller Go Microservice: {yamzz_bin}")
             baileys_process = subprocess.Popen([yamzz_bin], cwd=os.path.join(script_dir, "YamzzBot-Caller-main"), env=child_env)
-        elif os.path.exists(node_file):
-            print(f"[BAILEYS] Starting Baileys Node microservice (max memory: 512MB): {node_file}")
-            baileys_process = subprocess.Popen(["node", "--expose-gc", "--max-old-space-size=512", "wp_baileys_service.js"], cwd=script_dir, env=child_env)
-            for _ in range(12):
-                time.sleep(0.5)
-                try:
-                    r = requests.get(f"{BAILEYS_SERVICE_URL}/health", timeout=1.5)
-                    if r.status_code == 200:
-                        print("[BAILEYS] WhatsApp Baileys service is online & healthy!")
-                        # Register existing sessions in standby (do not flood live sockets)
-                        try:
-                            fdb = get_full_db()
-                            for u, acc in fdb.get("wp_accounts", {}).items():
-                                requests.post(f"{BAILEYS_SERVICE_URL}/session/init", json={
-                                    "uid": u,
-                                    "owner_jid": acc.get("owner_jid", ""),
-                                    "targets": acc.get("target_numbers", []),
-                                    "delay": int(acc.get("delay", 5)),
-                                    "prefix": acc.get("prefix", ""),
-                                    "auto_start": False,
-                                    "messages": load_messages()
-                                }, timeout=3)
-                        except Exception:
-                            pass
-                        return True
-                except Exception:
-                    pass
+
+        for _ in range(12):
+            time.sleep(0.5)
+            try:
+                r = requests.get(f"{BAILEYS_SERVICE_URL}/health", timeout=1.5)
+                if r.status_code == 200:
+                    # Register existing sessions in standby (do not flood live sockets)
+                    try:
+                        fdb = get_full_db()
+                        for u, acc in fdb.get("wp_accounts", {}).items():
+                            requests.post(f"{BAILEYS_SERVICE_URL}/session/init", json={
+                                "uid": u,
+                                "owner_jid": acc.get("owner_jid", ""),
+                                "targets": acc.get("target_numbers", []),
+                                "delay": int(acc.get("delay", 5)),
+                                "prefix": acc.get("prefix", ""),
+                                "auto_start": False,
+                                "messages": load_messages()
+                            }, timeout=3)
+                    except Exception:
+                        pass
+                    return True
+            except Exception:
+                pass
     except Exception as e:
         print(f"[BAILEYS ERROR] Spawning service failed: {e}")
     return False
