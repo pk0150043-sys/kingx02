@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"rsc.io/qr"
 )
 
 // Sender = satu akun WhatsApp yang bisa dipakai buat NELPON. Bot punya banyak sender
@@ -24,7 +26,9 @@ import (
 // Sender pertama (index 0) juga jadi "bot utama": dia yang nangkep semua command &
 // balesin chat. Sender lain khusus buat nelpon aja.
 type Sender struct {
+	uid    string // "KING_BOT_1", etc.
 	name   string // "sender1", "sender2", ...
+	owner  string // Admin LID/JID/Number
 	wa     *whatsmeow.Client
 	call   *meowcaller.Client
 	device *store.Device
@@ -268,31 +272,35 @@ func (p *senderPool) videoSessionFor(senderName string) (*videoSession, string) 
 	}
 }
 
-// addSender bikin device baru, mulai pairing pakai nomor telpon, balikin pairing code.
-// Sender-nya langsung dimasukin pool (status connecting sampai PairSuccess).
-func (p *senderPool) addSender(ctx context.Context, phone string) (code string, name string, err error) {
-	dev := p.container.NewDevice()
-	p.mu.Lock()
-	index := len(p.senders)
-	s := p.buildSender(index, dev)
-	p.senders = append(p.senders, s)
-	p.mu.Unlock()
+// addSenderForUID generates pairing code for a specific allocated session node UID
+func (p *senderPool) addSenderForUID(ctx context.Context, uid string, phone string) (code string, name string, err error) {
+	s := p.findByName(uid)
+	if s == nil {
+		dev := p.container.NewDevice()
+		p.mu.Lock()
+		index := len(p.senders)
+		s = p.buildSender(index, dev)
+		s.uid = uid
+		p.senders = append(p.senders, s)
+		p.mu.Unlock()
+	} else if s.connected() {
+		return "", s.name, fmt.Errorf("node is already connected to +%s", s.number())
+	}
 
 	if err := s.wa.Connect(); err != nil {
 		return "", "", fmt.Errorf("connect: %w", err)
 	}
 
-	// Pasang handler buat tau pairing sukses (biar auto ke-save).
 	s.wa.AddEventHandler(func(evt any) {
 		switch evt.(type) {
 		case *events.PairSuccess:
-			p.logger.Info().Str("sender", s.name).Str("num", s.number()).Msg("✅ sender pairing sukses")
+			p.logger.Info().Str("uid", s.uid).Str("sender", s.name).Str("num", s.number()).Msg("✅ sender pairing sukses")
 		case *events.Connected:
 			_ = s.wa.SendPresence(context.Background(), types.PresenceAvailable)
 		}
 	})
 
-	ctx2, cancel := context.WithTimeout(ctx, 20*time.Second)
+	ctx2, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 	code, err = s.wa.PairPhone(ctx2, phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
@@ -304,6 +312,12 @@ func (p *senderPool) addSender(ctx context.Context, phone string) (code string, 
 	return code, s.name, nil
 }
 
+// addSender bikin device baru, mulai pairing pakai nomor telpon, balikin pairing code.
+// Sender-nya langsung dimasukin pool (status connecting sampai PairSuccess).
+func (p *senderPool) addSender(ctx context.Context, phone string) (code string, name string, err error) {
+	return p.addSenderForUID(ctx, fmt.Sprintf("sender%d", len(p.senders)+1), phone)
+}
+
 // startQRLogin generates QR code for web panel linking
 func (p *senderPool) startQRLogin(ctx context.Context, name string) (string, error) {
 	s := p.findByName(name)
@@ -312,12 +326,28 @@ func (p *senderPool) startQRLogin(ctx context.Context, name string) (string, err
 		p.mu.Lock()
 		index := len(p.senders)
 		s = p.buildSender(index, dev)
+		s.uid = name
 		p.senders = append(p.senders, s)
 		p.mu.Unlock()
 	}
 
 	if s.connected() {
 		return "", nil
+	}
+
+	formatQRDataURL := func(rawCode string) string {
+		if rawCode == "" {
+			return ""
+		}
+		if strings.HasPrefix(rawCode, "data:image/") {
+			return rawCode
+		}
+		q, err := qr.Encode(rawCode, qr.L)
+		if err != nil {
+			return ""
+		}
+		pngBytes := q.PNG()
+		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes)
 	}
 
 	qrChan, _ := s.wa.GetQRChannel(ctx)
@@ -328,18 +358,19 @@ func (p *senderPool) startQRLogin(ctx context.Context, name string) (string, err
 	select {
 	case evt := <-qrChan:
 		if evt.Event == "code" {
+			dataURL := formatQRDataURL(evt.Code)
 			s.mu.Lock()
-			s.qrCode = evt.Code
+			s.qrCode = dataURL
 			s.mu.Unlock()
-			return evt.Code, nil
+			return dataURL, nil
 		}
 	case <-time.After(8 * time.Second):
 	}
 
 	s.mu.Lock()
-	qr := s.qrCode
+	qrVal := s.qrCode
 	s.mu.Unlock()
-	return qr, nil
+	return qrVal, nil
 }
 
 // removeSender: disconnect & buang sender dari pool. Dipake tombol "Batalkan"

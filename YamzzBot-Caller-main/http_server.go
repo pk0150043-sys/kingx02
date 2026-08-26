@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"rsc.io/qr"
 )
 
 type HTTPServer struct {
@@ -66,19 +69,40 @@ func startHTTPServer(ctx context.Context, port string) {
 		for _, s := range pool.list() {
 			num := s.number()
 			isOnline := s.connected()
-			status := "DISCONNECTED"
+			s.mu.Lock()
+			pairingCode := s.pairingCode
+			qrCode := s.qrCode
+			sOwner := s.owner
+			s.mu.Unlock()
+			if sOwner == "" {
+				sOwner = OwnerJID
+			}
+
+			status := "STANDBY"
 			if isOnline {
 				status = "ONLINE"
+			} else if pairingCode != "" {
+				status = "PAIRING"
+			} else if qrCode != "" {
+				status = "AWAITING_SCAN"
 			}
-			sessionsMap[s.name] = map[string]any{
+
+			key := s.uid
+			if key == "" {
+				key = s.name
+			}
+
+			sessionsMap[key] = map[string]any{
 				"status":          status,
 				"isOnline":        isOnline,
 				"connectedNumber": num,
-				"ownerJid":        OwnerJID,
+				"ownerJid":        sOwner,
 				"isWorkerRunning": isOnline,
 				"uptime":          int(time.Since(startTime).Seconds()),
-				"hasQr":           false,
-				"hasPairingCode":  false,
+				"hasQr":           qrCode != "",
+				"hasPairingCode":  pairingCode != "",
+				"qr":              qrCode,
+				"pairingCode":     pairingCode,
 				"inCall":          s.inCall(),
 			}
 		}
@@ -101,12 +125,28 @@ func startHTTPServer(ctx context.Context, port string) {
 				OwnerJID string `json:"owner_jid"`
 			}
 			json.NewDecoder(r.Body).Decode(&body)
+			if body.UID != "" {
+				s := pool.findByName(body.UID)
+				if s == nil {
+					dev := pool.container.NewDevice()
+					pool.mu.Lock()
+					idx := len(pool.senders)
+					s = pool.buildSender(idx, dev)
+					s.uid = body.UID
+					s.owner = body.OwnerJID
+					pool.senders = append(pool.senders, s)
+					pool.mu.Unlock()
+				} else {
+					s.uid = body.UID
+					s.owner = body.OwnerJID
+				}
+			}
 			if body.OwnerJID != "" {
 				OwnerJID = body.OwnerJID
 				clean := strings.Split(strings.Split(body.OwnerJID, "@")[0], ":")[0]
 				addSubAdmin(clean)
 			}
-			logGlobal(fmt.Sprintf("👑 [SESSION INIT] Initialized session %s (Owner: %s)", body.UID, body.OwnerJID))
+			logGlobal(fmt.Sprintf("👑 [SESSION ALLOCATE/INIT] Allocated node %s (Owner: %s)", body.UID, body.OwnerJID))
 			json.NewEncoder(w).Encode(map[string]any{"success": true, "uid": body.UID})
 			return
 		}
@@ -126,21 +166,30 @@ func startHTTPServer(ctx context.Context, port string) {
 			num := ""
 			pairingCode := ""
 			qrCode := ""
+			owner := OwnerJID
 			if s != nil {
 				num = s.number()
 				s.mu.Lock()
 				pairingCode = s.pairingCode
 				qrCode = s.qrCode
+				if s.owner != "" {
+					owner = s.owner
+				}
 				s.mu.Unlock()
 			}
-			stat := "DISCONNECTED"
+			stat := "STANDBY"
 			if isOnline {
 				stat = "ONLINE"
+			} else if pairingCode != "" {
+				stat = "PAIRING"
+			} else if qrCode != "" {
+				stat = "AWAITING_SCAN"
 			}
 			json.NewEncoder(w).Encode(map[string]any{
 				"status":          stat,
 				"isOnline":        isOnline,
 				"connectedNumber": num,
+				"ownerJid":        owner,
 				"qr":              qrCode,
 				"pairingCode":     pairingCode,
 			})
@@ -156,13 +205,13 @@ func startHTTPServer(ctx context.Context, port string) {
 				json.NewEncoder(w).Encode(map[string]any{"success": false, "message": "phone required"})
 				return
 			}
-			code, sName, err := pool.addSender(r.Context(), phone)
+			code, sName, err := pool.addSenderForUID(r.Context(), uid, phone)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				json.NewEncoder(w).Encode(map[string]any{"success": false, "message": err.Error()})
 				return
 			}
-			logGlobal(fmt.Sprintf("🔗 [PAIRING CODE] Generated code %s for %s (%s)", code, phone, sName))
+			logGlobal(fmt.Sprintf("🔗 [PAIRING CODE] Generated code %s for %s (%s, node %s)", code, phone, sName, uid))
 			json.NewEncoder(w).Encode(map[string]any{
 				"success":     true,
 				"pairingCode": code,
@@ -227,12 +276,9 @@ func (p *senderPool) findByName(name string) *Sender {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, s := range p.senders {
-		if strings.EqualFold(s.name, name) || strings.EqualFold(s.number(), name) {
+		if strings.EqualFold(s.uid, name) || strings.EqualFold(s.name, name) || strings.EqualFold(s.number(), name) {
 			return s
 		}
-	}
-	if len(p.senders) > 0 {
-		return p.senders[0]
 	}
 	return nil
 }
