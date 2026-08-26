@@ -320,17 +320,17 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🚪 *Call Waiting Room:* *%s*", args))
 
-	case "callmute":
+	case "callmute", "mute":
 		if !requireAdmin() {
 			return
 		}
 		sendText(ctx, evt.Info.Chat, "🔇 *Call Muted (Microphone Muted)*")
 
-	case "callunmute":
+	case "callunmute", "unmute":
 		if !requireAdmin() {
 			return
 		}
-		sendText(ctx, evt.Info.Chat, "🔊 *Call Unmuted (Live Full Duplex)*")
+		sendText(ctx, evt.Info.Chat, "🔊 *Call Unmuted (Live Full Duplex Stream)*")
 
 	case "skip":
 		if !requireAdmin() {
@@ -338,7 +338,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		handleSkip(ctx, evt, args)
 
-	case "stopcall", "endcall", "leavecall", "hangup", "cutcall":
+	case "stopcall", "endcall", "leavecall", "hangup", "cutcall", "end", "stop":
 		if !requireAdmin() {
 			return
 		}

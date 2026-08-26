@@ -1817,13 +1817,17 @@ def block_media(route):
 
 def dismiss_instagram_modals(p_page):
     try:
-        for btn_text in ["Not Now", "Not now", "Cancel", "Decline", "Dismiss", "Accept", "Allow"]:
-            btn = p_page.locator(f'button:has-text("{btn_text}"), div[role="button"]:has-text("{btn_text}")')
+        # Dismiss common popups, cookie consent, and notifications
+        for btn_text in ["Not Now", "Not now", "Cancel", "Decline", "Dismiss", "Accept", "Allow", "Close"]:
+            btn = p_page.locator(f'button:has-text("{btn_text}"), div[role="button"]:has-text("{btn_text}"), svg[aria-label="Close"]')
             if btn.count() > 0:
                 for i in range(min(btn.count(), 2)):
                     if btn.nth(i).is_visible():
-                        btn.nth(i).click(timeout=1200)
-                        time.sleep(0.3)
+                        try:
+                            btn.nth(i).click(timeout=1000, force=True)
+                            time.sleep(0.2)
+                        except Exception:
+                            pass
     except Exception:
         pass
 
@@ -1835,24 +1839,31 @@ def get_msg_box(p_page):
         try:
             threads = p_page.locator('a[href*="/direct/t/"], div[role="listitem"]')
             if threads.count() > 0 and threads.first.is_visible():
-                threads.first.click(timeout=3000)
+                threads.first.click(timeout=3000, force=True)
                 time.sleep(2)
         except Exception:
             pass
 
     selectors = [
+        'div[role="textbox"][contenteditable="true"]',
         'div[role="textbox"]',
+        'div[aria-label="Message"][contenteditable="true"]',
         'div[aria-label="Message"]',
-        'div[contenteditable="true"][role="textbox"]',
         'div[data-lexical-editor="true"]',
         'div[contenteditable="true"]',
         'textarea[placeholder*="Message"]',
         'p[data-lexical-text="true"]'
     ]
     for sel in selectors:
-        loc = p_page.locator(sel)
-        if loc.count() > 0 and loc.first.is_visible():
-            return loc.first
+        try:
+            loc = p_page.locator(sel)
+            if loc.count() > 0:
+                for i in range(loc.count()):
+                    el = loc.nth(i)
+                    if el.is_visible():
+                        return el
+        except Exception:
+            pass
     return None
 
 # ================= SINGLE GC PLAYWRIGHT AUTOMATION ENGINE =================
@@ -2129,8 +2140,14 @@ def single_gc_playwright_worker(uid):
                             time.sleep(3)
                             continue
 
-                        # Focus the message input
-                        msg_box.click(timeout=5000)
+                        # Focus the message input with fallback to direct DOM focus
+                        try:
+                            msg_box.click(timeout=3000, force=True)
+                        except Exception:
+                            try:
+                                msg_box.evaluate("el => el.focus()")
+                            except Exception:
+                                pass
                         time.sleep(0.1)
 
                         # Clear any draft content
@@ -2147,7 +2164,7 @@ def single_gc_playwright_worker(uid):
                         send_btn = page.locator('button:has-text("Send"), div[role="button"]:has-text("Send"), div[aria-label="Send"], svg[aria-label="Send"]').first
                         if send_btn.count() > 0 and send_btn.is_visible():
                             try:
-                                send_btn.click(timeout=2000)
+                                send_btn.click(timeout=1500, force=True)
                                 sent = True
                             except Exception:
                                 pass
@@ -2684,7 +2701,13 @@ def multi_gc_playwright_worker(uid):
                                     msg_box = get_msg_box(page)
 
                                 if msg_box and msg_box.is_visible():
-                                    msg_box.click(timeout=5000)
+                                    try:
+                                        msg_box.click(timeout=3000, force=True)
+                                    except Exception:
+                                        try:
+                                            msg_box.evaluate("el => el.focus()")
+                                        except Exception:
+                                            pass
                                     time.sleep(0.1)
                                     page.keyboard.press("Control+a")
                                     page.keyboard.press("Backspace")
@@ -2696,7 +2719,7 @@ def multi_gc_playwright_worker(uid):
                                     send_btn = page.locator('button:has-text("Send"), div[role="button"]:has-text("Send"), div[aria-label="Send"], svg[aria-label="Send"]').first
                                     if send_btn.count() > 0 and send_btn.is_visible():
                                         try:
-                                            send_btn.click(timeout=2000)
+                                            send_btn.click(timeout=1500, force=True)
                                             sent = True
                                         except Exception:
                                             pass
