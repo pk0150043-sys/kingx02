@@ -1094,6 +1094,8 @@ def telegram_master():
     )
 
 @app.route("/whatsapp_master")
+@app.route("/whatsapp_call_setup")
+@app.route("/wp_bots_nc_setup")
 def whatsapp_master():
     if not is_authenticated():
         return redirect("/login")
