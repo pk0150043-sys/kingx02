@@ -6522,8 +6522,16 @@ app.post('/session/:uid/delete', async (req, res) => {
     deleteSessionAuthDir(uid);
   }
 
-  logMsg(uid, `Bot and session destroyed completely.`);
-  res.json({ success: true, uid, message: 'Session destroyed' });
+  // Force clean any lingering session folders or files
+  try {
+    const authDir = getSessionAuthDir(uid);
+    if (fs.existsSync(authDir)) {
+      fs.rmSync(authDir, { recursive: true, force: true });
+    }
+  } catch (e) {}
+
+  logMsg(uid, `🗑️ Bot node and session files completely destroyed.`);
+  res.json({ success: true, uid, message: 'Session and files destroyed completely' });
 });
 
 app.get('/sessions/all', (req, res) => {
