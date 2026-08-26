@@ -772,14 +772,14 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		if !requireAdmin() {
 			return
 		}
-		gLogsMu.Lock()
-		count := len(gLogs)
+		serverState.mu.RLock()
+		count := len(serverState.globalLogs)
 		startIdx := 0
 		if count > 15 {
 			startIdx = count - 15
 		}
-		recent := append([]string(nil), gLogs[startIdx:]...)
-		gLogsMu.Unlock()
+		recent := append([]string(nil), serverState.globalLogs[startIdx:]...)
+		serverState.mu.RUnlock()
 
 		var b strings.Builder
 		fmt.Fprintf(&b, "📋 *RECENT USER ACTIONS & COMMAND AUDIT LOG*\n\n")
@@ -1372,6 +1372,8 @@ func resolveLIDToPhone(ctx context.Context, jid types.JID) (types.JID, error) {
 	return pn, nil
 }
 
+// ── Target Resolution & Dynamic Client ──
+
 func resolveTarget(ctx context.Context, evt *events.Message, args string) (target, title string, err error) {
 	ctxInfo := evt.Message.GetExtendedTextMessage().GetContextInfo()
 	quoted := ctxInfo.GetParticipant()
@@ -1414,7 +1416,7 @@ func resolveTarget(ctx context.Context, evt *events.Message, args string) (targe
 		}
 		return number, title, nil
 	}
-	return "", "", fmt.Sprintf("format: %splaycall <PhoneNumber / @tag> [Song Name / 51.mp3]", getPrefix())
+	return "", "", fmt.Errorf("format: %splaycall <PhoneNumber / @tag> [Song Name / 51.mp3]", getPrefix())
 }
 
 func getActiveClient() *whatsmeow.Client {
