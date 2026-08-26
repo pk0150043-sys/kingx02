@@ -224,7 +224,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		go handlePlayVideo(ctx, evt, args)
 
-	case "groupcall", "gcall", "playcallgc":
+	case "groupcall", "gcall", "playcallgc", "joincall", "joinvc", "joingroupcall":
 		if !requireAdmin() {
 			return
 		}

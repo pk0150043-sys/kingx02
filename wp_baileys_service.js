@@ -3366,11 +3366,18 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             }
 
             try {
-              await sess.voipManager.acceptCall({
-                callId,
-                callerJid,
-                audioSource: fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence'
-              });
+              if (sess.lastIncomingCall?.id) {
+                await sess.voipManager.acceptCall({
+                  callId,
+                  callerJid,
+                  audioSource: fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence'
+                });
+              } else {
+                await sess.voipManager.call(jid, {
+                  audioSource: fs.existsSync(AUDIO_51_PATH) ? AUDIO_51_PATH : 'silence',
+                  durationMs: 86400000
+                });
+              }
             } catch (e) {
               const stanzaId = sock.generateMessageTag ? sock.generateMessageTag() : `call_acc_${Date.now()}`;
               await sock.sendNode({
