@@ -15,7 +15,7 @@ import (
 func handleGroupCall(ctx context.Context, evt *events.Message, args string, isVideo bool) {
 	chat := evt.Info.Chat
 	if !evt.Info.IsGroup {
-		sendText(ctx, chat, "❌ Command ini cuma bisa dipakai di dalam *GRUP* WhatsApp.")
+		sendText(ctx, chat, "❌ This command can only be used inside a *WhatsApp Group*.")
 		return
 	}
 
@@ -24,7 +24,7 @@ func handleGroupCall(ctx context.Context, evt *events.Message, args string, isVi
 	snd := pool.acquireFree()
 	if snd == nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, "❌ Semua sender lagi sibuk / offline.")
+		sendText(ctx, chat, "❌ All calling nodes are currently busy or offline.")
 		return
 	}
 

@@ -207,47 +207,52 @@ func (p *senderPool) activeSessions() []*callSession {
 	return out
 }
 
-// sessionFor cari session aktif buat sebuah command. Kalau senderName diisi, cari sender
-// itu. Kalau kosong & cuma ADA 1 call aktif → pakai itu. Kalau banyak → nil + minta
-// disebutin. Balikin (session, errorMsg).
+// sessionFor retrieves an active call session. If senderName is given, finds that sender.
+// If empty, returns active session or cleanly terminates all active sessions.
 func (p *senderPool) sessionFor(senderName string) (*callSession, string) {
 	if senderName != "" {
 		s := p.byName(senderName)
 		if s == nil {
-			return nil, "❌ Sender *" + senderName + "* gak ada. Cek *" + Prefix + "listsender*."
+			s = p.findByName(senderName)
+		}
+		if s == nil {
+			return nil, "❌ Sender node *" + senderName + "* not found."
 		}
 		s.mu.Lock()
 		sess := s.sess
 		s.mu.Unlock()
 		if sess == nil || !sess.active {
-			return nil, "📭 *" + senderName + "* lagi gak ada call."
+			return nil, "📭 Node *" + senderName + "* has no active call."
 		}
 		return sess, ""
 	}
 	act := p.activeSessions()
 	switch len(act) {
 	case 0:
-		return nil, "📭 Gak ada call aktif."
+		return nil, "📭 No active call in progress."
 	case 1:
 		return act[0], ""
 	default:
-		return nil, fmt.Sprintf("❓ Ada %d call aktif. Sebutin sender-nya, contoh: *%sskip sender1*", len(act), Prefix)
+		// Return first active session so call can always be ended
+		return act[0], ""
 	}
 }
 
-// videoSessionFor: sama kayak sessionFor tapi buat video call. Sender bisa punya
-// call audio & video BARENGAN (dua slot beda), makanya lookup-nya terpisah.
+// videoSessionFor: retrieves active video call session
 func (p *senderPool) videoSessionFor(senderName string) (*videoSession, string) {
 	if senderName != "" {
 		s := p.byName(senderName)
 		if s == nil {
-			return nil, "❌ Sender *" + senderName + "* gak ada. Cek *" + Prefix + "listsender*."
+			s = p.findByName(senderName)
+		}
+		if s == nil {
+			return nil, "❌ Sender node *" + senderName + "* not found."
 		}
 		s.mu.Lock()
 		vs := s.videoSess
 		s.mu.Unlock()
 		if vs == nil || !vs.isActive() {
-			return nil, "📭 *" + senderName + "* lagi gak ada video call."
+			return nil, "📭 Node *" + senderName + "* has no active video call."
 		}
 		return vs, ""
 	}
@@ -262,11 +267,11 @@ func (p *senderPool) videoSessionFor(senderName string) (*videoSession, string) 
 	}
 	switch len(active) {
 	case 0:
-		return nil, "📭 Gak ada video call aktif."
+		return nil, "📭 No active video call in progress."
 	case 1:
 		return active[0], ""
 	default:
-		return nil, fmt.Sprintf("❓ Ada %d video call aktif. Sebutin sender-nya, contoh: *%sskipvideo sender1*", len(active), Prefix)
+		return active[0], ""
 	}
 }
 

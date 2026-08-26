@@ -198,61 +198,138 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 
 	switch cmd {
 	case "start", "hello", "hi", "king":
-		startCaption := fmt.Sprintf(`╔══════════════════════════════════════════╗
-║  📞 ⚡ 𝑾𝑯𝑨𝑻𝑺𝑨𝑷𝑷 𝑪𝑨𝑳𝑳 𝑩𝑶𝑻 𝑬𝑵𝑮𝑰𝑵𝑬 ⚡ 📞  ║
-║  🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 • 𝑽𝑶𝑰𝑷 𝑴𝑨𝑺𝑻𝑬𝑹 🛡️  ║
+		menuText := fmt.Sprintf(`╔══〔 📞 GO LANG WEBRTC CALLING SUITE 〕══╗
+║ ⚡ Engine: Native WhatsMeow + MeowCaller  ║
+║ 🛡️ SERVER GOD CLAN • VOIP MASTER         ║
 ╚══════════════════════════════════════════╝
-  ✨ *PREFIX* : [  %s  ]  •  🚀 *SPEED* : 0.01s+ (10ms)
+      ⚡ PREFIX  :  %s
+      🔊 DEFAULT : 51.mp3 High-Bass Master Loop
 
-🤖 *Node Session:* Active WhatsMeow Go Engine
-📱 *Linked Account:* Connected
-👑 *Admin ID:* %s
-🔥 *Active Bots:* Online Nodes
-🎯 *VoIP Calling:* MeowCaller Full-Duplex WebRTC (51.mp3 Default)
+╭─ 📞 OUTBOUND REAL VOIP & GROUP CALLS
+│ 📞 %soutcall <Number/@tag> [Song / 51.mp3]
+│    ▸ Dial target and live stream 51.mp3 or YouTube song
+│ 👥 %sgroupcall [Song Name]
+│    ▸ Create native Group Voice Call and stream audio
+│ 🎥 %svideocall <Number> [Song Name]
+│    ▸ 1-on-1 High-Definition Video Call
+│ 📹 %sgroupvideocall [Song Name]
+│    ▸ Group Video Call with live stream
+│ 🚪 %sjoincall [51.mp3/song]
+│    ▸ Join active voice chat and stream loop
+│ 📺 %sscreenshare on/off
+│    ▸ Enable/disable live screen sharing
+│ ✋ %shandraise / %scallreaction <emoji>
+│    ▸ Dispatch live WebRTC reactions
+│ ⏹️ %sendcall / %shangup / %scutcall / %sleavecall
+│    ▸ Terminate active call and loops immediately
+│ 🔇 %scallmute / %scallunmute
+│    ▸ Mute/Unmute microphone stream
+╰──────────────────────────────────────────
 
-╭──────────────────────────────╮
-│ 💡 *QUICK ACTIONS & NAVIGATION*
-│ • Type %smenu for VoIP Calling Menu & Controls
-│ • Type %soutcall <Number> [Song] to place VoIP Call
-│ • Type %sgroupcall [Song] for WhatsApp Group Call
-│ • Type %svideocall <Number> for Video Call
-│ • Type %sviewfiles to see saved recordings
-│ • Type %sping to test network latency
-╰──────────────────────────────╯`, curPrefix, OwnerJID, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix)
-		sendImage(ctx, evt.Info.Chat, "main.png", startCaption)
+╭─ 📲 INCOMING CALL SENTINEL
+│ 🔔 %snoti <Chat_JID>
+│    ▸ Route incoming call alerts to specific group/chat
+│ 📞 %sacceptcall [Song/Track]
+│    ▸ Answer incoming call with live audio stream
+│ 🛑 %srejectcall / %sdeclinecall
+│    ▸ Instantly decline incoming call
+│ 🚫 %santicall on/off
+│    ▸ Auto-reject incoming calls sentinel
+│ 🔓 %sautounmute
+│    ▸ Keep microphone stream continuously open
+│ 📊 %scallstatus
+│    ▸ View active VoIP nodes and running calls
+╰──────────────────────────────────────────
 
-	case "allmenu", "menu", "help", "cmd":
-		if args == "1" {
-			pic := "dashbaord.png"
-			if !fileExists(pic) {
-				pic = "dashboard.png"
-			}
-			sendImage(ctx, evt.Info.Chat, pic, getUltraDashboardMenu(curPrefix))
-		} else if args == "2" {
-			sendImage(ctx, evt.Info.Chat, "main.png", getCallingEngineMenu(curPrefix))
-		} else if args == "3" {
-			sendImage(ctx, evt.Info.Chat, "main.png", getSongDashboardMenu(curPrefix))
-		} else if args == "4" {
-			sendImage(ctx, evt.Info.Chat, "main.png", getVoiceStudioMenu(curPrefix))
-		} else {
-			sendImage(ctx, evt.Info.Chat, "main.png", getMenuPortalText(curPrefix))
-		}
+╭─ 📋 AUDIT & USER MANAGEMENT
+│ 📋 %sauditlog / %saudit / %slogs
+│    ▸ Trace recent user commands and calling actions
+│ 👑 %sadmins / %sshowadmins
+│    ▸ View primary owner and authorized sub-admins
+│ ➕ %saddadmin <Number/@tag>
+│ 🗑️ %sdeladmin <Number/@tag>
+╰──────────────────────────────────────────
 
-	case "1", "ultramenu":
-		pic := "dashbaord.png"
-		if !fileExists(pic) {
-			pic = "dashboard.png"
-		}
-		sendImage(ctx, evt.Info.Chat, pic, getUltraDashboardMenu(curPrefix))
+╭─ 🎵 MEDIA DOWNLOADER & FILE VAULT
+│ 🎥 %splayvideo <Song/Link> (720p HD MP4)
+│ 🎵 %ssong <Song/Link> (320kbps MP3)
+│ 📁 %sviewfiles / %sfiles (List saved recordings)
+│ 🗑️ %sdelfile <filename> (Remove saved file)
+│ 💾 %ssaverd <name> (Save voice note to vault)
+╰──────────────────────────────────────────`,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix)
+		reactMsg(ctx, evt, "📞")
+		sendText(ctx, evt.Info.Chat, menuText)
 
-	case "2", "callmenu":
-		sendImage(ctx, evt.Info.Chat, "main.png", getCallingEngineMenu(curPrefix))
+	case "allmenu", "menu", "help", "cmd", "1", "2", "3", "4", "callmenu":
+		menuText := fmt.Sprintf(`╔══〔 📞 GO LANG WEBRTC CALLING SUITE 〕══╗
+║ ⚡ Engine: Native WhatsMeow + MeowCaller  ║
+║ 🛡️ SERVER GOD CLAN • VOIP MASTER         ║
+╚══════════════════════════════════════════╝
+      ⚡ PREFIX  :  %s
+      🔊 DEFAULT : 51.mp3 High-Bass Master Loop
 
-	case "3", "songmenu":
-		sendImage(ctx, evt.Info.Chat, "main.png", getSongDashboardMenu(curPrefix))
+╭─ 📞 OUTBOUND REAL VOIP & GROUP CALLS
+│ 📞 %soutcall <Number/@tag> [Song / 51.mp3]
+│    ▸ Dial target and live stream 51.mp3 or YouTube song
+│ 👥 %sgroupcall [Song Name]
+│    ▸ Create native Group Voice Call and stream audio
+│ 🎥 %svideocall <Number> [Song Name]
+│    ▸ 1-on-1 High-Definition Video Call
+│ 📹 %sgroupvideocall [Song Name]
+│    ▸ Group Video Call with live stream
+│ 🚪 %sjoincall [51.mp3/song]
+│    ▸ Join active voice chat and stream loop
+│ 📺 %sscreenshare on/off
+│    ▸ Enable/disable live screen sharing
+│ ✋ %shandraise / %scallreaction <emoji>
+│    ▸ Dispatch live WebRTC reactions
+│ ⏹️ %sendcall / %shangup / %scutcall / %sleavecall
+│    ▸ Terminate active call and loops immediately
+│ 🔇 %scallmute / %scallunmute
+│    ▸ Mute/Unmute microphone stream
+╰──────────────────────────────────────────
 
-	case "4", "voicemenu", "openvoice":
-		sendImage(ctx, evt.Info.Chat, "main.png", getVoiceStudioMenu(curPrefix))
+╭─ 📲 INCOMING CALL SENTINEL
+│ 🔔 %snoti <Chat_JID>
+│    ▸ Route incoming call alerts to specific group/chat
+│ 📞 %sacceptcall [Song/Track]
+│    ▸ Answer incoming call with live audio stream
+│ 🛑 %srejectcall / %sdeclinecall
+│    ▸ Instantly decline incoming call
+│ 🚫 %santicall on/off
+│    ▸ Auto-reject incoming calls sentinel
+│ 🔓 %sautounmute
+│    ▸ Keep microphone stream continuously open
+│ 📊 %scallstatus
+│    ▸ View active VoIP nodes and running calls
+╰──────────────────────────────────────────
+
+╭─ 📋 AUDIT & USER MANAGEMENT
+│ 📋 %sauditlog / %saudit / %slogs
+│    ▸ Trace recent user commands and calling actions
+│ 👑 %sadmins / %sshowadmins
+│    ▸ View primary owner and authorized sub-admins
+│ ➕ %saddadmin <Number/@tag>
+│ 🗑️ %sdeladmin <Number/@tag>
+╰──────────────────────────────────────────
+
+╭─ 🎵 MEDIA DOWNLOADER & FILE VAULT
+│ 🎥 %splayvideo <Song/Link> (720p HD MP4)
+│ 🎵 %ssong <Song/Link> (320kbps MP3)
+│ 📁 %sviewfiles / %sfiles (List saved recordings)
+│ 🗑️ %sdelfile <filename> (Remove saved file)
+│ 💾 %ssaverd <name> (Save voice note to vault)
+╰──────────────────────────────────────────`,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix)
+		reactMsg(ctx, evt, "📞")
+		sendText(ctx, evt.Info.Chat, menuText)
 
 	case "ping", "runtime", "speed", "status", "stats":
 		handlePing(ctx, evt)
@@ -1330,20 +1407,80 @@ func handleSkip(ctx context.Context, evt *events.Message, args string) {
 }
 
 func handleStop(ctx context.Context, evt *events.Message, args string) {
-	sess, msg := pool.sessionFor(strings.TrimSpace(args))
-	if sess == nil {
-		sendText(ctx, evt.Info.Chat, msg)
-		return
+	endedAny := false
+
+	// 1. Check direct targeted session
+	sess, _ := pool.sessionFor(strings.TrimSpace(args))
+	if sess != nil {
+		sess.mu.Lock()
+		call := sess.call
+		player := sess.player
+		sess.reset()
+		sess.mu.Unlock()
+		if player != nil {
+			player.Stop()
+		}
+		if call != nil {
+			_ = call.Hangup()
+		}
+		sess.stopAll()
+		endedAny = true
 	}
-	sess.mu.Lock()
-	call := sess.call
-	sess.reset()
-	sess.mu.Unlock()
+
+	// 2. Check video call session
+	vsess, _ := pool.videoSessionFor(strings.TrimSpace(args))
+	if vsess != nil {
+		vsess.mu.Lock()
+		call := vsess.call
+		vsess.active = false
+		vsess.mu.Unlock()
+		if call != nil {
+			_ = call.Hangup()
+		}
+		endedAny = true
+	}
+
+	// 3. Clean up any active sessions across all senders in pool
+	for _, s := range pool.list() {
+		s.mu.Lock()
+		curSess := s.sess
+		curVSess := s.videoSess
+		s.sess = nil
+		s.videoSess = nil
+		s.mu.Unlock()
+
+		if curSess != nil {
+			curSess.mu.Lock()
+			c := curSess.call
+			p := curSess.player
+			curSess.reset()
+			curSess.mu.Unlock()
+			if p != nil {
+				p.Stop()
+			}
+			if c != nil {
+				_ = c.Hangup()
+			}
+			curSess.stopAll()
+			endedAny = true
+		}
+		if curVSess != nil {
+			curVSess.mu.Lock()
+			vc := curVSess.call
+			curVSess.active = false
+			curVSess.mu.Unlock()
+			if vc != nil {
+				_ = vc.Hangup()
+			}
+			endedAny = true
+		}
+	}
 
 	reactMsg(ctx, evt, "🛑")
-	sendText(ctx, evt.Info.Chat, "🛑 Call ended.")
-	if call != nil {
-		_ = call.Hangup()
+	if endedAny {
+		sendText(ctx, evt.Info.Chat, "🛑 *Call terminated & voice stream disconnected successfully.*")
+	} else {
+		sendText(ctx, evt.Info.Chat, "📭 *No active call was found running.*")
 	}
 }
 
