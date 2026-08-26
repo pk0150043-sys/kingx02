@@ -320,13 +320,13 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🚪 *Call Waiting Room:* *%s*", args))
 
-	case "callmute", "mute":
+	case "callmute":
 		if !requireAdmin() {
 			return
 		}
 		sendText(ctx, evt.Info.Chat, "🔇 *Call Muted (Microphone Muted)*")
 
-	case "callunmute", "unmute":
+	case "callunmute":
 		if !requireAdmin() {
 			return
 		}
