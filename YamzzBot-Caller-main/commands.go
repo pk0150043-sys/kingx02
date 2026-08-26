@@ -142,21 +142,11 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 	}
 
 	curPrefix := getPrefix()
-	hasPrefix := strings.HasPrefix(text, curPrefix) || strings.HasPrefix(text, "+") || strings.HasPrefix(text, ".") || strings.HasPrefix(text, "!") || strings.HasPrefix(text, "/")
-
-	if evt.Info.IsFromMe || text == "" || !hasPrefix {
+	if evt.Info.IsFromMe || text == "" || !strings.HasPrefix(text, curPrefix) {
 		return
 	}
 
-	usedP := curPrefix
-	for _, p := range []string{curPrefix, "+", ".", "!", "/"} {
-		if strings.HasPrefix(text, p) {
-			usedP = p
-			break
-		}
-	}
-
-	body := strings.TrimSpace(strings.TrimPrefix(text, usedP))
+	body := strings.TrimSpace(strings.TrimPrefix(text, curPrefix))
 	if body == "" {
 		return
 	}
@@ -275,8 +265,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 ╰──────────────────────────────────────────
 
 ╭─ 🎵 MEDIA DOWNLOADER & FILE VAULT
-│ 🎥 {P}playvideo <Song/Link> (720p HD MP4)
-│ 🎵 {P}song <Song/Link> (320kbps MP3)
+│ 🎵 {P}song <Song/Link> (JioSaavn / 320kbps MP3)
 │ 📁 {P}viewfiles / {P}files (List saved recordings)
 │ 🗑️ {P}delfile <filename> (Remove saved file)
 │ 💾 {P}saverd <name> (Save voice note to vault)
@@ -454,13 +443,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		}
 		go handleDelFile(ctx, evt, args)
 
-	// ── Media Downloader & Music Suite Commands ──
-	case "playvideo", "video", "ytvideo", "play2", "ytv", "playsec", "play5video":
-		if !requireAdmin() {
-			return
-		}
-		go handleDownloadVideo(ctx, evt, args)
-
+	// ── Media Downloader & Music Suite Commands (JioSaavn & Audio Loop) ──
 	case "song", "audio", "play", "ytaudio", "yta", "play1", "music", "gana", "songplay", "jiosong", "jio":
 		if !requireAdmin() {
 			return
@@ -972,36 +955,58 @@ func handleDownloadVideo(ctx context.Context, evt *events.Message, query string)
 
 func handleDownloadSong(ctx context.Context, evt *events.Message, query string) {
 	if query == "" {
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ *Usage:* `%ssong <Song Name or YouTube Link>`", getPrefix()))
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ *Usage:* `%ssong <Song Name or Jio/YouTube Link>`", getPrefix()))
 		return
 	}
 	reactMsg(ctx, evt, "⏳")
-	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🎵 _Searching & downloading song for '%s'..._", query))
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🎵 _Searching & downloading HD audio for '%s'..._", query))
 
+	// Priority 1: Direct JioSaavn Search & High Quality Download
 	tmpFile := fmt.Sprintf("tmp_song_%d.mp3", time.Now().UnixMilli())
-	res, err := DownloadYouTubeMediaGo(query, "audio", tmpFile)
-	if err != nil || res == nil {
+	jFile, jTitle, jArtist, jerr := downloadJioSaavnSong(query, tmpFile)
+	var finalFile, finalTitle string
+
+	if jerr == nil && jFile != "" && fileExists(jFile) {
+		finalFile = jFile
+		finalTitle = fmt.Sprintf("%s - %s", jTitle, jArtist)
+	} else {
+		// Priority 2: yt-dlp / Multi-extractor fallback
+		res, err := DownloadYouTubeMediaGo(query, "audio", tmpFile)
+		if err == nil && res != nil && fileExists(res.FilePath) {
+			finalFile = res.FilePath
+			finalTitle = res.Title
+		}
+	}
+
+	if finalFile == "" || !fileExists(finalFile) {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, evt.Info.Chat, "❌ Gagal mendownload audio.")
+		sendText(ctx, evt.Info.Chat, "❌ Failed to download audio. Please check the song name.")
 		return
 	}
-	defer os.Remove(res.FilePath)
+	defer os.Remove(finalFile)
 
-	data, err := os.ReadFile(res.FilePath)
+	data, err := os.ReadFile(finalFile)
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
 		return
 	}
 
-	uploaded, err := waClient.Upload(ctx, data, whatsmeow.MediaAudio)
+	cli := getActiveClient()
+	if cli == nil {
+		reactMsg(ctx, evt, "❌")
+		sendText(ctx, evt.Info.Chat, "❌ WhatsApp client not connected.")
+		return
+	}
+
+	uploaded, err := cli.Upload(ctx, data, whatsmeow.MediaAudio)
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ Upload audio gagal: %v", err))
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ Audio upload failed: %v", err))
 		return
 	}
 
 	reactMsg(ctx, evt, "✅")
-	_, _ = waClient.SendMessage(ctx, evt.Info.Chat, &waE2E.Message{
+	_, _ = cli.SendMessage(ctx, evt.Info.Chat, &waE2E.Message{
 		AudioMessage: &waE2E.AudioMessage{
 			URL:           proto.String(uploaded.URL),
 			DirectPath:    proto.String(uploaded.DirectPath),
@@ -1012,6 +1017,7 @@ func handleDownloadSong(ctx context.Context, evt *events.Message, query string) 
 			FileLength:    proto.Uint64(uploaded.FileLength),
 		},
 	})
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🎶 *%s* (320kbps Audio Sent)", finalTitle))
 }
 
 func handleTTS(ctx context.Context, evt *events.Message, text string) {

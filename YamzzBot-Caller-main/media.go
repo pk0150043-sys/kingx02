@@ -95,31 +95,35 @@ func DownloadYouTubeMediaGo(queryOrUrl string, mediaType string, outPath string)
 		return findGeneratedFile(baseNoExt) != ""
 	}
 
-	// Attempt 1: android_creator,tv_embedded,ios,android (best for datacenter IPs)
-	if runExtractor("android_creator,tv_embedded,ios,android") {
-		found := findGeneratedFile(baseNoExt)
-		fi, _ := os.Stat(found)
-		return &MediaDownloadResult{FilePath: found, Title: cleanTarget, FileSize: fi.Size()}, nil
-	}
-
-	// Attempt 2: ios,tv_embedded
-	if runExtractor("ios,tv_embedded") {
-		found := findGeneratedFile(baseNoExt)
-		fi, _ := os.Stat(found)
-		return &MediaDownloadResult{FilePath: found, Title: cleanTarget, FileSize: fi.Size()}, nil
-	}
-
-	// Attempt 3: JioSaavn fallback for audio
-	if mediaType == "audio" {
+	// Attempt 1: JioSaavn direct high-speed download for audio queries
+	if mediaType == "audio" && !isURL {
 		jioFile, jioTitle, jioArtist, err := downloadJioSaavnSong(cleanTarget, baseNoExt+".mp3")
-		if err == nil && jioFile != "" {
+		if err == nil && jioFile != "" && fileExists(jioFile) {
 			fi, _ := os.Stat(jioFile)
 			return &MediaDownloadResult{
 				FilePath: jioFile,
-				Title:    jioTitle,
+				Title:    fmt.Sprintf("%s - %s", jioTitle, jioArtist),
 				Artist:   jioArtist,
 				FileSize: fi.Size(),
 			}, nil
+		}
+	}
+
+	// Attempt 2: yt-dlp android_creator,tv_embedded,ios,android (best for datacenter IPs)
+	if runExtractor("android_creator,tv_embedded,ios,android") {
+		found := findGeneratedFile(baseNoExt)
+		if found != "" {
+			fi, _ := os.Stat(found)
+			return &MediaDownloadResult{FilePath: found, Title: cleanTarget, FileSize: fi.Size()}, nil
+		}
+	}
+
+	// Attempt 3: yt-dlp ios,tv_embedded
+	if runExtractor("ios,tv_embedded") {
+		found := findGeneratedFile(baseNoExt)
+		if found != "" {
+			fi, _ := os.Stat(found)
+			return &MediaDownloadResult{FilePath: found, Title: cleanTarget, FileSize: fi.Size()}, nil
 		}
 	}
 
