@@ -1365,7 +1365,7 @@ func resolveTarget(ctx context.Context, evt *events.Message, args string) (targe
 		}
 		title = strings.TrimSpace(args)
 		if title == "" {
-			title = "tum hi ho"
+			title = "51.mp3"
 		}
 		return quoted, title, nil
 	}
@@ -1374,18 +1374,21 @@ func resolveTarget(ctx context.Context, evt *events.Message, args string) (targe
 		number := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(parts[0]), "+"))
 		number = strings.NewReplacer(" ", "", "-", "").Replace(number)
 		title = strings.TrimSpace(parts[1])
+		if title == "" {
+			title = "51.mp3"
+		}
 		return number, title, nil
 	}
 	fields := strings.Fields(args)
 	if len(fields) >= 1 {
 		number := strings.TrimSpace(strings.TrimPrefix(fields[0], "+"))
-		title := "tum hi ho"
+		title := "51.mp3"
 		if len(fields) > 1 {
 			title = strings.Join(fields[1:], " ")
 		}
 		return number, title, nil
 	}
-	return "", "", fmt.Errorf("format salah. contoh: %splaycall 9199xxxx, tum hi ho", getPrefix())
+	return "", "", fmt.Sprintf("format: %splaycall <PhoneNumber / @tag> [Song Name / 51.mp3]", getPrefix())
 }
 
 func getActiveClient() *whatsmeow.Client {
@@ -1482,193 +1485,201 @@ func reactMsg(ctx context.Context, evt *events.Message, emoji string) {
 }
 
 func getMenuPortalText(prefix string) string {
-	return fmt.Sprintf(`╭──────────────────────────────╮
+	tpl := `╭──────────────────────────────╮
 │ 👑 𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑴𝑬𝑵𝑼 𝑷𝑶𝑹𝑻𝑨𝑳 ⚡ │
 │ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
 ╰──────────────────────────────╯
-      ⚡ PREFIX  :  %s
+      ⚡ PREFIX  :  {P}
       🚀 SPEED   : 0.01s+
 
 Please select a Dashboard by replying with number (1, 2, 3, or 4):
 
-1️⃣ 1 or %smenu 1 ➔ 👑 𝑼𝑳𝑻𝑹𝑨 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫
+1️⃣ 1 or {P}menu 1 ➔ 👑 𝑼𝑳𝑻𝑹𝑨 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫
    (Target • NC • DC • Spam • PFP • Poll • Radar • Utility • Multi-Node)
 
-2️⃣ 2 or %smenu 2 ➔ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬
+2️⃣ 2 or {P}menu 2 ➔ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬
    (Outcall • VN • Recordings • 51.mp3 Loop • JioCall • Autounmute • ScreenShare • GroupCall)
 
-3️⃣ 3 or %smenu 3 ➔ 🎵 𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫
+3️⃣ 3 or {P}menu 3 ➔ 🎵 𝑴𝑼𝑺𝑰𝑪 & 𝑺𝑶𝑵𝑮 𝑫𝑨𝑺𝑯𝑩𝑶𝑨𝑹𝑫
    (JioSaavn 320kbps • Spotify HD • YouTube Video • Song Loops)
 
-4️⃣ 4 or %smenu 4 ➔ 🎙️ 𝑨𝑰 𝑽𝑶𝑰𝑪𝑬 𝑺𝑻𝑼𝑫𝑰𝑶 & 𝑪𝑳𝑶𝑵𝑰𝑵𝑮
+4️⃣ 4 or {P}menu 4 ➔ 🎙️ 𝑨𝑰 𝑽𝑶𝑰𝑪𝑬 𝑺𝑻𝑼𝑫𝑰𝑶 & 𝑪𝑳𝑶𝑵𝑰𝑵𝑮
    (OpenVoice V2 • AI Voice Note • Voice Changer • Clone Speech • Text-to-Speech)
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
 ╰──────────────────────────────╯
-👉 Reply 1, 2, 3, or 4 (or use shortcut %smenu 1, %smenu 2, %smenu 3, %smenu 4)`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+👉 Reply 1, 2, 3, or 4 (or use shortcut {P}menu 1, {P}menu 2, {P}menu 3, {P}menu 4)`
+	return strings.ReplaceAll(tpl, "{P}", prefix)
 }
 
 func getUltraDashboardMenu(prefix string) string {
-	return fmt.Sprintf(`╭──────────────────────────────╮
+	tpl := `╭──────────────────────────────╮
 │ 👑 𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽2.0 ⚡ │
 │ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
 ╰──────────────────────────────╯
-      ⚡ PREFIX  :  %s
+      ⚡ PREFIX  :  {P}
       🚀 SPEED   : 0.01s+
 
 ╭─ 🎯 𝑻𝑨𝑹𝑮𝑬𝑻 𝑺𝒀𝑺𝑻𝑬𝑴
-│ 🎯 %starget @tag <Text>
-│ 🛑 %sstoptarget @tag
-│ 📋 %stargetlist
-│ ⏱️ %stargetdelay <0.01-20>
+│ 🎯 {P}target @tag <Text>
+│ 🛑 {P}stoptarget @tag
+│ 📋 {P}targetlist
+│ ⏱️ {P}targetdelay <0.01-20>
 ╰──────────────────────
 
 ╭─ ⚡ 𝑵𝑹 & 𝑵𝑪 (𝑹𝑨𝑰𝑫 & 𝑺𝑷𝑨𝑴)
-│ ⚡ %snr <Text> / %sstopnr
-│ 🌀 %snc <Text> / %sstopnc
-│ ⏱️ %sncdelay <0.01-20>
-│ 📨 %ssend <Number/JID> <Text>
+│ ⚡ {P}nr <Text> / {P}stopnr
+│ 🌀 {P}nc <Text> / {P}stopnc
+│ ⏱️ {P}ncdelay <0.01-20>
+│ 📨 {P}send <Number/JID> <Text>
 ╰──────────────────────
 
 ╭─ 🚀 𝑭𝑳𝑶𝑶𝑫 & 𝑺𝑾𝑰𝑷𝑬
-│ 🚀 %sspam <Text> / %sstopspam
-│ 🔄 %sswipe <Text> / %sstopswipe
-│ 🚨 %sstopall
+│ 🚀 {P}spam <Text> / {P}stopspam
+│ 🔄 {P}swipe <Text> / {P}stopswipe
+│ 🚨 {P}stopall
 ╰──────────────────────
 
 ╭─ 🛡️ 𝑴𝑶𝑫𝑬𝑹𝑨𝑻𝑰𝑶𝑵 & 𝑮𝑹𝑶𝑼𝑷
-│ 📢 %stagall <Text> / %shidetag <Text>
-│ 👑 %saddadmin <Number> / %sdeladmin
-│ ➕ %sadd <Number> / 🧹 %skick @tag
-│ 🚪 %sjoin <Link> / 🚪 %sleave
-│ 🔗 %sgclink / ⚡ %sping
+│ 📢 {P}tagall <Text> / {P}hidetag <Text>
+│ 👑 {P}addadmin <Number> / {P}deladmin
+│ ➕ {P}add <Number> / 🧹 {P}kick @tag
+│ 🚪 {P}join <Link> / 🚪 {P}leave
+│ 🔗 {P}gclink / ⚡ {P}ping
 ╰──────────────────────
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
-╰──────────────────────────────╯`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+╰──────────────────────────────╯`
+	return strings.ReplaceAll(tpl, "{P}", prefix)
 }
 
 func getCallingEngineMenu(prefix string) string {
-	return fmt.Sprintf(`╭──────────────────────────────╮
+	tpl := `╭──────────────────────────────╮
 │ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬 ⚡ │
 │ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
 ╰──────────────────────────────╯
-      ⚡ PREFIX  :  %s
+      ⚡ PREFIX  :  {P}
       🚀 SPEED   : 0.01s+
       🎥 CALLING : 18 Real VoIP Audio & Video Features
 
 ╭─ 📞 𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 & 𝑽𝑰𝑫𝑬𝑶 𝑪𝑨𝑳𝑳𝑺
-│ 📞 %scall <Number> [Song/Track]
-│ 🎥 %svideocall <Number> [Song/Track]
-│ 🎶 %splayytcall <Song Name or YouTube Link>
-│ 📹 %splay2ytcall <Song Name or YouTube Link>
-│ 🔊 %splay1call / %splaycall
-│ 📺 %splay2call
-│ 🚪 %sjoincall [51.mp3/song]
-│ 🔄 %saudiotovideo / %svideotoaudio
-│ 👥 %saddparticipant <Number>
-│ 📺 %sscreenshare
-│ ✋ %shandraise / %scallreaction <emoji>
-│ 🚪 %swaitingroom on/off
-│ ⏹️ %sendcall / %scutcall / %shangup
-│ 🔇 %scallmute / %scallunmute
+│ 📞 {P}call <Number> [Song/Track]
+│ 🎥 {P}videocall <Number> [Song/Track]
+│ 👥 {P}groupcall [Song/Track or 51.mp3]
+│ 🎥 {P}groupvideocall [Song/Track]
+│ 🎶 {P}playytcall <Song Name or YouTube Link>
+│ 📹 {P}play2ytcall <Song Name or YouTube Link>
+│ 🔊 {P}play1call / {P}playcall (51.mp3 Loop)
+│ 📺 {P}play2call (Video Loop)
+│ 🚪 {P}joincall [51.mp3/song]
+│ 🔄 {P}audiotovideo / {P}videotoaudio
+│ 👥 {P}addparticipant <Number>
+│ 📺 {P}screenshare on/off
+│ ✋ {P}handraise / {P}callreaction <emoji>
+│ 🚪 {P}waitingroom on/off
+│ ⏹️ {P}endcall / {P}hangup / {P}cutcall
+│ 🔇 {P}callmute / 🔊 {P}callunmute
 ╰──────────────────────
 
 ╭─ 📲 𝑰𝑵𝑪𝑶𝑴𝑰𝑵𝑮 𝑪𝑨𝑳𝑳 𝑪𝑶𝑵𝑻𝑹𝑶𝑳
-│ 🔔 %snoti <Chat_ID>
-│ 📞 %sacceptcall [Song/Track]
-│ 🛑 %srejectcall / %sdeclinecall
-│ 🚫 %santicall on/off
-│ 🔓 %sautounmute
-│ 📊 %scallstatus
+│ 🔔 {P}noti <Chat_ID>
+│ 📞 {P}acceptcall [Song/Track]
+│ 🛑 {P}rejectcall / {P}declinecall
+│ 🚫 {P}anticall on/off
+│ 🔓 {P}autounmute
+│ 📊 {P}callstatus
 ╰──────────────────────
 
-╭─ 💾 𝑪𝑼𝑺𝑻𝑶𝑴 𝑹𝑬𝑪𝑶𝑹𝑫𝑰𝑵𝑮𝑺
-│ 💾 %ssaverd <name>
-│ 📋 %slistrd
-│ ▶️ %splayrd <name>
-│ 🗑️ %sdelrd <name>
-│ 🗣️ %scvn <Text>
+╭─ 💾 𝑪𝑼𝑺𝑻𝑶𝑴 𝑹𝑬𝑪𝑶𝑹𝑫𝑰𝑵𝑮𝑺 & 𝑭𝑰𝑳𝑬𝑺
+│ 📁 {P}viewfiles / {P}files
+│ 🗑️ {P}delfile <filename>
+│ 💾 {P}saverd <name>
+│ 📋 {P}listrd
+│ ▶️ {P}playrd <name>
+│ 🗣️ {P}cvn <Text>
 ╰──────────────────────
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
-╰──────────────────────────────╯`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+╰──────────────────────────────╯`
+	return strings.ReplaceAll(tpl, "{P}", prefix)
 }
 
 func getSongDashboardMenu(prefix string) string {
-	return fmt.Sprintf(`╭──────────────────────────────╮
+	tpl := `╭──────────────────────────────╮
 │ 🎵 𝑴𝑼𝑺𝑰𝑪 & 𝑽𝑰𝑫𝑬𝑶 𝑬𝑵𝑮𝑰𝑵𝑬 🎶   │
 │ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
 ╰──────────────────────────────╯
-      ⚡ PREFIX  :  %s
+      ⚡ PREFIX  :  {P}
       🚀 SPEED   :  Ultra-Fast Non-Blocking
       🎧 ENGINES :  YouTube • JioSaavn • Spotify • Audius
 
 ╭─ ▶️ 𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑽𝑰𝑫𝑬𝑶 & 𝑨𝑼𝑫𝑰𝑶
-│ 🎥 %splayvideo <Song/Link> (or %splay2)
+│ 🎥 {P}playvideo <Song/Link> (or {P}play2)
 │    ▸ Instant 720p HD MP4 Video with H.264 Universal Mobile Codec
-│ 🎵 %ssong <Song/Link> (or %splay1 / %smusic)
+│ 🎵 {P}song <Song/Link> (or {P}play1 / {P}music)
 │    ▸ Instant 320kbps MP3 Audio Download & Play
-│ ⏱️ %splaysec <seconds> [Song/Link]
+│ ⏱️ {P}playsec <seconds> [Song/Link]
 │    ▸ Cut and send precise high-speed video clip
-│ 🔁 %splay5video
+│ 🔁 {P}play5video
 │    ▸ Continuous 5s High-Energy Loop in chat
 
 ╭─ 📞 𝑪𝑨𝑳𝑳 𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑺𝑻𝑹𝑬𝑨𝑴𝑬𝑹
-│ 🎶 %splayytcall <Song/Link>
+│ 🎶 {P}playytcall <Song/Link>
 │    ▸ Stream YouTube Audio into Live Call in real-time
-│ 📹 %splay2ytcall <Song/Link>
+│ 📹 {P}play2ytcall <Song/Link>
 │    ▸ Stream YouTube Video & Audio into Live Video Call
-│ 🔊 %splay1call (or %splaycall)
+│ 🔊 {P}play1call (or {P}playcall)
 │    ▸ Stream 51.mp3 high-bass loop directly into Call
-│ 📺 %splay2call
+│ 📺 {P}play2call
 │    ▸ Stream 2.mp4 video loop directly into Video Call
 
 ╭─ 🎵 𝑱𝑰𝑶𝑺𝑨𝑨𝑽𝑵 & 𝑺𝑷𝑶𝑻𝑰𝑭𝒀
-│ 🎧 %sgana <Song Name>
+│ 🎧 {P}gana <Song Name>
 │    ▸ Spotify official metadata + HD JioSaavn audio
-│ 🎶 %ssongplay <Song Name>
+│ 🎶 {P}songplay <Song Name>
 │    ▸ Instant voice note (PTT) player
-│ 🔁 %ssongloop <Song Name>
+│ 🔁 {P}songloop <Song Name>
 │    ▸ Continuous audio loop in chat
-│ 🛑 %sstopsong
+│ 🛑 {P}stopsong
 │    ▸ Stop any ongoing chat audio loop
 
 ╭─ 💾 𝑪𝑼𝑺𝑻𝑶𝑴 𝑹𝑬𝑪𝑶𝑹𝑫𝑰𝑵𝑮𝑺
-│ 💾 %ssaverd <name> / ▶️ %splayrd <name>
+│ 💾 {P}saverd <name> / ▶️ {P}playrd <name>
 │    ▸ Save and replay custom audio on VoIP Call
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
-╰──────────────────────────────╯`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+╰──────────────────────────────╯`
+	return strings.ReplaceAll(tpl, "{P}", prefix)
 }
 
 func getVoiceStudioMenu(prefix string) string {
-	return fmt.Sprintf(`╭──────────────────────────────╮
+	tpl := `╭──────────────────────────────╮
 │ 🎙️ 𝑨𝑰 𝑽𝑶𝑰𝑪𝑬 𝑺𝑻𝑼𝑫𝑰𝑶 & 𝑪𝑳𝑶𝑵𝑬 👑 │
 │ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
 ╰──────────────────────────────╯
-      ⚡ PREFIX  :  %s
+      ⚡ PREFIX  :  {P}
       🧠 ENGINE  :  OpenVoice V2 + Neural TTS
       🎙️ OUTPUT  :  Native Voice Note (PTT) / HD Audio
 
 ╭─ 🎤 𝑨𝑰 𝑽𝑶𝑰𝑪𝑬 𝑵𝑶𝑻𝑬 (𝑻𝑻𝑺)
-│ 🎙️ %svn <Text> (or %ssay <Text> / %stts <Text>)
-│ 🤖 %srobotvn <Text>
-│ 🗣️ %sclonevoice <Text>
+│ 🎙️ {P}vn <Text> (or {P}say <Text> / {P}tts <Text>)
+│ 🤖 {P}robotvn <Text>
+│ 🗣️ {P}clonevoice <Text>
 ╰──────────────────────
 
 ╭─ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳 𝑽𝑶𝑰𝑪𝑬 𝑰𝑵𝑱𝑬𝑪𝑻𝑶𝑹
-│ 🗣️ %scvn <Speech Text>
-│ 💾 %ssaverd <name> / ▶️ %splayrd <name>
+│ 🗣️ {P}cvn <Speech Text>
+│ 💾 {P}saverd <name> / ▶️ {P}playrd <name>
 ╰──────────────────────
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
-╰──────────────────────────────╯`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+╰──────────────────────────────╯`
+	return strings.ReplaceAll(tpl, "{P}", prefix)
 }
 // ── Raid, Target & Utility Implementations in Go ──
 
