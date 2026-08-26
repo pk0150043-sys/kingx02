@@ -3666,23 +3666,69 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          // +listrd (List all saved recordings)
-          if (cmd === 'listrd') {
+          // +viewfiles / +files / +savedfiles / +listrd (List all saved audio & media files with size & remove action)
+          if (cmd === 'viewfiles' || cmd === 'files' || cmd === 'savedfiles' || cmd === 'listrd' || cmd === 'allfiles') {
             try {
-              const files = fs.readdirSync(RECORDINGS_DIR).filter(f => f.endsWith('.mp3') || f.endsWith('.m4a'));
-              if (!files.length) {
-                await sock.sendMessage(jid, { text: `📋 *No saved recordings found.* Use \`${sess.prefix}saverd <name>\` by replying to an audio.` }, { quoted: msg });
+              let allMediaFiles = [];
+              if (fs.existsSync(RECORDINGS_DIR)) {
+                const recFiles = fs.readdirSync(RECORDINGS_DIR).map(f => ({ name: f, dir: RECORDINGS_DIR, type: 'Recording (./recordings/)' }));
+                allMediaFiles.push(...recFiles);
+              }
+              const rootFiles = fs.readdirSync(__dirname).filter(f => f.endsWith('.mp3') || f.endsWith('.mp4') || f.endsWith('.opus') || f.endsWith('.wav') || f.endsWith('.m4a'));
+              rootFiles.forEach(f => {
+                allMediaFiles.push({ name: f, dir: __dirname, type: 'Root Media (./)' });
+              });
+
+              if (!allMediaFiles.length) {
+                await sock.sendMessage(jid, {
+                  text: `╔══〔 📁 *SAVED FILES EXPLORER* 〕══╗\n┃ 📁 *Status:* No saved audio/media files found.\n┃ 💡 *Tip:* Save any audio with \`${sess.prefix}saverd <name>\` by replying to a voice note.\n╚════════════════════════════════╝`
+                }, { quoted: msg });
                 continue;
               }
-              let txt = `╔══〔 📋 *SAVED RECORDINGS (${files.length})* 〕══╗\n`;
-              files.forEach((f, i) => {
-                const stat = fs.statSync(path.join(RECORDINGS_DIR, f));
-                txt += `┃ ${i + 1}. *${f}* (${Math.round(stat.size / 1024)} KB)\n`;
+
+              let txt = `╔══〔 📁 *SAVED MEDIA & AUDIO VAULT (${allMediaFiles.length})* 〕══╗\n`;
+              allMediaFiles.forEach((f, i) => {
+                try {
+                  const stat = fs.statSync(path.join(f.dir, f.name));
+                  const sizeKb = (stat.size / 1024).toFixed(1);
+                  const sizeMb = (stat.size / (1024 * 1024)).toFixed(2);
+                  const displaySize = stat.size > 1048576 ? `${sizeMb} MB` : `${sizeKb} KB`;
+                  txt += `┃ ${i + 1}. 🎵 *${f.name}*\n┃    📦 Size: \`${displaySize}\` | 📂 \`${f.type}\`\n`;
+                } catch(e) {}
               });
-              txt += `╚════════════════════════════════════╝\n_Play with \`${sess.prefix}playrd <name>\`_`;
+              txt += `╚════════════════════════════════════════╝\n💡 *Actions:*\n• Play on call: \`${sess.prefix}playrd <filename>\`\n• Delete file: \`${sess.prefix}delfile <filename>\` or \`${sess.prefix}delrd <name>\``;
               await sock.sendMessage(jid, { text: txt }, { quoted: msg });
             } catch (listErr) {
-              await sock.sendMessage(jid, { text: `❌ List error: ${listErr.message}` }, { quoted: msg });
+              await sock.sendMessage(jid, { text: `❌ File explorer error: ${listErr.message}` }, { quoted: msg });
+            }
+            continue;
+          }
+
+          // +delfile <filename> / +removefile <filename>
+          if (cmd === 'delfile' || cmd === 'removefile') {
+            const fileName = (fullArg || '').trim();
+            if (!fileName) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}delfile <filename>\`\nExample: \`${sess.prefix}delfile test.mp3\`` }, { quoted: msg });
+              continue;
+            }
+            let targetPath = path.join(RECORDINGS_DIR, fileName);
+            if (!fs.existsSync(targetPath)) {
+              targetPath = path.join(__dirname, fileName);
+            }
+            if (!fs.existsSync(targetPath)) {
+              targetPath = path.join(RECORDINGS_DIR, `${fileName}.mp3`);
+            }
+            if (!fs.existsSync(targetPath)) {
+              await sock.sendMessage(jid, { text: `❌ File \`${fileName}\` not found in recordings or root folder. Use \`${sess.prefix}viewfiles\` to see available files.` }, { quoted: msg });
+              continue;
+            }
+            try {
+              fs.unlinkSync(targetPath);
+              await sock.sendMessage(jid, {
+                text: `🗑️ *[FILE REMOVED]*\nSuccessfully deleted file: \`${path.basename(targetPath)}\` from server disk.`
+              }, { quoted: msg });
+            } catch (err) {
+              await sock.sendMessage(jid, { text: `❌ Error deleting file: ${err.message}` }, { quoted: msg });
             }
             continue;
           }

@@ -386,23 +386,17 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🗣️ *[VOIP SPEECH INJECTOR]*: %s", args))
 
-	case "listrd":
+	case "viewfiles", "files", "savedfiles", "listrd", "allfiles":
 		if !requireAdmin() {
 			return
 		}
-		sendText(ctx, evt.Info.Chat, "📋 *Recordings Directory:* `51.mp3`, `52.mp4` (Use `+playrd <name>` to stream on call)")
+		go handleViewFiles(ctx, evt)
 
-	case "playrd":
+	case "delfile", "removefile", "delrd":
 		if !requireAdmin() {
 			return
 		}
-		go handlePlaycall(ctx, evt, args)
-
-	case "delrd":
-		if !requireAdmin() {
-			return
-		}
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🗑️ *Recording `%s` deleted.*", args))
+		go handleDelFile(ctx, evt, args)
 
 	// ── Media Downloader & Music Suite Commands ──
 	case "playvideo", "video", "ytvideo", "play2", "ytv", "playsec", "play5video":
@@ -2038,4 +2032,60 @@ func handleMute(ctx context.Context, evt *events.Message, args string, mute bool
 		reactMsg(ctx, evt, "🔊")
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🔊 *Unmuted `@%s`*", target))
 	}
+}
+
+func handleViewFiles(ctx context.Context, evt *events.Message) {
+	var filesList []string
+	if entries, err := os.ReadDir("recordings"); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				if info, err := e.Info(); err == nil {
+					sz := float64(info.Size()) / 1024.0
+					filesList = append(filesList, fmt.Sprintf("🎵 *%s* (`%.1f KB` | `./recordings/`)", e.Name(), sz))
+				}
+			}
+		}
+	}
+	if entries, err := os.ReadDir("."); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && (strings.HasSuffix(e.Name(), ".mp3") || strings.HasSuffix(e.Name(), ".mp4") || strings.HasSuffix(e.Name(), ".opus")) {
+				if info, err := e.Info(); err == nil {
+					sz := float64(info.Size()) / 1024.0
+					filesList = append(filesList, fmt.Sprintf("🎵 *%s* (`%.1f KB` | `./`)", e.Name(), sz))
+				}
+			}
+		}
+	}
+	if len(filesList) == 0 {
+		sendText(ctx, evt.Info.Chat, "📁 *No saved media or audio files found.*")
+		return
+	}
+	txt := fmt.Sprintf("╔══〔 📁 *SAVED FILES VAULT (%d)* 〕══╗\n", len(filesList))
+	for i, f := range filesList {
+		txt += fmt.Sprintf("┃ %d. %s\n", i+1, f)
+	}
+	txt += "╚════════════════════════════════════╝\n💡 *Actions:*\n• Stream on call: `+playrd <name>`\n• Delete file: `+delfile <filename>`"
+	sendText(ctx, evt.Info.Chat, txt)
+}
+
+func handleDelFile(ctx context.Context, evt *events.Message, args string) {
+	fileName := strings.TrimSpace(args)
+	if fileName == "" {
+		sendText(ctx, evt.Info.Chat, "❌ Usage: `+delfile <filename>`")
+		return
+	}
+	paths := []string{
+		filepath.Join("recordings", fileName),
+		fileName,
+		filepath.Join("recordings", fileName+".mp3"),
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			_ = os.Remove(p)
+			reactMsg(ctx, evt, "🗑️")
+			sendText(ctx, evt.Info.Chat, fmt.Sprintf("🗑️ *[FILE REMOVED]* Successfully deleted `%s`", filepath.Base(p)))
+			return
+		}
+	}
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ File `%s` not found.", fileName))
 }
