@@ -129,10 +129,8 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 		})
 	})
 
-	// Cuma sender utama (index 0) yang nangkep command & event chat.
-	if index == 0 {
-		wa.AddEventHandler(func(evt any) { mainSenderEvents(s, evt) })
-	}
+	// All active bot nodes process commands & chat events
+	wa.AddEventHandler(func(evt any) { mainSenderEvents(s, evt) })
 	return s
 }
 
@@ -385,16 +383,32 @@ func (p *senderPool) startQRLogin(ctx context.Context, name string) (string, err
 		}
 	})
 
-	select {
-	case evt, ok := <-qrChan:
-		if ok && evt.Event == "code" {
-			dataURL := formatQRDataURL(evt.Code)
-			s.mu.Lock()
-			s.qrCode = dataURL
-			s.mu.Unlock()
-			return dataURL, nil
+	// Start background QR receiver loop
+	go func() {
+		for evt := range qrChan {
+			if evt.Event == "code" {
+				dataURL := formatQRDataURL(evt.Code)
+				s.mu.Lock()
+				s.qrCode = dataURL
+				s.mu.Unlock()
+			} else if evt.Event == "success" {
+				s.mu.Lock()
+				s.qrCode = ""
+				s.pairingCode = ""
+				s.mu.Unlock()
+				break
+			}
 		}
-	case <-time.After(8 * time.Second):
+	}()
+
+	for i := 0; i < 15; i++ {
+		time.Sleep(200 * time.Millisecond)
+		s.mu.Lock()
+		curQR := s.qrCode
+		s.mu.Unlock()
+		if curQR != "" {
+			return curQR, nil
+		}
 	}
 
 	s.mu.Lock()

