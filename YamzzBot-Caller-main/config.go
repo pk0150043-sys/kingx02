@@ -9,7 +9,7 @@ import (
 var (
 	configMu      sync.RWMutex
 	BotName       = "KINGX WhatsApp Bot"
-	Prefix        = "+"
+	Prefix        = "-"
 	DefaultEmoji  = "👑"
 	FeaturesDelay = 5
 	Mode          = "adminonly" // "self", "public", "adminonly"

@@ -198,137 +198,194 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 
 	switch cmd {
 	case "start", "hello", "hi", "king":
-		menuText := fmt.Sprintf(`╔══〔 📞 GO LANG WEBRTC CALLING SUITE 〕══╗
-║ ⚡ Engine: Native WhatsMeow + MeowCaller  ║
-║ 🛡️ SERVER GOD CLAN • VOIP MASTER         ║
-╚══════════════════════════════════════════╝
+		startText := fmt.Sprintf(`╔══════════════════════════════════════════════╗
+║  📞 ⚡ 𝑾𝑯𝑨𝑻𝑺𝑨𝑷𝑷 𝑪𝑨𝑳𝑳 𝑬𝑵𝑮𝑰𝑵𝑬 𝑩𝑶𝑻 𝑨𝑪𝑻𝑰𝑽𝑬 ⚡ 📞  ║
+║  🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 • 𝑽𝑶𝑰𝑷 𝑴𝑨𝑺𝑻𝑬𝑹 🛡️      ║
+╚══════════════════════════════════════════════╝
       ⚡ PREFIX  :  %s
-      🔊 DEFAULT : 51.mp3 High-Bass Master Loop
+      🚀 SPEED   :  0.01s+ (10ms) Real-Time
+      🔊 DEFAULT :  51.mp3 High-Bass Master Loop
+      👑 OWNER   :  %s
 
-╭─ 📞 OUTBOUND REAL VOIP & GROUP CALLS
-│ 📞 %soutcall <Number/@tag> [Song / 51.mp3]
-│    ▸ Dial target and live stream 51.mp3 or YouTube song
-│ 👥 %sgroupcall [Song Name]
-│    ▸ Create native Group Voice Call and stream audio
-│ 🎥 %svideocall <Number> [Song Name]
-│    ▸ 1-on-1 High-Definition Video Call
-│ 📹 %sgroupvideocall [Song Name]
-│    ▸ Group Video Call with live stream
-│ 🚪 %sjoincall [51.mp3/song]
-│    ▸ Join active voice chat and stream loop
-│ 📺 %sscreenshare on/off
-│    ▸ Enable/disable live screen sharing
-│ ✋ %shandraise / %scallreaction <emoji>
-│    ▸ Dispatch live WebRTC reactions
-│ ⏹️ %sendcall / %shangup / %scutcall / %sleavecall
-│    ▸ Terminate active call and loops immediately
-│ 🔇 %scallmute / %scallunmute
-│    ▸ Mute/Unmute microphone stream
-╰──────────────────────────────────────────
-
-╭─ 📲 INCOMING CALL SENTINEL
-│ 🔔 %snoti <Chat_JID>
-│    ▸ Route incoming call alerts to specific group/chat
-│ 📞 %sacceptcall [Song/Track]
-│    ▸ Answer incoming call with live audio stream
-│ 🛑 %srejectcall / %sdeclinecall
-│    ▸ Instantly decline incoming call
-│ 🚫 %santicall on/off
-│    ▸ Auto-reject incoming calls sentinel
-│ 🔓 %sautounmute
-│    ▸ Keep microphone stream continuously open
-│ 📊 %scallstatus
-│    ▸ View active VoIP nodes and running calls
-╰──────────────────────────────────────────
-
-╭─ 📋 AUDIT & USER MANAGEMENT
-│ 📋 %sauditlog / %saudit / %slogs
-│    ▸ Trace recent user commands and calling actions
-│ 👑 %sadmins / %sshowadmins
-│    ▸ View primary owner and authorized sub-admins
-│ ➕ %saddadmin <Number/@tag>
-│ 🗑️ %sdeladmin <Number/@tag>
-╰──────────────────────────────────────────
-
-╭─ 🎵 MEDIA DOWNLOADER & FILE VAULT
-│ 🎥 %splayvideo <Song/Link> (720p HD MP4)
-│ 🎵 %ssong <Song/Link> (320kbps MP3)
-│ 📁 %sviewfiles / %sfiles (List saved recordings)
-│ 🗑️ %sdelfile <filename> (Remove saved file)
-│ 💾 %ssaverd <name> (Save voice note to vault)
-╰──────────────────────────────────────────`,
-			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
-			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
-			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
-			curPrefix, curPrefix, curPrefix, curPrefix)
-		reactMsg(ctx, evt, "📞")
-		sendText(ctx, evt.Info.Chat, menuText)
+╭─ 💡 QUICK CALLING CONTROLS
+│ • %soutcall <Number/@tag> [Song Name / 51.mp3]
+│ • %sgroupcall [Song Name / 51.mp3]
+│ • %svideocall <Number> [Song Name]
+│ • %sgroupvideocall [Song Name]
+│ • %sjoincall [51.mp3/song]
+│ • %sendcall / %sleavecall / %shangup
+│ • %smenu (View Full Command Suite)
+╰─────────────────────────────────────────────`,
+			curPrefix, OwnerJID, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix)
+		reactMsg(ctx, evt, "👑")
+		sendText(ctx, evt.Info.Chat, startText)
 
 	case "allmenu", "menu", "help", "cmd", "1", "2", "3", "4", "callmenu":
-		menuText := fmt.Sprintf(`╔══〔 📞 GO LANG WEBRTC CALLING SUITE 〕══╗
-║ ⚡ Engine: Native WhatsMeow + MeowCaller  ║
-║ 🛡️ SERVER GOD CLAN • VOIP MASTER         ║
-╚══════════════════════════════════════════╝
+		menuText := fmt.Sprintf(`╭──────────────────────────────╮
+│ 👑 𝑲𝑰𝑵𝑮 𝑩𝑶𝑻 𝑼𝑳𝑻𝑹𝑨 𝑽2.0 ⚡ │
+│ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
+╰──────────────────────────────╯
       ⚡ PREFIX  :  %s
-      🔊 DEFAULT : 51.mp3 High-Bass Master Loop
+      🚀 SPEED   : 0.01s+
 
-╭─ 📞 OUTBOUND REAL VOIP & GROUP CALLS
-│ 📞 %soutcall <Number/@tag> [Song / 51.mp3]
-│    ▸ Dial target and live stream 51.mp3 or YouTube song
-│ 👥 %sgroupcall [Song Name]
-│    ▸ Create native Group Voice Call and stream audio
-│ 🎥 %svideocall <Number> [Song Name]
-│    ▸ 1-on-1 High-Definition Video Call
-│ 📹 %sgroupvideocall [Song Name]
-│    ▸ Group Video Call with live stream
-│ 🚪 %sjoincall [51.mp3/song]
-│    ▸ Join active voice chat and stream loop
-│ 📺 %sscreenshare on/off
-│    ▸ Enable/disable live screen sharing
-│ ✋ %shandraise / %scallreaction <emoji>
-│    ▸ Dispatch live WebRTC reactions
-│ ⏹️ %sendcall / %shangup / %scutcall / %sleavecall
-│    ▸ Terminate active call and loops immediately
-│ 🔇 %scallmute / %scallunmute
-│    ▸ Mute/Unmute microphone stream
-╰──────────────────────────────────────────
+╭─ 🎯 𝑻𝑨𝑹𝑮𝑬𝑻 𝑺𝒀𝑺𝑻𝑬𝑴
+│ 🎯 %starget @tag <Text>
+│ 🛑 %sstoptarget @tag
+│ 🧹 %sstoptargetall
+│ 📋 %stargetlist
+│ ⏱️ %stargetdelay <0.01-20>
+│ 💀 %sroast @tag
+╰──────────────────────
 
-╭─ 📲 INCOMING CALL SENTINEL
-│ 🔔 %snoti <Chat_JID>
-│    ▸ Route incoming call alerts to specific group/chat
-│ 📞 %sacceptcall [Song/Track]
-│    ▸ Answer incoming call with live audio stream
-│ 🛑 %srejectcall / %sdeclinecall
-│    ▸ Instantly decline incoming call
-│ 🚫 %santicall on/off
-│    ▸ Auto-reject incoming calls sentinel
+╭─ 📌 𝑷𝑰𝑵 𝑺𝑷𝑨𝑴
+│ 📌 %spin
+│ 📌 %sunpin
+│ ⚡ %spinspam <count> <delay_ms>
+│ 🛑 %spinspam off
+╰──────────────────────
+
+╭─ ⚡ 𝑵𝑹 (𝑵𝑨𝑴𝑬 𝑹𝑨𝑰𝑫)
+│ ⚡ %snr <Text>
+│ ⚡ %snr1 <Text>
+│ ⚡ %snr2 <Text>
+│ ⚡ %snr3 <Text>
+│ ⏱️ %snrdelay <0.01-20>
+│ 🛑 %sstopnr
+│ 🔴 %sstopnrall
+│ 📨 %ssend <Number/JID> <Text>
+╰──────────────────────
+
+╭─ 🌀 𝑻𝑼𝑹𝑩𝑶 𝑵𝑪
+│ 🌀 %snc <Text>
+│ ⚡ %striplenc1 <Text>
+│ ⏱️ %sncdelay <0.01-20>
+│ 🛑 %sstopnc
+│ 🔴 %sstopncall
+╰──────────────────────
+
+╭─ ✍️ 𝑮𝑹𝑶𝑼𝑷 𝑫𝑪
+│ 📝 %sgdc <Text>
+│ 📝 %sgcdc <Text>
+│ ⏱️ %sgdcdelay <0.01-20>
+│ 🛑 %sgdcstop
+│ 🔴 %sstopgdcall
+╰──────────────────────
+
+╭─ 🖼️ 𝑨𝑼𝑻𝑶 𝑷𝑭𝑷
+│ 📸 %spfpchange
+│ ⏱️ %spfpdelay <0.1-20>
+│ 🛑 %spfpstop
+╰──────────────────────
+
+╭─ 📸 𝑷𝑰𝑪 𝑺𝑷𝑨𝑴
+│ 🖼️ %spicspam <Text>
+│ ⏱️ %spicspamdelay <0.1-20>
+│ 🛑 %spicspamstop
+│ 🔴 %sstoppicspamall
+╰──────────────────────
+
+╭─ 📊 𝑻𝑬𝑿𝑻 & 𝑷𝑶𝑳𝑳
+│ 📝 %stextspam <Text>
+│ ⏱️ %stextspamdelay <0.01-20>
+│ 🛑 %stextspamstop
+│ 📊 %spollspam Name | opt1 | opt2
+│ ⏱️ %spollspamdelay <0.1-20>
+│ 🛑 %spollspamstop
+╰──────────────────────
+
+╭─ 💀 𝑹𝑨𝑫𝑨𝑹 & 𝑴𝑼𝑻𝑬
+│ 💀 %sautodelete @tag
+│ 🔓 %sstopdelete @tag
+│ 🔇 %smute @tag
+│ 🔊 %sunmute @tag
+╰──────────────────────
+
+╭─ 🚀 𝑭𝑳𝑶𝑶𝑫 & 𝑺𝑾𝑰𝑷𝑬
+│ 🚀 %sspam <Text>
+│ ⏱️ %sspamdelay <0.01-20>
+│ 🛑 %sstopspam
+│ 🔴 %sstopspamall
+│ 🔄 %sswipe <Text>
+│ ⏱️ %sswipedelay <0.01-20>
+│ 🛑 %sstopswipe
+│ 🚨 %sstopall
+╰──────────────────────
+
+╭─ 🛡️ 𝑴𝑶𝑫𝑬𝑹𝑨𝑻𝑰𝑶𝑵
+│ ⚠️ %swarn @tag
+│ 🔄 %sresetwarn @tag
+│ 🔗 %santilink on/off
+│ 📢 %stagall <Text>
+│ 👑 %saddsubadmin @tag
+│ ❌ %sremovesubadmin @tag
+│ 📋 %sshowsubadmin
+╰──────────────────────
+
+╭─ ⚙️ 𝑮𝑹𝑶𝑼𝑷 𝑼𝑻𝑰𝑳𝑰𝑻𝒀
+│ ℹ️ %schatinfo / %sid
+│ 🔔 %snoti <Chat JID> (or %snoti)
+│ 🚪 %sjoin <Link>
+│ 🚪 %sleave
+│ ➕ %sadd <Number>
+│ 🧹 %skick @tag
+│ 👑 %spromote @tag
+│ 📉 %sdemote @tag
+│ 🔒 %sclosegroup
+│ 🔓 %sopengroup
+│ 📢 %shidetag <Text>
+│ 🔗 %sgclink
+│ 🔄 %srevoke
+│ ✏️ %ssetgcname <Name>
+│ 📝 %ssetgcdesc <Desc>
+│ 🎭 %sreact <Emoji>
+│ 🤖 %screategc <Name>
+│ ⚡ %sping
+│ 📊 %sbotinfo
+╰──────────────────────
+
+╭─ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑬𝑹 & 𝑵𝑶𝑻𝑰
+│ 🔔 %snoti <Chat JID>
+│ 📞 %sacceptcall [track/song]
+│ 🛑 %srejectcall
+│ 📞 %soutcall <Number> [Track]
+│ 🔊 %splay1call
+│ 🎶 %splayjiocall <Song>
+│ 🚪 %sjoincall
+│ 🚪 %sleavecall / %sendcall
 │ 🔓 %sautounmute
-│    ▸ Keep microphone stream continuously open
-│ 📊 %scallstatus
-│    ▸ View active VoIP nodes and running calls
-╰──────────────────────────────────────────
+│ 🔇 %scallmute / %scallunmute
+╰──────────────────────
 
-╭─ 📋 AUDIT & USER MANAGEMENT
-│ 📋 %sauditlog / %saudit / %slogs
-│    ▸ Trace recent user commands and calling actions
-│ 👑 %sadmins / %sshowadmins
-│    ▸ View primary owner and authorized sub-admins
-│ ➕ %saddadmin <Number/@tag>
-│ 🗑️ %sdeladmin <Number/@tag>
-╰──────────────────────────────────────────
+╭─ 🛰️ 𝑴𝑼𝑳𝑻𝑰-𝑵𝑶𝑫𝑬
+│ 🔌 %sdisconnect
+│ ❌ %sdeletesession
+│ 🆔 %saddbotsession <Name>
+│ 📋 %sbots
+│ ❌ %sremovebot <Session>
+│ 🔥 %srage
+│ 🛡️ %ssolo
+│ 🔄 %schangeprefix <Symbol>
+╰──────────────────────
 
-╭─ 🎵 MEDIA DOWNLOADER & FILE VAULT
-│ 🎥 %splayvideo <Song/Link> (720p HD MP4)
-│ 🎵 %ssong <Song/Link> (320kbps MP3)
-│ 📁 %sviewfiles / %sfiles (List saved recordings)
-│ 🗑️ %sdelfile <filename> (Remove saved file)
-│ 💾 %ssaverd <name> (Save voice note to vault)
-╰──────────────────────────────────────────`,
-			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
-			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
-			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
-			curPrefix, curPrefix, curPrefix, curPrefix)
-		reactMsg(ctx, evt, "📞")
+╭──────────────────────────────╮
+│ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
+╰──────────────────────────────╯`,
+			curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix,
+			curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix, curPrefix)
+		reactMsg(ctx, evt, "👑")
 		sendText(ctx, evt.Info.Chat, menuText)
 
 	case "ping", "runtime", "speed", "status", "stats":
