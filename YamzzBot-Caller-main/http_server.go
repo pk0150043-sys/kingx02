@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"rsc.io/qr"
 )
 
 type HTTPServer struct {
