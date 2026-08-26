@@ -48,10 +48,15 @@ threading.Thread(target=memory_watchdog, daemon=True).start()
 
 # ================= PROCESS CLEANUP HANDLER =================
 def cleanup_subprocesses():
-    global baileys_process, tg_process
+    global baileys_process, go_process, tg_process
     if baileys_process:
         try:
             baileys_process.terminate()
+        except Exception:
+            pass
+    if go_process:
+        try:
+            go_process.terminate()
         except Exception:
             pass
     if tg_process:
@@ -62,7 +67,7 @@ def cleanup_subprocesses():
 
 atexit.register(cleanup_subprocesses)
 
-# ================= BAILEYS WHATSAPP MICROSERVICE CONFIG =================
+# ================= BAILEYS WHATSAPP MICROSERVICE CONFIG (Port 20824) =================
 BAILEYS_SERVICE_URL = os.getenv("BAILEYS_SERVICE_URL", "http://127.0.0.1:20824")
 baileys_process = None
 
@@ -77,8 +82,6 @@ def ensure_baileys_service():
 
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        go_bin = os.path.join(script_dir, "wp_whatsmeow_service")
-        yamzz_bin = os.path.join(script_dir, "YamzzBot-Caller-main", "yamzzbot")
         node_file = os.path.join(script_dir, "wp_baileys_service.js")
 
         child_env = os.environ.copy()
@@ -87,14 +90,8 @@ def ensure_baileys_service():
         child_env["BAILEYS_PORT"] = "20824"
         child_env["WP_SERVICE_PORT"] = "20824"
 
-        if os.path.exists(go_bin):
-            print(f"[WHATSAPP GO MASTER] Starting WhatsMeow + MeowCaller Go Microservice: {go_bin}")
-            baileys_process = subprocess.Popen([go_bin], cwd=script_dir, env=child_env)
-        elif os.path.exists(yamzz_bin):
-            print(f"[WHATSAPP GO MASTER] Starting WhatsMeow + MeowCaller Go Microservice: {yamzz_bin}")
-            baileys_process = subprocess.Popen([yamzz_bin], cwd=os.path.join(script_dir, "YamzzBot-Caller-main"), env=child_env)
-        elif os.path.exists(node_file):
-            print(f"[BAILEYS] Starting King Bot Baileys Multi-Session Hub 2.0: {node_file}")
+        if os.path.exists(node_file):
+            print(f"[BAILEYS MASTER] Starting King Bot Baileys Multi-Session Hub 2.0: {node_file}")
             baileys_process = subprocess.Popen(["node", "--expose-gc", "--max-old-space-size=512", "wp_baileys_service.js"], cwd=script_dir, env=child_env)
 
         for _ in range(12):
@@ -122,6 +119,49 @@ def ensure_baileys_service():
                 pass
     except Exception as e:
         print(f"[BAILEYS ERROR] Spawning service failed: {e}")
+    return False
+
+# ================= GO WHATSAPP CALLING ENGINE (Port 20825) =================
+GO_SERVICE_URL = os.getenv("GO_SERVICE_URL", "http://127.0.0.1:20825")
+go_process = None
+
+def ensure_go_service():
+    global go_process
+    try:
+        r = requests.get(f"{GO_SERVICE_URL}/health", timeout=1.5)
+        if r.status_code == 200:
+            return True
+    except Exception:
+        pass
+
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        go_bin = os.path.join(script_dir, "wp_whatsmeow_service")
+        yamzz_bin = os.path.join(script_dir, "YamzzBot-Caller-main", "yamzzbot")
+
+        child_env = os.environ.copy()
+        child_env["PORT"] = "20825"
+        child_env["WP_PORT"] = "20825"
+        child_env["BAILEYS_PORT"] = "20825"
+        child_env["WP_SERVICE_PORT"] = "20825"
+
+        if os.path.exists(go_bin):
+            print(f"[WHATSAPP GO CALL ENGINE] Starting WhatsMeow + MeowCaller Go Microservice: {go_bin}")
+            go_process = subprocess.Popen([go_bin], cwd=script_dir, env=child_env)
+        elif os.path.exists(yamzz_bin):
+            print(f"[WHATSAPP GO CALL ENGINE] Starting WhatsMeow + MeowCaller Go Microservice: {yamzz_bin}")
+            go_process = subprocess.Popen([yamzz_bin], cwd=os.path.join(script_dir, "YamzzBot-Caller-main"), env=child_env)
+
+        for _ in range(12):
+            time.sleep(0.5)
+            try:
+                r = requests.get(f"{GO_SERVICE_URL}/health", timeout=1.5)
+                if r.status_code == 200:
+                    return True
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[GO CALL ENGINE ERROR] Spawning service failed: {e}")
     return False
 
 # ================= TELEGRAM MASTER MICROSERVICE CONFIG =================
@@ -625,13 +665,30 @@ def sync_from_mongo():
                     "createdAt": acc.get("createdAt", str(datetime.utcnow()))
                 }
 
-        # Load WhatsApp Accounts
+        # Load WhatsApp Baileys Accounts
         db_wp = list(mongo_db["wp_accounts"].find({}))
         cache_db["wp_accounts"] = {}
         for acc in db_wp:
             uid = str(acc.get("uid", acc.get("_id", "")))
             if uid:
                 cache_db["wp_accounts"][uid] = {
+                    "uid": uid,
+                    "name": acc.get("name", uid),
+                    "owner_jid": acc.get("owner_jid", ""),
+                    "target_numbers": acc.get("target_numbers", []),
+                    "prefix": acc.get("prefix", "+"),
+                    "delay": int(acc.get("delay", 5)),
+                    "owner": acc.get("owner", "owner"),
+                    "createdAt": acc.get("createdAt", str(datetime.utcnow()))
+                }
+
+        # Load WhatsApp Go Call Accounts
+        db_wp_call = list(mongo_db["wp_call_accounts"].find({}))
+        cache_db["wp_call_accounts"] = {}
+        for acc in db_wp_call:
+            uid = str(acc.get("uid", acc.get("_id", "")))
+            if uid:
+                cache_db["wp_call_accounts"][uid] = {
                     "uid": uid,
                     "name": acc.get("name", uid),
                     "owner_jid": acc.get("owner_jid", ""),
@@ -893,6 +950,29 @@ def delete_wp_account_db(uid):
         except Exception:
             pass
 
+def save_wp_call_account_db(uid, data):
+    cache_db.setdefault("wp_call_accounts", {})
+    cache_db["wp_call_accounts"][str(uid)] = data
+    save_local_db()
+    if mongo_connected and mongo_db is not None:
+        try:
+            doc = dict(data)
+            doc["uid"] = str(uid)
+            mongo_db["wp_call_accounts"].update_one({"uid": str(uid)}, {"$set": doc}, upsert=True)
+        except Exception:
+            pass
+
+def delete_wp_call_account_db(uid):
+    uid_str = str(uid)
+    if "wp_call_accounts" in cache_db and uid_str in cache_db["wp_call_accounts"]:
+        del cache_db["wp_call_accounts"][uid_str]
+    save_local_db()
+    if mongo_connected and mongo_db is not None:
+        try:
+            mongo_db["wp_call_accounts"].delete_one({"uid": uid_str})
+        except Exception:
+            pass
+
 def save_members_db(members_list):
     cache_db["members"] = members_list
     save_local_db()
@@ -929,6 +1009,13 @@ def next_wp_uid():
         return "wp_1"
     nums = [int(k.replace("wp_", "")) for k in accs.keys() if k.replace("wp_", "").isdigit()]
     return "wp_" + str(max(nums) + 1) if nums else "wp_1"
+
+def next_wp_call_uid():
+    accs = cache_db.get("wp_call_accounts", {})
+    if not accs:
+        return "wp_call_1"
+    nums = [int(k.replace("wp_call_", "")) for k in accs.keys() if k.replace("wp_call_", "").isdigit()]
+    return "wp_call_" + str(max(nums) + 1) if nums else "wp_call_1"
 
 # Initialize DB on Startup
 init_db()
@@ -3803,6 +3890,262 @@ def wp_status():
             filtered_logs.append(log_line)
         else:
             if any(f"[{u}]" in log_line for u in user_uids if u):
+                filtered_logs.append(log_line)
+
+    return jsonify({
+        "accounts": accounts,
+        "stats": visible_stats,
+        "globalLogs": filtered_logs[:100]
+    })
+
+# ================= WHATSAPP GO CALL SETUP ENGINE (GO LANG WEBRTC) =================
+@app.route("/wp_call_add_account", methods=["POST"])
+def wp_call_add_account():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+
+    curr_user = get_current_user()
+    data = request.json or {}
+    custom_name = data.get("name", "").strip().replace(" ", "_")
+    owner_jid = data.get("owner_jid", "").strip()
+
+    user_tag = curr_user.split("@")[0].replace(".", "_") if "@" in curr_user else curr_user
+    user_tag = "".join(c for c in user_tag if c.isalnum() or c == "_")[:12] or "usr"
+
+    if custom_name:
+        clean_n = "".join(c for c in custom_name if c.isalnum() or c == "_")
+        if is_owner():
+            uid = f"wp_call_{clean_n}" if not clean_n.startswith("wp_call_") else clean_n
+        else:
+            uid = f"wp_call_{user_tag}_{clean_n}"
+    else:
+        user_nodes = [k for k, v in cache_db.get("wp_call_accounts", {}).items() if v.get("owner") == curr_user]
+        node_num = len(user_nodes) + 1
+        uid = f"wp_call_{user_tag}_bot{node_num}"
+
+    display_name = custom_name or uid.replace(f"wp_call_{user_tag}_", "")
+
+    acc_data = {
+        "uid": uid,
+        "name": display_name,
+        "owner_jid": owner_jid,
+        "owner": curr_user,
+        "admin_name": get_user_display_name(curr_user),
+        "system_owner": "SERVER GOD CLAN KING",
+        "prefix": "+",
+        "delay": 5,
+        "target_numbers": [],
+        "createdAt": str(datetime.utcnow())
+    }
+
+    save_wp_call_account_db(uid, acc_data)
+    ensure_go_service()
+    try:
+        requests.post(f"{GO_SERVICE_URL}/session/init", json={
+            "uid": uid,
+            "owner_jid": owner_jid
+        }, timeout=5)
+    except Exception as e:
+        print(f"[WP CALL ADD ACC ERROR]: {e}")
+
+    return jsonify({"status": "ok", "uid": uid, "name": display_name})
+
+@app.route("/wp_call_pair_code", methods=["POST"])
+def wp_call_pair_code():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+
+    data = request.json or {}
+    uid = data.get("uid")
+    phone = data.get("phone", "").strip()
+
+    if not uid or not phone:
+        return jsonify({"status": "error", "message": "UID and phone number are required!"}), 400
+
+    full_db = get_full_db()
+    acc = full_db.get("wp_call_accounts", {}).get(uid) or full_db.get("wp_accounts", {}).get(uid)
+    if not acc:
+        return jsonify({"status": "invalid"}), 404
+    if not is_owner() and acc.get("owner") != get_current_user():
+        return jsonify({"status": "denied"}), 403
+
+    ensure_go_service()
+    try:
+        r = requests.post(f"{GO_SERVICE_URL}/session/{uid}/pair", json={"phone": phone}, timeout=25)
+        res_data = r.json()
+        if res_data.get("success"):
+            return jsonify({
+                "status": "ok",
+                "pairingCode": res_data.get("pairingCode"),
+                "rawCode": res_data.get("rawCode"),
+                "phone": res_data.get("phone"),
+                "expiresIn": res_data.get("expiresIn", 900)
+            })
+        else:
+            return jsonify({"status": "error", "message": res_data.get("message", "Failed to generate pairing code in Go engine")}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Go Call pairing error: {e}"}), 500
+
+@app.route("/wp_call_qr", methods=["GET"])
+def wp_call_qr():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+    uid = request.args.get("uid")
+    if not uid:
+        return jsonify({"status": "error", "message": "UID is required"}), 400
+
+    refresh = request.args.get("refresh", "0") == "1"
+
+    ensure_go_service()
+    try:
+        if refresh:
+            requests.post(f"{GO_SERVICE_URL}/session/{uid}/refresh_qr", timeout=8)
+            time.sleep(1)
+
+        r = requests.get(f"{GO_SERVICE_URL}/session/{uid}/status", timeout=8)
+        res_data = r.json()
+        return jsonify({
+            "status": "ok",
+            "qr": res_data.get("qr", ""),
+            "pairingCode": res_data.get("pairingCode", ""),
+            "session_status": res_data.get("status", "UNKNOWN"),
+            "connectedNumber": res_data.get("connectedNumber", ""),
+            "isOnline": res_data.get("isOnline", False)
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/wp_call_disconnect", methods=["POST"])
+def wp_call_disconnect():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+    uid = request.json.get("uid")
+    full_db = get_full_db()
+    acc = full_db.get("wp_call_accounts", {}).get(uid) or full_db.get("wp_accounts", {}).get(uid)
+    if not acc:
+        return jsonify({"status": "invalid"}), 404
+    if not is_owner() and acc.get("owner") != get_current_user():
+        return jsonify({"status": "denied"}), 403
+
+    ensure_go_service()
+    try:
+        r = requests.post(f"{GO_SERVICE_URL}/session/{uid}/disconnect", timeout=5)
+        return jsonify(r.json() if r.status_code == 200 else {"status": "ok"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/wp_call_delete_account", methods=["POST"])
+def wp_call_delete_account():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+
+    uid = request.json.get("uid")
+    full_db = get_full_db()
+    acc = full_db.get("wp_call_accounts", {}).get(uid) or full_db.get("wp_accounts", {}).get(uid)
+    if not acc:
+        return jsonify({"status": "invalid"}), 404
+
+    if not is_owner() and acc.get("owner") != get_current_user():
+        return jsonify({"status": "denied"}), 403
+
+    ensure_go_service()
+    try:
+        requests.post(f"{GO_SERVICE_URL}/session/{uid}/delete", timeout=5)
+    except Exception:
+        pass
+
+    delete_wp_call_account_db(uid)
+    delete_wp_account_db(uid)
+    return jsonify({"status": "ok"})
+
+@app.route("/wp_call_status")
+def wp_call_status():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+
+    ensure_go_service()
+    full_db = get_full_db()
+    wp_call_accounts = full_db.get("wp_call_accounts", {})
+    accounts = {}
+    visible_stats = {}
+
+    go_live = {}
+    global_logs = []
+    try:
+        r = requests.get(f"{GO_SERVICE_URL}/sessions/all", timeout=3)
+        if r.status_code == 200:
+            b_data = r.json()
+            go_live = b_data.get("sessions", {})
+            global_logs = b_data.get("globalLogs", [])
+    except Exception:
+        pass
+
+    is_adm = is_owner()
+    curr_user = str(get_current_user()).strip().lower()
+
+    for uid, acc in wp_call_accounts.items():
+        acc_owner = str(acc.get("owner", "")).strip().lower()
+        is_my_acc = is_adm or (acc_owner == curr_user)
+
+        if is_my_acc:
+            acc_copy = dict(acc)
+            acc_copy["admin_name"] = get_user_display_name(acc.get("owner", ""))
+            acc_copy["system_owner"] = "SERVER GOD CLAN KING"
+            accounts[uid] = acc_copy
+            g_sess = go_live.get(uid, {})
+            visible_stats[uid] = {
+                "user": acc.get("owner", curr_user),
+                "admin_name": acc_copy["admin_name"],
+                "account": uid,
+                "status": g_sess.get("status") or ("ONLINE" if g_sess.get("isOnline") else "READY_TO_CONNECT"),
+                "isOnline": g_sess.get("isOnline", False),
+                "connectedNumber": g_sess.get("connectedNumber", ""),
+                "ownerJid": g_sess.get("ownerJid", acc.get("owner_jid", "")),
+                "running": g_sess.get("isOnline", False),
+                "sent": g_sess.get("sentCount", 0),
+                "failed": g_sess.get("failedCount", 0),
+                "uptime": g_sess.get("uptime", 0),
+                "hasQr": g_sess.get("hasQr", False),
+                "hasPairingCode": g_sess.get("hasPairingCode", False)
+            }
+
+    for uid, g_sess in go_live.items():
+        if uid not in accounts:
+            acc_info = wp_call_accounts.get(uid, {})
+            acc_owner = str(acc_info.get("owner", "")).strip().lower()
+            is_my_acc = is_adm or (acc_owner and acc_owner == curr_user)
+            if is_my_acc:
+                accounts[uid] = {
+                    "uid": uid,
+                    "name": acc_info.get("name") or uid.replace("wp_call_", ""),
+                    "owner": acc_info.get("owner", curr_user),
+                    "admin_name": acc_info.get("admin_name", get_user_display_name(curr_user)),
+                    "system_owner": "SERVER GOD CLAN KING",
+                    "owner_jid": g_sess.get("ownerJid", acc_info.get("owner_jid", ""))
+                }
+                visible_stats[uid] = {
+                    "user": acc_info.get("owner", curr_user),
+                    "admin_name": acc_info.get("admin_name", get_user_display_name(curr_user)),
+                    "account": uid,
+                    "status": g_sess.get("status") or ("ONLINE" if g_sess.get("isOnline") else "READY_TO_CONNECT"),
+                    "isOnline": g_sess.get("isOnline", False),
+                    "connectedNumber": g_sess.get("connectedNumber", ""),
+                    "ownerJid": g_sess.get("ownerJid", ""),
+                    "running": g_sess.get("isOnline", False),
+                    "sent": g_sess.get("sentCount", 0),
+                    "failed": g_sess.get("failedCount", 0),
+                    "uptime": g_sess.get("uptime", 0),
+                    "hasQr": g_sess.get("hasQr", False),
+                    "hasPairingCode": g_sess.get("hasPairingCode", False)
+                }
+
+    user_uids = {str(u) for u in accounts.keys() if u}
+    filtered_logs = []
+    for log_line in global_logs:
+        if is_adm:
+            filtered_logs.append(log_line)
+        else:
+            if any(f"[{u}]" in log_line or f"node {u}" in log_line for u in user_uids if u):
                 filtered_logs.append(log_line)
 
     return jsonify({

@@ -483,7 +483,7 @@
 
     async function loadWpStatus() {
       try {
-        const res = await fetch("/wp_status");
+        const res = await fetch("/wp_call_status");
         if (!res.ok) return;
         const data = await res.json();
         const accounts = data.accounts || {};
@@ -552,7 +552,7 @@
       const name = document.getElementById("nodeCustomName").value.trim();
       const adminNum = document.getElementById("nodeAdminNumber").value.trim();
 
-      const res = await fetch("/wp_add_account", {
+      const res = await fetch("/wp_call_add_account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, owner_jid: adminNum })
@@ -573,7 +573,7 @@
       const phone = document.getElementById("pairingPhoneInput").value.trim();
       if (!phone) return alert("Please enter your phone number with country code (e.g. 919507325677)");
 
-      const res = await fetch("/wp_pair_code", {
+      const res = await fetch("/wp_call_pair_code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ uid: activeSelectedUid, phone })
@@ -595,7 +595,7 @@
 
     async function deleteCallingNode(uid) {
       if (!confirm(`Delete calling node ${uid}?`)) return;
-      await fetch("/wp_delete_account", {
+      await fetch("/wp_call_delete_account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ uid })
