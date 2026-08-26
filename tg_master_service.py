@@ -733,6 +733,40 @@ def search_youtube_py(query: str) -> Optional[Dict]:
         }
     return None
 
+def convert_to_ogg_opus(input_data) -> bytes:
+    ffmpeg_exe = os.path.abspath("ffmpeg.exe") if os.path.exists("ffmpeg.exe") else "ffmpeg"
+    tmp_in = f"tmp_in_{time.time()}_{random.randint(1000, 9999)}.mp3"
+    tmp_out = f"tmp_out_{time.time()}_{random.randint(1000, 9999)}.ogg"
+    try:
+        if isinstance(input_data, bytes):
+            with open(tmp_in, "wb") as f:
+                f.write(input_data)
+            in_file = tmp_in
+        else:
+            in_file = input_data
+            
+        cmd = [
+            ffmpeg_exe, "-y", "-i", in_file,
+            "-vn", "-c:a", "libopus", "-b:a", "64k",
+            "-vbr", "on", "-application", "voip",
+            tmp_out
+        ]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+        if os.path.exists(tmp_out) and os.path.getsize(tmp_out) > 100:
+            with open(tmp_out, "rb") as f:
+                return f.read()
+    except Exception:
+        pass
+    finally:
+        if os.path.exists(tmp_in):
+            try: os.remove(tmp_in)
+            except Exception: pass
+        if os.path.exists(tmp_out):
+            try: os.remove(tmp_out)
+            except Exception: pass
+            
+    return input_data if isinstance(input_data, bytes) else (open(input_data, "rb").read() if (isinstance(input_data, str) and os.path.exists(input_data)) else b"")
+
 def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', output_path: str = '') -> Optional[str]:
     query_or_url = (query_or_url or '').strip()
     if 'results?search_query=' in query_or_url:
@@ -779,7 +813,7 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
         cmd.extend([
             "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
             "--merge-output-format", "mp4",
-            "--postprocessor-args", "ffmpeg:-c:v copy -c:a aac -movflags +faststart"
+            "--postprocessor-args", "ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v main -c:a aac -b:a 128k -ar 44100 -movflags +faststart"
         ])
     else:
         cmd.extend([
@@ -3522,7 +3556,10 @@ def setup_telebot_handlers(bot, token):
             file_name = f"tts_{int(time.time())}.mp3"
             try:
                 gTTS(args, lang="en").save(file_name)
-                with open(file_name, "rb") as voice: bot.send_voice(chat_id, voice)
+                ogg_bytes = convert_to_ogg_opus(file_name)
+                f = io.BytesIO(ogg_bytes)
+                f.name = "voice.ogg"
+                bot.send_voice(chat_id, f)
             finally:
                 if os.path.exists(file_name): os.remove(file_name)
 
@@ -4814,7 +4851,7 @@ class BotSwarmManager:
             bio = io.BytesIO()
             tts.write_to_fp(bio)
             bio.seek(0)
-            audio_data = bio.read()
+            audio_data = convert_to_ogg_opus(bio.read())
         except Exception: return
         idx = 0
         while self.is_active(chat_id, "voice") and self.is_running:
@@ -4834,11 +4871,14 @@ class BotSwarmManager:
         if not os.path.exists(file_path): return
         try:
             with open(file_path, "rb") as f:
-                data = f.read()
+                raw_data = f.read()
+            data = convert_to_ogg_opus(raw_data)
         except Exception: return
         while self.is_active(chat_id, "vn_spam") and self.is_running:
             try:
-                await bot.send_voice(chat_id, voice=data)
+                f = io.BytesIO(data)
+                f.name = "voice.ogg"
+                await bot.send_voice(chat_id, voice=f)
                 self.sent_count += 1
                 await asyncio.sleep(self.vn_delay)
             except Exception:

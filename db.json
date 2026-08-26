@@ -8,7 +8,7 @@
       "role": "user",
       "status": "active",
       "lastOtpVerifiedAt": null,
-      "createdAt": "2026-08-25 19:33:24.052644"
+      "createdAt": "2026-08-26 00:53:14.796640"
     }
   },
   "members": [
@@ -20,18 +20,18 @@
   "gc_accounts": {},
   "tg_accounts": {},
   "wp_accounts": {
-    "wp_KINGU08": {
-      "uid": "wp_KINGU08",
-      "name": "KINGU08",
+    "wp_KINGX": {
+      "uid": "wp_KINGX",
+      "name": "KINGX",
       "owner_jid": "191525812211746@lid",
       "target_numbers": [],
       "prefix": "+",
       "delay": 5,
       "owner": "OWNER",
-      "createdAt": "2026-08-25 12:30:07.324975",
+      "createdAt": "2026-08-25 19:19:02.750628",
       "admin_name": "SERVER GOD CLAN EMPEROR",
       "system_owner": "SERVER GOD CLAN KING",
-      "updatedAt": "2026-08-25T14:03:35.408Z"
+      "updatedAt": "2026-08-25T19:23:27.481Z"
     }
   }
 }

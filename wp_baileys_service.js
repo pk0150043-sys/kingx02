@@ -45,6 +45,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const https = require('https');
 const http = require('http');
 const pino = require('pino');
@@ -193,7 +194,20 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
     const baseWithoutExt = outputPath.replace(/\.[^/.]+$/, "");
     const outTmpl = `${baseWithoutExt}.%(ext)s`;
     let cookiePath = path.join(__dirname, 'cookies.txt');
-    if (!fs.existsSync(cookiePath) && fs.existsSync('/app/cookies.txt')) {
+    if (process.env.YOUTUBE_COOKIES && process.env.YOUTUBE_COOKIES.trim().length > 10) {
+      try {
+        const envCookiePath = path.join(os.tmpdir(), 'yt_railway_cookies.txt');
+        let cookieContent = process.env.YOUTUBE_COOKIES.trim();
+        if (cookieContent.startsWith('ey') || cookieContent.startsWith('W3')) {
+          // might be base64
+          try {
+            cookieContent = Buffer.from(cookieContent, 'base64').toString('utf8');
+          } catch(e) {}
+        }
+        fs.writeFileSync(envCookiePath, cookieContent);
+        cookiePath = envCookiePath;
+      } catch(e) {}
+    } else if (!fs.existsSync(cookiePath) && fs.existsSync('/app/cookies.txt')) {
       cookiePath = '/app/cookies.txt';
     } else if (!fs.existsSync(cookiePath) && fs.existsSync(path.join(process.cwd(), 'cookies.txt'))) {
       cookiePath = path.join(process.cwd(), 'cookies.txt');
@@ -223,12 +237,17 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       '--no-playlist',
       '--socket-timeout', '20',
       '--no-warnings',
-      '--geo-bypass'
+      '--geo-bypass',
+      '--extractor-args', 'youtube:player_client=android,ios,web'
     ];
+
+    if (process.env.YTDL_PROXY) {
+      spawnArgs.push('--proxy', process.env.YTDL_PROXY.trim());
+    }
 
     if (type === 'video') {
       spawnArgs.push('-f', format, '--merge-output-format', 'mp4');
-      spawnArgs.push('--postprocessor-args', 'ffmpeg:-c:v copy -c:a aac -movflags +faststart');
+      spawnArgs.push('--postprocessor-args', 'ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v main -c:a aac -b:a 128k -ar 44100 -movflags +faststart');
     } else {
       spawnArgs.push('-f', format, '-x', '--audio-format', 'mp3');
       spawnArgs.push('--postprocessor-args', 'ffmpeg:-c:a libmp3lame -b:a 192k -ar 44100');
@@ -271,12 +290,24 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
       if (found) {
         return resolve({ success: true, filePath: found });
       }
-      // Direct best fallback
-      const retryArgs = ['-m', 'yt_dlp', '--no-playlist', '--socket-timeout', '20', '--no-warnings', '--geo-bypass'];
+      // Direct best fallback with android/mweb
+      const retryArgs = [
+        '-m', 'yt_dlp',
+        '--no-playlist',
+        '--socket-timeout', '20',
+        '--no-warnings',
+        '--geo-bypass',
+        '--extractor-args', 'youtube:player_client=android,mweb'
+      ];
+      if (process.env.YTDL_PROXY) {
+        retryArgs.push('--proxy', process.env.YTDL_PROXY.trim());
+      }
       if (type === 'video') {
         retryArgs.push('-f', 'best[height<=720][ext=mp4]/bestvideo+bestaudio/best', '--merge-output-format', 'mp4');
+        retryArgs.push('--postprocessor-args', 'ffmpeg:-c:v libx264 -pix_fmt yuv420p -profile:v main -c:a aac -b:a 128k -ar 44100 -movflags +faststart');
       } else {
         retryArgs.push('-f', 'bestaudio/best', '-x', '--audio-format', 'mp3');
+        retryArgs.push('--postprocessor-args', 'ffmpeg:-c:a libmp3lame -b:a 192k -ar 44100');
       }
       retryArgs.push('-o', outTmpl);
       if (fs.existsSync(ffmpegPath)) {
@@ -307,9 +338,100 @@ function downloadYouTubeMedia(queryOrUrl, type = 'audio', outputPath) {
   });
 }
 
+function getFfmpegBin() {
+  const localFfmpeg = path.join(__dirname, 'ffmpeg.exe');
+  if (fs.existsSync(localFfmpeg)) return localFfmpeg;
+  return 'ffmpeg';
+}
+
+function convertAudioToOpus(input) {
+  return new Promise((resolve) => {
+    try {
+      const tempIn = path.join(__dirname, `temp_conv_in_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.tmp`);
+      const tempOut = path.join(__dirname, `temp_conv_out_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.opus`);
+
+      let inPath = input;
+      if (Buffer.isBuffer(input)) {
+        fs.writeFileSync(tempIn, input);
+        inPath = tempIn;
+      } else if (typeof input !== 'string' || !fs.existsSync(input)) {
+        return resolve(Buffer.isBuffer(input) ? input : null);
+      }
+
+      const ffmpegBin = getFfmpegBin();
+      const proc = spawn(ffmpegBin, [
+        '-y',
+        '-i', inPath,
+        '-vn',
+        '-c:a', 'libopus',
+        '-b:a', '64k',
+        '-vbr', 'on',
+        '-application', 'voip',
+        tempOut
+      ]);
+
+      proc.on('close', (code) => {
+        let resultBuf = null;
+        if (fs.existsSync(tempOut) && fs.statSync(tempOut).size > 100) {
+          resultBuf = fs.readFileSync(tempOut);
+        }
+        if (inPath === tempIn && fs.existsSync(tempIn)) {
+          try { fs.unlinkSync(tempIn); } catch (e) {}
+        }
+        if (fs.existsSync(tempOut)) {
+          try { fs.unlinkSync(tempOut); } catch (e) {}
+        }
+        if (resultBuf) {
+          resolve(resultBuf);
+        } else {
+          resolve(Buffer.isBuffer(input) ? input : (fs.existsSync(input) ? fs.readFileSync(input) : null));
+        }
+      });
+
+      proc.on('error', () => {
+        if (inPath === tempIn && fs.existsSync(tempIn)) {
+          try { fs.unlinkSync(tempIn); } catch (e) {}
+        }
+        resolve(Buffer.isBuffer(input) ? input : (fs.existsSync(input) ? fs.readFileSync(input) : null));
+      });
+    } catch (e) {
+      resolve(Buffer.isBuffer(input) ? input : (fs.existsSync(input) ? fs.readFileSync(input) : null));
+    }
+  });
+}
+
+function ensureMobileCompatibleVideo(inputPath, outputPath) {
+  return new Promise((resolve) => {
+    if (!inputPath || !fs.existsSync(inputPath)) return resolve(inputPath);
+    const targetOut = outputPath || path.join(__dirname, `mobile_compat_${Date.now()}.mp4`);
+    const ffmpegBin = getFfmpegBin();
+    const proc = spawn(ffmpegBin, [
+      '-y',
+      '-i', inputPath,
+      '-c:v', 'libx264',
+      '-pix_fmt', 'yuv420p',
+      '-profile:v', 'main',
+      '-level', '3.1',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-ar', '44100',
+      '-movflags', '+faststart',
+      targetOut
+    ]);
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(targetOut) && fs.statSync(targetOut).size > 1000) {
+        resolve(targetOut);
+      } else {
+        resolve(inputPath);
+      }
+    });
+    proc.on('error', () => resolve(inputPath));
+  });
+}
+
 function boostBassAudio(inputPath, outputPath) {
   return new Promise((resolve) => {
-    const proc = spawn('ffmpeg', [
+    const proc = spawn(getFfmpegBin(), [
       '-y',
       '-i', inputPath,
       '-af', 'bass=g=18:f=100:w=0.6,volume=1.3',
@@ -3203,10 +3325,10 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               sess.chatLoops[jid].play1call = true;
               if (fs.existsSync(AUDIO_51_PATH)) {
                 (async () => {
-                  const audioBuf = fs.readFileSync(AUDIO_51_PATH);
+                  const audioBuf = await convertAudioToOpus(AUDIO_51_PATH);
                   while (sess.chatLoops?.[jid]?.play1call) {
                     try {
-                      await sock.sendMessage(jid, { audio: audioBuf, mimetype: 'audio/mp4', ptt: true });
+                      await sock.sendMessage(jid, { audio: audioBuf, mimetype: 'audio/ogg; codecs=opus', ptt: true });
                       sess.sentCount = (sess.sentCount || 0) + 1;
                     } catch (e) {}
                     if (!sess.chatLoops?.[jid]?.play1call) break;
@@ -3221,12 +3343,13 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                   const song = await searchJioSaavn(songQuery);
                   if (song) {
                     const buf = await downloadBuffer(song.audioUrl);
+                    const opusBuf = await convertAudioToOpus(buf);
                     sess.chatLoops = sess.chatLoops || {};
                     sess.chatLoops[jid] = sess.chatLoops[jid] || {};
                     sess.chatLoops[jid].playjiocall = true;
                     while (sess.chatLoops?.[jid]?.playjiocall) {
                       try {
-                        await sock.sendMessage(jid, { audio: buf, mimetype: 'audio/mp4', ptt: true });
+                        await sock.sendMessage(jid, { audio: opusBuf, mimetype: 'audio/ogg; codecs=opus', ptt: true });
                         sess.sentCount = (sess.sentCount || 0) + 1;
                       } catch (e) {}
                       if (!sess.chatLoops?.[jid]?.playjiocall) break;
@@ -4062,7 +4185,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                   const caption = `🔊 *EXTRA BASS BOOSTED AUDIO* 💥\n⚡ *Bass Level:* +18dB Boost | 100Hz Deep Sub-Bass\n🛡️ *SERVER GOD CLAN KING BOT* 👑`;
                   await sock.sendMessage(jid, {
                     audio: outBuf,
-                    mimetype: 'audio/mp4',
+                    mimetype: 'audio/mpeg',
                     fileName: `Bass_Boosted_${Date.now()}.mp3`,
                     ptt: false,
                     caption
@@ -4356,7 +4479,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
                 await sock.sendMessage(jid, {
                   audio: buf,
-                  mimetype: 'audio/mp4',
+                  mimetype: 'audio/mpeg',
                   fileName: `${track.title}.mp3`,
                   ptt: false,
                   caption
@@ -4576,9 +4699,10 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                 const song = await searchJioSaavn(query);
                 if (!song) return sock.sendMessage(jid, { text: `❌ Song not found!` }, { quoted: msg });
                 const buf = await downloadBuffer(song.audioUrl);
+                const opusBuf = await convertAudioToOpus(buf);
                 await sock.sendMessage(jid, {
-                  audio: buf,
-                  mimetype: 'audio/mp4',
+                  audio: opusBuf,
+                  mimetype: 'audio/ogg; codecs=opus',
                   ptt: true
                 }, { quoted: msg });
               } catch (e) {
@@ -4616,7 +4740,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                   try {
                     await sock.sendMessage(jid, {
                       audio: buf,
-                      mimetype: 'audio/mp4',
+                      mimetype: 'audio/mpeg',
                       ptt: false
                     });
                     sess.sentCount = (sess.sentCount || 0) + 1;
