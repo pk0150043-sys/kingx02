@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/purpshell/meowcaller/signaling"
@@ -31,8 +32,11 @@ import (
 type engine struct {
 	c *Client
 
-	mu    sync.Mutex
-	calls map[string]*engineCall // keyed by call-id
+	mu              sync.Mutex
+	calls           map[string]*engineCall // keyed by call-id
+	sendCallNode    func(context.Context, waBinary.Node) error
+	requestCallNode func(context.Context, waBinary.Node, string) (*waBinary.Node, error)
+	rawCallHookErr  error
 }
 
 // engineCall is the engine's per-call state: the public Call handle plus the inputs
@@ -49,12 +53,26 @@ type engineCall struct {
 	creator types.JID // call-creator JID (for accept/relaylatency)
 	from    types.JID // the <call> "from" — where stanzas are addressed
 
-	direction CallDirection
-	codec     AudioCodec   // audio codec for this call, selected from voip_settings (MLow default)
-	isVideo   bool         // inbound offer advertised <video> (video call)
-	videoTx   *videoSender // video send pipeline, live while media runs
-	started   bool
-	cancel    context.CancelFunc // tears down this call's media goroutine
+	direction         CallDirection
+	codec             AudioCodec   // audio codec for this call, selected from voip_settings (MLow default)
+	localVideo        bool         // this client is sending, or has requested to send, video
+	remoteVideo       bool         // the peer is sending video to this client
+	videoGate         bool         // outbound upgrade is waiting for peer acceptance
+	peerVideoUpgrade  bool         // the peer's inbound upgrade is waiting for local acceptance
+	videoTx           *videoSender // video send pipeline, live while media runs
+	appDataTx         *appDataSender
+	rekeyPeer         func(string) error
+	group             bool
+	groupUpdate       *groupCallUpdate
+	groupReceivers    *participantReceiveRegistry
+	groupRawEpoch     []byte
+	groupEpochTxID    uint32
+	hasGroupEpoch     bool
+	started           bool
+	cancel            context.CancelFunc // tears down this call's media goroutine
+	waitingRoomCancel context.CancelFunc
+	inviteSelfDevice  groupCallDevice
+	invitePeerDevice  groupCallDevice
 
 	// The callee <accept> is deferred until the caller's <mute_v2> arrives.
 	acceptPending bool
@@ -62,7 +80,43 @@ type engineCall struct {
 
 // newEngine creates the engine for a Client.
 func newEngine(c *Client) *engine {
-	return &engine{c: c, calls: map[string]*engineCall{}}
+	e := &engine{c: c, calls: map[string]*engineCall{}}
+	if c != nil && c.wa != nil {
+		e.sendCallNode = func(ctx context.Context, node waBinary.Node) error {
+			return c.wa.DangerousInternals().SendNode(ctx, node)
+		}
+		e.requestCallNode = func(ctx context.Context, node waBinary.Node, requestID string) (*waBinary.Node, error) {
+			di := c.wa.DangerousInternals()
+			waiter := di.WaitResponse(requestID)
+			defer di.CancelResponse(requestID, waiter)
+			if err := di.SendNode(ctx, node); err != nil {
+				return nil, err
+			}
+			select {
+			case response := <-waiter:
+				if response == nil {
+					return nil, errors.New("meowcaller: call request returned no response")
+				}
+				return response, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+	return e
+}
+
+func (e *engine) requireRawCallAdapter() error {
+	// Source of truth: https://github.com/tulir/whatsmeow/blob/e9a033b24933cc8d90fa5ff8991b1268ba80a140/client.go#L110-L120
+	if e == nil {
+		return errors.New("meowcaller: raw call adapter is unavailable")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.rawCallHookErr != nil {
+		return fmt.Errorf("meowcaller: raw call adapter is unavailable: %w", e.rawCallHookErr)
+	}
+	return nil
 }
 
 // onEndFn returns the Call's OnEnd listener under its lock (the field is unexported
@@ -91,11 +145,20 @@ func (c *Call) playerAndSink() (*Player, AudioSink) {
 // install wires the whatsmeow call event handlers and the <ack>/<call> interception.
 // Call before the whatsmeow client connects.
 func (e *engine) install() {
-	e.installCallAckHook()
+	if err := e.installCallAckHook(); err != nil {
+		e.mu.Lock()
+		e.rawCallHookErr = err
+		e.mu.Unlock()
+		e.c.log.Error().Err(err).Msg("raw call adapter is unavailable")
+	}
 	e.c.wa.AddEventHandler(func(evt any) {
 		switch ev := evt.(type) {
 		case *events.CallOffer:
 			e.onOffer(ev)
+		case *events.CallPreAccept:
+			e.onPreAccept(ev)
+		case *events.CallAccept:
+			e.onAccept(ev)
 		case *events.CallRelayLatency:
 			e.onRelay(ev.CallID, ev.Data)
 			e.onRelayLatency(ev)
@@ -103,8 +166,27 @@ func (e *engine) install() {
 			e.onRelay(ev.CallID, ev.Data)
 		case *events.CallTerminate:
 			e.onTerminate(ev.CallID, ev.Reason)
+		case *events.CallReject:
+			e.onReject(ev)
+		case *events.UnknownCallEvent:
+			e.onUnknownCallEvent(ev.Node)
 		}
 	})
+}
+
+func (e *engine) sendReaction(callID, emoji string) error {
+	e.mu.Lock()
+	m := e.calls[callID]
+	if m == nil || m.call == nil || m.call.State() == CallPhaseEnded {
+		e.mu.Unlock()
+		return errors.New("meowcaller: call is not active")
+	}
+	sender := m.appDataTx
+	e.mu.Unlock()
+	if sender == nil {
+		return errAppDataUnavailable
+	}
+	return sender.sendReaction(emoji)
 }
 
 // entry returns (creating if needed) the per-call state for callID.
@@ -122,9 +204,44 @@ func (e *engine) lookup(callID string) *engineCall {
 	return e.calls[callID]
 }
 
+func (e *engine) callIsVideo(callID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	m := e.calls[callID]
+	return m != nil && (m.localVideo || m.remoteVideo)
+}
+
+func (e *engine) callIsSendingVideo(callID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.calls[callID] != nil && e.calls[callID].localVideo
+}
+
+func (e *engine) callIsReceivingVideo(callID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.calls[callID] != nil && e.calls[callID].remoteVideo
+}
+
+func (e *engine) transmitCallNode(ctx context.Context, node waBinary.Node) error {
+	if e.sendCallNode == nil {
+		return errors.New("meowcaller: call signaling is unavailable")
+	}
+	return e.sendCallNode(ctx, node)
+}
+
+func (e *engine) nextCallNodeID() string {
+	if e.c != nil && e.c.wa != nil {
+		return e.c.wa.GenerateMessageID()
+	}
+	var id [8]byte
+	_, _ = rand.Read(id[:])
+	return strings.ToUpper(hex.EncodeToString(id[:]))
+}
+
 // sendVideoFrame packetizes one encoded H.264 access unit and sends it to the relay, if a
 // video send pipeline is live for the call.
-func (e *engine) sendVideoFrame(callID string, au []byte) error {
+func (e *engine) sendVideoFrame(callID string, au []byte, duration time.Duration) error {
 	e.mu.Lock()
 	var vs *videoSender
 	if m := e.calls[callID]; m != nil {
@@ -134,13 +251,159 @@ func (e *engine) sendVideoFrame(callID string, au []byte) error {
 	if vs == nil {
 		return errors.New("meowcaller: call has no active video media")
 	}
-	vs.send(au)
+	vs.send(au, duration)
 	return nil
+}
+
+func (e *engine) transitionVideo(callID string, transition int) error {
+	e.mu.Lock()
+	m := e.calls[callID]
+	if m == nil || m.call == nil || m.call.State() == CallPhaseEnded {
+		e.mu.Unlock()
+		return errors.New("meowcaller: call is not active")
+	}
+	to, creator, sender := m.from, m.creator, m.videoTx
+	localVideoActive := m.localVideo
+	switch transition {
+	case signaling.VideoStateUpgradeRequestV2:
+		m.localVideo = true
+		m.videoGate = true
+	case signaling.VideoStateUpgradeAccept:
+		if !m.peerVideoUpgrade {
+			e.mu.Unlock()
+			return errors.New("meowcaller: no pending peer video upgrade")
+		}
+		m.peerVideoUpgrade = false
+	case signaling.VideoStateStopped:
+		m.localVideo = false
+		m.videoGate = false
+	default:
+		e.mu.Unlock()
+		return fmt.Errorf("meowcaller: unsupported local video transition %d", transition)
+	}
+	e.mu.Unlock()
+	if sender != nil {
+		if transition == signaling.VideoStateStopped {
+			sender.disable()
+		} else if transition == signaling.VideoStateUpgradeRequestV2 {
+			sender.enable(true)
+		}
+	}
+
+	build := func(state int, dec string, orientation *int) waBinary.Node {
+		return signaling.BuildVideoStateWithParams(signaling.VideoStateParams{
+			CallID: callID, To: to, CallCreator: creator, WrapperID: e.nextCallNodeID(),
+			State: state, Dec: dec, DeviceOrientation: orientation,
+		})
+	}
+	send := func(state int, dec string, orientation *int) error {
+		return e.transmitCallNode(context.Background(), build(state, dec, orientation))
+	}
+
+	var err error
+	switch transition {
+	case signaling.VideoStateUpgradeRequestV2:
+		orientation := 0
+		err = send(transition, signaling.VideoDecRequest, &orientation)
+	case signaling.VideoStateUpgradeAccept:
+		if !localVideoActive {
+			orientation := 0
+			err = send(signaling.VideoStateStopped, "", &orientation)
+		}
+		if err == nil {
+			err = send(transition, signaling.VideoDecAccept, nil)
+		}
+	case signaling.VideoStateStopped:
+		orientation := 0
+		err = send(transition, "", &orientation)
+	}
+	if err == nil || transition == signaling.VideoStateStopped {
+		return err
+	}
+
+	e.mu.Lock()
+	var currentSender *videoSender
+	if current := e.calls[callID]; current == m {
+		if transition == signaling.VideoStateUpgradeAccept {
+			current.peerVideoUpgrade = true
+		} else {
+			current.localVideo = false
+			current.videoGate = false
+			currentSender = current.videoTx
+		}
+	}
+	e.mu.Unlock()
+	if currentSender != nil {
+		currentSender.disable()
+	}
+	return err
+}
+
+func (e *engine) setVideoEnabled(callID string, enabled bool) error {
+	e.mu.Lock()
+	m := e.calls[callID]
+	if m == nil || m.call == nil || m.call.State() == CallPhaseEnded {
+		e.mu.Unlock()
+		return errors.New("meowcaller: call is not active")
+	}
+	m.localVideo = enabled
+	m.videoGate = false
+	to, creator, sender := m.from, m.creator, m.videoTx
+	e.mu.Unlock()
+
+	if sender != nil {
+		if enabled {
+			sender.enable(false)
+		} else {
+			sender.disable()
+		}
+	}
+	state, dec := signaling.VideoStateDisabled, ""
+	if enabled {
+		state, dec = signaling.VideoStateEnabled, signaling.VideoStateDecH264
+	}
+	node := signaling.BuildVideoStateWithParams(signaling.VideoStateParams{
+		CallID: callID, To: to, CallCreator: creator, WrapperID: e.nextCallNodeID(),
+		State: state, Dec: dec,
+	})
+	err := e.transmitCallNode(context.Background(), node)
+	if err == nil || !enabled {
+		return err
+	}
+
+	e.mu.Lock()
+	if current := e.calls[callID]; current == m {
+		current.localVideo = false
+	}
+	e.mu.Unlock()
+	if sender != nil {
+		sender.disable()
+	}
+	return err
+}
+
+func (e *engine) setVideoOrientation(callID string, orientation int) error {
+	if orientation < 0 || orientation > 3 {
+		return fmt.Errorf("meowcaller: video orientation %d is outside 0..3", orientation)
+	}
+	e.mu.Lock()
+	m := e.calls[callID]
+	if m == nil || m.call == nil || m.call.State() == CallPhaseEnded || !m.localVideo {
+		e.mu.Unlock()
+		return errors.New("meowcaller: call has no active video media")
+	}
+	to, creator := m.from, m.creator
+	e.mu.Unlock()
+	node := signaling.BuildVideoStateWithParams(signaling.VideoStateParams{
+		CallID: callID, To: to, CallCreator: creator, WrapperID: e.nextCallNodeID(),
+		State: signaling.VideoStateEnabled, DeviceOrientation: &orientation,
+	})
+	return e.transmitCallNode(context.Background(), node)
 }
 
 // placeCall resolves target to a LID, builds and sends the <offer>, registers the Call,
 // and returns it; media starts when the peer answers and the relay endpoint arrives.
-func (e *engine) placeCall(ctx context.Context, target string, video bool) (*Call, error) {
+func (e *engine) placeCall(ctx context.Context, target string, opts CallOptions) (*Call, error) {
 	cli := e.c.wa
 	self := cli.Store.GetLID()
 	if self.IsEmpty() {
@@ -159,7 +422,6 @@ func (e *engine) placeCall(ctx context.Context, target string, video bool) (*Cal
 	if len(devices) == 0 {
 		return nil, fmt.Errorf("peer %s has no devices (unreachable / not on WhatsApp)", peerLID)
 	}
-	e.c.log.Info().Int("device_count", len(devices)).Bool("video", video).Str("peer_lid", peerLID.String()).Msg("peer devices discovered; sending offer")
 
 	var callKey [32]byte
 	if _, err := rand.Read(callKey[:]); err != nil {
@@ -194,21 +456,15 @@ func (e *engine) placeCall(ctx context.Context, target string, video bool) (*Cal
 	}
 
 	callID := newCallID()
-	// A video call must advertise the video-specific capability blob; the audio
-	// capability leaves the callee ignoring the <video> and never ringing.
-	capability := signaling.CapabilityOffer
-	if video {
-		capability = signaling.CapabilityVideoOffer
-	}
 	offer := signaling.BuildOffer(&signaling.OfferParams{
 		CallID:         callID,
 		To:             peerLID,
 		CallCreator:    self,
 		DeviceKeys:     deviceKeys,
 		PrivacyToken:   privacyToken,
-		Capability:     capability,
+		Capability:     signaling.CapabilityOffer,
 		DeviceIdentity: deviceIdentity,
-		Video:          video,
+		Video:          opts.Video,
 	})
 	// The builder leaves the <call> stanza id to the I/O layer; without it the server
 	// can't route/ack the offer, so it never reaches the callee.
@@ -225,7 +481,12 @@ func (e *engine) placeCall(ctx context.Context, target string, video bool) (*Cal
 	m.creator = self
 	m.from = peerLID
 	m.direction = CallDirectionOutgoing
-	m.isVideo = video
+	m.localVideo = opts.Video
+	m.remoteVideo = opts.Video
+	m.inviteSelfDevice = groupCallDevice{
+		JID: self, CapabilityVersion: 1,
+		Capability: append([]byte(nil), signaling.CapabilityOffer...),
+	}
 	e.mu.Unlock()
 
 	e.c.diag.Emit("keying", map[string]any{
@@ -237,8 +498,8 @@ func (e *engine) placeCall(ctx context.Context, target string, video bool) (*Cal
 	if err := cli.DangerousInternals().SendNode(ctx, offer); err != nil {
 		return nil, fmt.Errorf("send offer: %w", err)
 	}
-	e.c.log.Info().Str("call_id", callID).Msg("offer sent; media starts when the relay endpoint arrives")
-	e.c.diag.Emit("meta", map[string]any{"event": "offer_sent", "call_id": callID, "peer_lid": peerLID.String(), "direction": "out"})
+	e.c.log.Info().Str("call_id", callID).Bool("video", opts.Video).Msg("offer sent; media starts when the relay endpoint arrives")
+	e.c.diag.Emit("meta", map[string]any{"event": "offer_sent", "call_id": callID, "peer_lid": peerLID.String(), "direction": "out", "video": opts.Video})
 	return call, nil
 }
 
@@ -247,6 +508,17 @@ func (e *engine) placeCall(ctx context.Context, target string, video bool) (*Cal
 // preparation step, independent of the later Answer/Reject), and fires the
 // OnIncomingCall listener. Only the <accept> is deferred to Answer.
 func (e *engine) onOffer(ev *events.CallOffer) {
+	// Source of truth: https://github.com/purpshell/meowcaller/blob/33854919e64bdd4b053054ac9764d8fc63027b57/datasheets/voip-group-invite-accept.md#L28-L40
+	groupSnapshot, isGroup, groupErr := signaling.ParseGroupInviteSnapshot(ev.Data)
+	if groupErr != nil {
+		e.c.log.Warn().Err(groupErr).Str("call_id", ev.CallID).Msg("parse inbound group offer failed")
+		return
+	}
+	if isGroup {
+		e.onGroupOffer(ev, groupCallUpdateFromSignaling(*groupSnapshot))
+		return
+	}
+
 	// A "call ended" notification arrives offer-shaped, carrying is_call_ended/
 	// terminate_reason (e.g. accepted_elsewhere). It is not a live call — engaging it
 	// (preaccept/accept) just earns an "accept error 500". Ignore it.
@@ -286,12 +558,22 @@ func (e *engine) onOffer(ev *events.CallOffer) {
 	m.creator = ev.CallCreator
 	m.from = ev.From
 	m.direction = CallDirectionIncoming
-	// Detect a video call by the <video> child of the offer (ported from WaCalls).
-	// Source of truth: https://github.com/JotaDev66/WaCalls/blob/2d6a1f666426049a89ef9541414e771acdcf8a16/internal/voip/call/callmanager_signaling.go#L24
+	// A <video> child marks a call that starts with both video directions enabled.
 	isVideo := signaling.OfferHasVideo(ev.Data)
-	m.isVideo = isVideo
+	m.localVideo = isVideo
+	m.remoteVideo = isVideo
+	m.inviteSelfDevice = groupCallDevice{
+		JID: e.c.wa.Store.GetLID(), CapabilityVersion: 1,
+		Capability: append([]byte(nil), signaling.CapabilityOffer...),
+	}
+	if device, ok := inviteDeviceCapability(ev.From, ev.Data); ok {
+		m.invitePeerDevice = device
+	}
 	if r := findRelay(ev.Data); r != nil {
 		m.relay = parseRelayData(r)
+		if !m.relay.peerJID.IsEmpty() {
+			m.peerLID = m.relay.peerJID.String()
+		}
 	}
 	e.applyVoipSettingsCodec(m, ev.Data, ev.CallID)
 	e.mu.Unlock()
@@ -303,7 +585,7 @@ func (e *engine) onOffer(ev *events.CallOffer) {
 	// Answer/Reject decision. It keeps the offer alive and joins the relay election while
 	// the integrator decides — even a call the user goes on to decline has usually already
 	// been preaccepted.
-	if err := e.sendPreaccept(ev.CallID, ev.From, ev.CallCreator); err != nil {
+	if err := e.sendPreaccept(ev.CallID, ev.From, ev.CallCreator, isVideo); err != nil {
 		e.c.log.Warn().Err(err).Str("call_id", ev.CallID).Msg("preaccept failed")
 	}
 
@@ -312,24 +594,64 @@ func (e *engine) onOffer(ev *events.CallOffer) {
 	}
 }
 
+func (e *engine) onGroupOffer(ev *events.CallOffer, update groupCallUpdate) {
+	// Source of truth: https://github.com/purpshell/meowcaller/blob/33854919e64bdd4b053054ac9764d8fc63027b57/datasheets/voip-group-invite-accept.md#L28-L40
+	peer := ev.CallCreator
+	if peer.IsEmpty() {
+		peer = ev.From
+	}
+	call := &Call{eng: e, id: ev.CallID, peer: peer, phase: CallPhaseRinging}
+	isVideo := signaling.OfferHasVideo(ev.Data)
+	e.mu.Lock()
+	m := e.entry(ev.CallID)
+	m.call = call
+	m.selfLID = e.c.wa.Store.GetLID().String()
+	m.peerLID = peer.String()
+	m.creator = ev.CallCreator
+	if m.creator.IsEmpty() {
+		m.creator = peer
+	}
+	m.from = types.NewJID(ev.CallID, "call")
+	m.direction = CallDirectionIncoming
+	m.group = true
+	m.localVideo = isVideo
+	m.remoteVideo = isVideo
+	creator := m.creator
+	e.mu.Unlock()
+	e.applyGroupUpdate(update)
+
+	preaccept, err := signaling.BuildActiveGroupPreaccept(
+		ev.CallID,
+		creator,
+		e.nextCallNodeID(),
+		isVideo,
+	)
+	if err != nil {
+		e.c.log.Warn().Err(err).Str("call_id", ev.CallID).Msg("build group preaccept failed")
+		return
+	}
+	if err = e.transmitCallNode(context.Background(), preaccept); err != nil {
+		e.c.log.Warn().Err(err).Str("call_id", ev.CallID).Msg("send group preaccept failed")
+		return
+	}
+	e.c.log.Info().Str("call_id", ev.CallID).Bool("video", isVideo).Msg("active group invite preaccepted")
+	if fn := e.c.incomingCallHandler(); fn != nil {
+		fn(call)
+	}
+}
+
 // sendPreaccept sends the <preaccept> for an inbound call — a preparation step done
 // eagerly when the offer arrives (see onOffer), independent of the later Answer/Reject
-// decision. Single rate 16000 + encopt + capability, NO metadata — built inline to match
-// the captured WA-Web preaccept body exactly.
-func (e *engine) sendPreaccept(callID string, to, creator types.JID) error {
-	pre := waBinary.Node{
-		Tag:   "call",
-		Attrs: waBinary.Attrs{"to": to, "id": e.c.wa.DangerousInternals().GenerateRequestID()},
-		Content: []waBinary.Node{{
-			Tag:   "preaccept",
-			Attrs: waBinary.Attrs{"call-id": callID, "call-creator": creator},
-			Content: []waBinary.Node{
-				{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
-				{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}},
-				{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: signaling.CapabilityOffer},
-			},
-		}},
-	}
+// decision. Video calls also advertise the H.264 decoder before the final accept.
+func (e *engine) sendPreaccept(callID string, to, creator types.JID, video bool) error {
+	pre := signaling.BuildPreaccept(
+		callID,
+		to,
+		creator,
+		e.c.wa.DangerousInternals().GenerateRequestID(),
+		[]string{"16000"},
+		video,
+	)
 	if err := e.c.wa.DangerousInternals().SendNode(context.Background(), pre); err != nil {
 		return fmt.Errorf("send preaccept: %w", err)
 	}
@@ -345,6 +667,19 @@ func (e *engine) answer(c *Call) error {
 	m := e.lookup(c.id)
 	if m == nil {
 		return fmt.Errorf("meowcaller: unknown call %s", c.id)
+	}
+	if m.group {
+		// Source of truth: https://github.com/purpshell/meowcaller/blob/676ebee3eca513b5348fab36cae5c560cc791238/datasheets/voip-group-invite-accept.md#L26-L45
+		accept, err := signaling.BuildActiveGroupAccept(c.id, m.creator, e.nextCallNodeID())
+		if err != nil {
+			return err
+		}
+		if err = e.transmitCallNode(context.Background(), accept); err != nil {
+			return fmt.Errorf("meowcaller: send group accept: %w", err)
+		}
+		c.setPhase(CallPhaseConnecting)
+		e.maybeStartMedia(c.id)
+		return nil
 	}
 	e.mu.Lock()
 	m.acceptPending = true
@@ -364,6 +699,7 @@ func (e *engine) sendAccept(callID string, to, creator types.JID) {
 		e.mu.Unlock()
 		return
 	}
+	isVideo := m.localVideo || m.remoteVideo
 	m.acceptPending = false
 	e.mu.Unlock()
 
@@ -371,13 +707,14 @@ func (e *engine) sendAccept(callID string, to, creator types.JID) {
 		CallID: callID, To: to, CallCreator: creator,
 		AudioRates: []string{"16000"},
 		Metadata:   waBinary.Attrs{"peer_abtest_bucket_id_list": "125208,94276"},
+		Video:      isVideo,
 	})
 	accept.Attrs["id"] = e.c.wa.DangerousInternals().GenerateRequestID()
 	if err := e.c.wa.DangerousInternals().SendNode(context.Background(), accept); err != nil {
 		e.c.log.Error().Err(err).Str("call_id", callID).Msg("send accept failed")
 		return
 	}
-	e.c.log.Info().Str("call_id", callID).Msg("accepted (after mute_v2)")
+	e.c.log.Info().Str("call_id", callID).Bool("video", isVideo).Msg("accepted (after mute_v2)")
 }
 
 // reject declines an inbound call.
@@ -388,12 +725,11 @@ func (e *engine) reject(c *Call) error {
 		to, creator = m.from, m.creator
 	}
 	rej := signaling.BuildReject(c.id, to, creator)
-	rej.Attrs["id"] = e.c.wa.GenerateMessageID()
-	if err := e.c.wa.DangerousInternals().SendNode(context.Background(), rej); err != nil {
+	rej.Attrs["id"] = e.nextCallNodeID()
+	e.finishCall(c.id, "rejected")
+	if err := e.transmitCallNode(context.Background(), rej); err != nil {
 		return fmt.Errorf("send reject: %w", err)
 	}
-	e.stopMedia(c.id)
-	e.endCall(c.id, "rejected")
 	return nil
 }
 
@@ -405,44 +741,12 @@ func (e *engine) hangup(c *Call) error {
 		to, creator = m.from, m.creator
 	}
 	term := signaling.BuildTerminate(&signaling.TerminateParams{CallID: c.id, To: to, CallCreator: creator})
-	term.Attrs["id"] = e.c.wa.GenerateMessageID()
-	if err := e.c.wa.DangerousInternals().SendNode(context.Background(), term); err != nil {
+	term.Attrs["id"] = e.nextCallNodeID()
+	e.finishCall(c.id, "hangup")
+	if err := e.transmitCallNode(context.Background(), term); err != nil {
 		return fmt.Errorf("send terminate: %w", err)
 	}
-	e.stopMedia(c.id)
-	e.endCall(c.id, "hangup")
 	return nil
-}
-
-// endCall transitions a call to Ended and fires its OnEnd listener EXACTLY once, no
-// matter how many teardown paths race (server-error ack, peer terminate, our own
-// hangup, media failure). The first caller to flip the phase wins; the rest no-op.
-// The call entry is dropped afterward so the engine's map doesn't grow per call.
-func (e *engine) endCall(callID, reason string) {
-	m := e.lookup(callID)
-	if m == nil || m.call == nil {
-		return
-	}
-	c := m.call
-	c.mu.Lock()
-	if c.phase == CallPhaseEnded {
-		c.mu.Unlock()
-		return
-	}
-	c.phase = CallPhaseEnded
-	onState := c.onState
-	onEnd := c.onEnd
-	c.mu.Unlock()
-
-	if onState != nil {
-		onState(CallPhaseEnded)
-	}
-	if onEnd != nil {
-		onEnd(reason)
-	}
-	e.mu.Lock()
-	delete(e.calls, callID)
-	e.mu.Unlock()
 }
 
 // onRelay records relay data from a relaylatency/transport/ack stanza and starts media
@@ -452,14 +756,33 @@ func (e *engine) onRelay(callID string, data *waBinary.Node) {
 	if r == nil {
 		return
 	}
+	rd := parseRelayData(r)
+	var rekeyPeer func(string) error
+	var peerLID string
 	e.mu.Lock()
 	m := e.calls[callID]
 	if m == nil {
 		e.mu.Unlock()
 		return
 	}
-	m.relay = parseRelayData(r)
+	m.relay = rd
+	if !rd.peerJID.IsEmpty() {
+		peerLID = rd.peerJID.String()
+		if peerLID != m.peerLID {
+			m.peerLID = peerLID
+			rekeyPeer = m.rekeyPeer
+		}
+	}
 	e.mu.Unlock()
+	if rekeyPeer != nil {
+		if err := rekeyPeer(peerLID); err != nil {
+			e.c.log.Warn().Err(err).Str("call_id", callID).Str("peer_lid", peerLID).
+				Msg("failed to rekey media to relay-elected peer")
+		} else {
+			e.c.log.Info().Str("call_id", callID).Str("peer_lid", peerLID).
+				Msg("rekeyed media to relay-elected peer")
+		}
+	}
 	e.maybeStartMedia(callID)
 }
 
@@ -504,6 +827,153 @@ func (e *engine) onRelayLatency(ev *events.CallRelayLatency) {
 	}
 }
 
+// onPreAccept records that the peer's device received and started preparing an outgoing call.
+func (e *engine) onPreAccept(ev *events.CallPreAccept) {
+	m := e.lookup(ev.CallID)
+	if m == nil || m.direction != CallDirectionOutgoing {
+		return
+	}
+	if m.call != nil && m.call.State() == CallPhaseCalling {
+		m.call.setPhase(CallPhaseRinging)
+	}
+	if device, ok := inviteDeviceCapability(ev.From, ev.Data); ok {
+		e.mu.Lock()
+		if current := e.calls[ev.CallID]; current != nil {
+			current.invitePeerDevice = device
+		}
+		e.mu.Unlock()
+	}
+	e.c.log.Info().
+		Str("call_id", ev.CallID).
+		Str("from", ev.From.String()).
+		Str("platform", ev.RemotePlatform).
+		Msg("peer preaccepted outgoing call")
+	e.c.diag.Emit("meta", map[string]any{
+		"event": "peer_preaccept", "call_id": ev.CallID,
+		"from": ev.From.String(), "platform": ev.RemotePlatform,
+	})
+}
+
+// onAccept records that the peer answered an outgoing call. Media may already be running
+// from relay allocation, but inbound RTP is still what marks the call ready/active.
+func (e *engine) onAccept(ev *events.CallAccept) {
+	m := e.lookup(ev.CallID)
+	if m == nil || m.direction != CallDirectionOutgoing {
+		return
+	}
+	if m.call != nil && m.call.State() == CallPhaseEnded {
+		return
+	}
+	if m.group {
+		// Source of truth: https://github.com/purpshell/meowcaller/blob/676ebee3eca513b5348fab36cae5c560cc791238/datasheets/voip-group-invite-accept.md#L26-L45
+		if m.call != nil && m.call.State() < CallPhaseConnecting {
+			m.call.setPhase(CallPhaseConnecting)
+		}
+		if m.call != nil {
+			m.call.markPeerAccepted()
+		}
+		e.c.log.Info().Str("call_id", ev.CallID).Str("from", ev.From.String()).Msg("participant accepted group call")
+		e.maybeStartMedia(ev.CallID)
+		return
+	}
+	e.mu.Lock()
+	var rekeyPeer func(string) error
+	answeringPeer := ev.From.String()
+	if current := e.calls[ev.CallID]; current != nil {
+		if device, ok := inviteDeviceCapability(ev.From, ev.Data); ok {
+			current.invitePeerDevice = device
+		}
+		e.applyVoipSettingsCodec(current, ev.Data, ev.CallID)
+		if !ev.From.IsEmpty() {
+			current.from = ev.From
+			answeringPeer = preferQualifiedPeer(current.peerLID, ev.From)
+		}
+		if answeringPeer != "" && answeringPeer != current.peerLID {
+			current.peerLID = answeringPeer
+			rekeyPeer = current.rekeyPeer
+		}
+	}
+	e.mu.Unlock()
+	if rekeyPeer != nil {
+		if err := rekeyPeer(answeringPeer); err != nil {
+			e.c.log.Warn().Err(err).Str("call_id", ev.CallID).Str("peer_lid", answeringPeer).Msg("failed to rekey media to answering device")
+		} else {
+			e.c.log.Info().Str("call_id", ev.CallID).Str("peer_lid", answeringPeer).Msg("rekeyed media to answering device")
+		}
+	}
+	if m.call != nil && m.call.State() < CallPhaseConnecting {
+		m.call.setPhase(CallPhaseConnecting)
+	}
+	if m.call != nil {
+		m.call.markPeerAccepted()
+	}
+	e.c.log.Info().
+		Str("call_id", ev.CallID).
+		Str("from", ev.From.String()).
+		Str("platform", ev.RemotePlatform).
+		Bool("video", m.localVideo || m.remoteVideo).
+		Msg("peer accepted outgoing call")
+	e.c.diag.Emit("meta", map[string]any{
+		"event": "peer_accept", "call_id": ev.CallID,
+		"from": ev.From.String(), "platform": ev.RemotePlatform, "video": m.localVideo || m.remoteVideo,
+	})
+	e.maybeStartMedia(ev.CallID)
+}
+
+func inviteDeviceCapability(device types.JID, node *waBinary.Node) (groupCallDevice, bool) {
+	// Source of truth: https://github.com/purpshell/meowcaller/blob/1ebd064663ac336ff3d1fc65d9baa974148fe73e/datasheets/voip-group-participant-invite.md#L36-L72
+	if device.IsEmpty() {
+		return groupCallDevice{}, false
+	}
+	capability := findChild(node, "capability")
+	if capability == nil {
+		return groupCallDevice{}, false
+	}
+	value, ok := capability.Content.([]byte)
+	if !ok || len(value) == 0 {
+		return groupCallDevice{}, false
+	}
+	version, err := strconv.ParseUint(capability.AttrGetter().String("ver"), 10, 32)
+	if err != nil {
+		return groupCallDevice{}, false
+	}
+	return groupCallDevice{
+		JID: device, CapabilityVersion: uint32(version),
+		Capability: append([]byte(nil), value...),
+	}, true
+}
+
+func preferQualifiedPeer(current string, signaled types.JID) string {
+	if signaled.IsEmpty() {
+		return current
+	}
+	parsed, err := types.ParseJID(current)
+	if err == nil &&
+		parsed.User == signaled.User &&
+		parsed.Server == signaled.Server &&
+		parsed.Device != 0 &&
+		signaled.Device == 0 {
+		return current
+	}
+	return signaled.String()
+}
+
+// onReject tears down an outgoing call when the peer declines it.
+func (e *engine) onReject(ev *events.CallReject) {
+	m := e.lookup(ev.CallID)
+	if m == nil {
+		return
+	}
+	e.c.log.Info().
+		Str("call_id", ev.CallID).
+		Str("from", ev.From.String()).
+		Msg("peer rejected call")
+	e.c.diag.Emit("meta", map[string]any{
+		"event": "peer_reject", "call_id": ev.CallID, "from": ev.From.String(),
+	})
+	e.finishCall(ev.CallID, "rejected")
+}
+
 // rlProbe is one relay candidate from a relaylatency probe.
 type rlProbe struct {
 	latency   uint32
@@ -544,8 +1014,17 @@ func (e *engine) onCallAck(ack *waBinary.Node) {
 			callID = en.AttrGetter().String("call-id")
 		}
 		e.c.log.Warn().Str("call_id", callID).Str("error_code", errCode).Msg("call rejected by server")
-		e.stopMedia(callID)
-		e.endCall(callID, "server:"+errCode)
+		e.finishCall(callID, "server:"+errCode)
+		return
+	}
+	groupUpdate, isGroup, groupErr := signaling.ParseInitialGroupCallAck(ack)
+	if groupErr != nil {
+		e.c.log.Warn().Err(groupErr).Msg("parse initial group call ack failed")
+		return
+	}
+	if isGroup {
+		// Source of truth: https://github.com/purpshell/meowcaller/blob/7cb6045001dafd2514f53e85cd8c3e419c13adbe/datasheets/voip-initial-group-call.md#L27-L33
+		e.applyGroupUpdate(groupCallUpdateFromSignaling(*groupUpdate))
 		return
 	}
 	r := findRelay(ack)
@@ -577,12 +1056,30 @@ func (e *engine) onCallRaw(callNode *waBinary.Node) bool {
 		return false
 	}
 	switch kids[0].Tag {
+	case "group_update", "enc_rekey", "waiting_room_update", "user_action", "screen_share":
+		// Source of truth: https://github.com/purpshell/meowcaller/blob/36d54857c74e45ccb08f6444a32d2afa13f20be9/datasheets/group-video-reactions.md#L31-L56
+		ack, ok := signaling.BuildCallControlAck(callNode, kids[0].Tag)
+		if !ok {
+			e.c.log.Warn().
+				Str("action", kids[0].Tag).
+				Msg("call control ack: missing id/from")
+		} else if err := e.transmitCallNode(context.Background(), ack); err != nil {
+			e.c.log.Warn().
+				Err(err).
+				Str("action", kids[0].Tag).
+				Str("id", ack.AttrGetter().String("id")).
+				Msg("send typed call control ack failed")
+		}
+		e.onUnknownCallEvent(callNode)
+		return true
 	case "mute_v2":
 		mv := kids[0].AttrGetter()
 		callID := mv.String("call-id")
 		if callID == "" {
 			return false
 		}
+		muteState := mv.String("mute-state")
+		muted := muteState == "1"
 		// The deferred <accept> fires on the FIRST mute_v2 only — it arrives right after
 		// the relaylatency/transport. Later mute_v2 nodes are in-call mute-state changes
 		// (e.g. 1→0) and must not re-run the accept path on an already-accepted call.
@@ -590,14 +1087,24 @@ func (e *engine) onCallRaw(callNode *waBinary.Node) bool {
 		m := e.calls[callID]
 		pending := m != nil && m.acceptPending
 		e.mu.Unlock()
+		if m != nil && m.call != nil {
+			if fn := m.call.onMuteStateFn(); fn != nil {
+				fn(muted)
+			}
+		}
 		if !pending {
 			e.c.log.Debug().
 				Str("call_id", callID).
-				Str("mute_state", mv.String("mute-state")).
-				Msg("mute_v2 ignored; call not awaiting accept")
+				Str("mute_state", muteState).
+				Bool("muted", muted).
+				Msg("mute_v2 observed; call not awaiting accept")
 			return false
 		}
-		e.c.log.Info().Str("call_id", callID).Msg("first mute_v2 received; sending deferred accept")
+		e.c.log.Info().
+			Str("call_id", callID).
+			Str("mute_state", muteState).
+			Bool("muted", muted).
+			Msg("first mute_v2 received; sending deferred accept")
 		e.sendAccept(callID, callNode.AttrGetter().JID("from"), mv.JID("call-creator"))
 		return false
 	case "video":
@@ -615,21 +1122,16 @@ func (e *engine) onCallRaw(callNode *waBinary.Node) bool {
 // <call> node (replicating the real WhatsApp client; whatsmeow would otherwise send a bare
 // typeless ack that the peer treats as non-acceptance of a video upgrade).
 func (e *engine) ackVideoStanza(callNode *waBinary.Node) {
-	ag := callNode.AttrGetter()
-	id := ag.String("id")
-	from := ag.JID("from") // "from" is a JID attr (cf. the mute_v2 path), not a plain string
-	if id == "" || from.IsEmpty() {
-		e.c.log.Warn().Str("id", id).Msg("video ack: missing id/from, not acking")
+	ack, ok := signaling.BuildVideoAck(callNode)
+	if !ok {
+		e.c.log.Warn().Msg("video ack: missing id/from, not acking")
 		return
 	}
-	ack := waBinary.Node{Tag: "ack", Attrs: waBinary.Attrs{
-		"class": "call", "id": id, "to": from, "type": "video",
-	}}
 	if err := e.c.wa.DangerousInternals().SendNode(context.Background(), ack); err != nil {
-		e.c.log.Warn().Err(err).Str("id", id).Msg("send video ack failed")
+		e.c.log.Warn().Err(err).Str("id", ack.AttrGetter().String("id")).Msg("send video ack failed")
 		return
 	}
-	e.c.log.Debug().Str("id", id).Msg("sent type=video ack")
+	e.c.log.Debug().Str("id", ack.AttrGetter().String("id")).Msg("sent type=video ack")
 }
 
 // onVideoStanza handles an inbound standalone <video> state stanza — the peer's video
@@ -644,72 +1146,149 @@ func (e *engine) onVideoStanza(v *waBinary.Node) {
 	state, _ := strconv.Atoi(ag.OptionalString("state"))
 	orientation, _ := strconv.Atoi(ag.OptionalString("device_orientation"))
 	e.c.log.Debug().Str("call_id", callID).Int("state", state).Int("orientation", orientation).Msg("inbound video state")
-	m := e.lookup(callID)
+	e.mu.Lock()
+	m := e.calls[callID]
 	if m == nil {
+		e.mu.Unlock()
 		return
 	}
-	if m.call != nil {
-		if fn := m.call.onVideoStateFn(); fn != nil {
+	sender := m.videoTx
+	call := m.call
+	to, creator := m.from, m.creator
+	requestKeyframe := false
+	disableSender := false
+	enableSender := false
+	announceEnabled := false
+	switch state {
+	case signaling.VideoStateUpgradeRequest, signaling.VideoStateUpgradeRequestV2:
+		m.peerVideoUpgrade = true
+	case signaling.VideoStateEnabled:
+		m.remoteVideo = true
+		if m.localVideo && m.videoGate {
+			m.videoGate = false
+			enableSender = true
+			requestKeyframe = true
+		}
+	case signaling.VideoStateDisabled, signaling.VideoStateStopped:
+		m.remoteVideo = false
+	case signaling.VideoStateUpgradeAccept:
+		m.localVideo = true
+		m.videoGate = false
+		announceEnabled = true
+	case signaling.VideoStateUpgradeReject, signaling.VideoStateUpgradeCancel:
+		m.peerVideoUpgrade = false
+		if m.videoGate {
+			m.localVideo = false
+			m.videoGate = false
+			disableSender = true
+		}
+	}
+	e.mu.Unlock()
+	if announceEnabled {
+		orientation := 0
+		node := signaling.BuildVideoStateWithParams(signaling.VideoStateParams{
+			CallID: callID, To: to, CallCreator: creator, WrapperID: e.nextCallNodeID(),
+			State: signaling.VideoStateEnabled, DeviceOrientation: &orientation,
+		})
+		if err := e.transmitCallNode(context.Background(), node); err != nil {
+			e.mu.Lock()
+			if current := e.calls[callID]; current == m {
+				current.localVideo = false
+				current.videoGate = false
+			}
+			e.mu.Unlock()
+			disableSender = true
+			announceEnabled = false
+			if e.c != nil {
+				e.c.log.Warn().Err(err).Str("call_id", callID).Msg("video enabled announcement failed")
+			}
+		} else {
+			enableSender = true
+			requestKeyframe = true
+		}
+	}
+	if sender != nil {
+		if enableSender {
+			sender.enable(false)
+		} else if disableSender {
+			sender.disable()
+		}
+	}
+	if requestKeyframe && call != nil {
+		call.requestVideoKeyframe()
+	}
+	if call != nil {
+		if fn := call.onVideoStateFn(); fn != nil {
 			fn(VideoState{
-				Active:      state == signaling.VideoStateActive,
-				Upgrade:     state == signaling.VideoStateUpgrade,
+				Active:      state == signaling.VideoStateEnabled,
+				Upgrade:     state == signaling.VideoStateUpgradeRequest || state == signaling.VideoStateUpgradeRequestV2,
 				Orientation: orientation,
 				Raw:         state,
 			})
 		}
 	}
-	// On a mid-call video upgrade (state=11) OR the callee's receiver-ready signal
-	// (state=6, captured live right after accept), reply with our own <video state=1>
-	// so the peer promotes/opens the video surface and starts rendering our H.264.
-	// The type="video" ack alone leaves the sender thinking the callee never entered
-	// video mode. NOT VALIDATED.
-	if state == signaling.VideoStateUpgrade || state == signaling.VideoStateReceiverReady {
-		reply := signaling.BuildVideoState(callID, m.from, m.creator, e.c.wa.GenerateMessageID(),
-			signaling.VideoStateActive, orientation, signaling.VideoCodecH264)
-		if err := e.c.wa.DangerousInternals().SendNode(context.Background(), reply); err != nil {
-			e.c.log.Warn().Err(err).Str("call_id", callID).Msg("send video accept failed")
-		} else {
-			e.c.log.Info().Str("call_id", callID).Int("peer_state", state).Msg("re-sent <video> state=1 (active) in reply to peer video state")
-		}
-	}
-}
-
-// announceVideoActiveIfOutbound sends a <video state=1> stanza for a call WE placed as
-// a video call, once media is live. WhatsApp peers keep the video surface closed until
-// told video is active; without this our H.264 RTP arrives but is never rendered (audio
-// plays, video stays black). Ported from the mid-call upgrade reply in onVideoStanza.
-func (e *engine) announceVideoActiveIfOutbound(callID string) {
-	m := e.lookup(callID)
-	if m == nil || !m.isVideo || m.direction != CallDirectionOutgoing {
-		return
-	}
-	node := signaling.BuildVideoState(callID, m.from, m.creator, e.c.wa.GenerateMessageID(),
-		signaling.VideoStateActive, 0, signaling.VideoCodecH264)
-	if err := e.c.wa.DangerousInternals().SendNode(context.Background(), node); err != nil {
-		e.c.log.Warn().Err(err).Str("call_id", callID).Msg("send outbound <video> active failed")
-		return
-	}
-	e.c.log.Info().Str("call_id", callID).Msg("sent <video> state=1 (active) for outbound video call")
 }
 
 // onTerminate tears down a call's media and fires the Call's OnEnd listener.
 func (e *engine) onTerminate(callID, reason string) {
 	e.c.log.Info().Str("call_id", callID).Str("reason", reason).Msg("call terminated")
-	e.stopMedia(callID)
-	e.endCall(callID, reason)
+	e.finishCall(callID, reason)
 }
 
-// stopMedia cancels a call's media goroutine if it's running.
-func (e *engine) stopMedia(callID string) {
+func (e *engine) finishCall(callID, reason string) {
 	if callID == "" {
 		return
 	}
 	e.mu.Lock()
-	if m := e.calls[callID]; m != nil && m.cancel != nil {
-		m.cancel()
+	m := e.calls[callID]
+	if m != nil {
+		delete(e.calls, callID)
+	}
+	var cancel, waitingRoomCancel context.CancelFunc
+	var call *Call
+	var receivers *participantReceiveRegistry
+	if m != nil {
+		cancel = m.cancel
 		m.cancel = nil
+		waitingRoomCancel = m.waitingRoomCancel
+		m.waitingRoomCancel = nil
+		clear(m.groupRawEpoch)
+		m.groupRawEpoch = nil
+		receivers = m.groupReceivers
+		m.groupReceivers = nil
+		call = m.call
 	}
 	e.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if receivers != nil {
+		receivers.clear()
+	}
+	if waitingRoomCancel != nil {
+		waitingRoomCancel()
+	}
+	if call == nil || call.State() == CallPhaseEnded {
+		return
+	}
+	call.mu.Lock()
+	player := call.player
+	call.player = nil
+	sink := call.sink
+	call.sink = nil
+	call.mu.Unlock()
+	if player != nil {
+		player.Stop()
+	}
+	if sink != nil {
+		if err := sink.Close(); err != nil {
+			e.c.log.Warn().Err(err).Str("call_id", callID).Msg("close call audio sink failed")
+		}
+	}
+	call.setPhase(CallPhaseEnded)
+	if fn := call.onEndFn(); fn != nil {
+		fn(reason)
+	}
 }
 
 // installCallAckHook injects an "ack" entry into whatsmeow's unexported nodeHandlers map
@@ -722,33 +1301,70 @@ func (e *engine) stopMedia(callID string) {
 //
 // NOT VALIDATED: reaches into the client's unexported nodeHandlers via reflection +
 // unsafe; covered only by a live call against the real relay.
-func (e *engine) installCallAckHook() {
+func (e *engine) installCallAckHook() error {
+	// Source of truth: https://github.com/tulir/whatsmeow/blob/e9a033b24933cc8d90fa5ff8991b1268ba80a140/client.go#L110-L120
 	cli := e.c.wa
-	field := reflect.ValueOf(cli).Elem().FieldByName("nodeHandlers")
-	handlers := *(*map[string]func(context.Context, *waBinary.Node))(unsafe.Pointer(field.UnsafeAddr()))
-	handlers["ack"] = func(_ context.Context, node *waBinary.Node) {
+	if cli == nil {
+		return errors.New("meowcaller: raw call adapter has no whatsmeow client")
+	}
+	if cli.IsConnected() {
+		return errors.New("meowcaller: construct the client before connecting whatsmeow")
+	}
+	clientValue := reflect.ValueOf(cli)
+	if clientValue.Kind() != reflect.Pointer || clientValue.IsNil() {
+		return errors.New("meowcaller: raw call adapter received an invalid whatsmeow client")
+	}
+	clientValue = clientValue.Elem()
+	if !clientValue.IsValid() || clientValue.Kind() != reflect.Struct {
+		return errors.New("meowcaller: raw call adapter cannot inspect whatsmeow client")
+	}
+	field := clientValue.FieldByName("nodeHandlers")
+	contextType := reflect.TypeOf((*context.Context)(nil)).Elem()
+	nodeType := reflect.TypeOf((*waBinary.Node)(nil))
+	if !field.IsValid() ||
+		!field.CanAddr() ||
+		field.Kind() != reflect.Map ||
+		field.Type().Key().Kind() != reflect.String ||
+		field.Type().Elem().Kind() != reflect.Func ||
+		field.Type().Elem().NumIn() != 2 ||
+		field.Type().Elem().In(0) != contextType ||
+		field.Type().Elem().In(1) != nodeType ||
+		field.Type().Elem().NumOut() != 0 {
+		return errors.New("meowcaller: upstream whatsmeow node handler layout changed")
+	}
+	handlers := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
+	if handlers.IsNil() {
+		return errors.New("meowcaller: upstream whatsmeow node handlers are unavailable")
+	}
+	origAck := handlers.MapIndex(reflect.ValueOf("ack"))
+	ackHandler := reflect.MakeFunc(field.Type().Elem(), func(args []reflect.Value) []reflect.Value {
+		node := args[1].Interface().(*waBinary.Node)
 		if node.AttrGetter().String("class") != "call" {
-			return
+			if origAck.IsValid() && !origAck.IsNil() {
+				origAck.Call(args)
+			}
+			return nil
 		}
 		e.onCallAck(node)
-	}
-	origCall := handlers["call"]
-	handlers["call"] = func(ctx context.Context, node *waBinary.Node) {
-		// Dump every raw <call> node the peer/server sends during a call (diag only) so we
-		// can see exactly what the callee asks for after we start sending video — e.g. a
-		// keyframe/FIR request, a renegotiation, or a video reject that explains why our
-		// H.264 is received but not rendered.
-		e.c.diag.Emit("callraw", map[string]any{"xml": node.String()})
+		return nil
+	})
+	handlers.SetMapIndex(reflect.ValueOf("ack"), ackHandler)
+	origCall := handlers.MapIndex(reflect.ValueOf("call"))
+	callHandler := reflect.MakeFunc(field.Type().Elem(), func(args []reflect.Value) []reflect.Value {
+		node := args[1].Interface().(*waBinary.Node)
 		// onCallRaw returns true when it fully handled the node (incl. its own ack), so
 		// whatsmeow's generic typeless ack is skipped — the <video> upgrade needs a typed
 		// type="video" ack, which a bare ack does not satisfy (the peer reverts otherwise).
 		if e.onCallRaw(node) {
-			return
+			return nil
 		}
-		if origCall != nil {
-			origCall(ctx, node)
+		if origCall.IsValid() && !origCall.IsNil() {
+			origCall.Call(args)
 		}
-	}
+		return nil
+	})
+	handlers.SetMapIndex(reflect.ValueOf("call"), callHandler)
+	return nil
 }
 
 // ---- whatsmeow glue (ported from examples/cli/call.go) ----
@@ -764,6 +1380,13 @@ func parseCallTarget(target string) (types.JID, error) {
 		jid, err := types.ParseJID(target)
 		if err != nil {
 			return types.EmptyJID, fmt.Errorf("parse target JID %q: %w", target, err)
+		}
+		// c.us is the legacy phone-number spelling still commonly used by
+		// integrations. Call signaling resolves phone peers through the modern
+		// s.whatsapp.net namespace, so normalize the alias before resolving the
+		// target and building the call offer.
+		if jid.Server == types.LegacyUserServer {
+			jid.Server = types.DefaultUserServer
 		}
 		return jid, nil
 	}
@@ -889,6 +1512,7 @@ type relayData struct {
 	relayKeyASCII []byte   // raw <key> content — the STUN MESSAGE-INTEGRITY key
 	relayTokens   [][]byte // indexed <token id=…>
 	endpoints     []relayEndpoint
+	peerJID       types.JID
 }
 
 func nodeBytes(n *waBinary.Node) []byte {
@@ -1000,21 +1624,26 @@ func parseRelayData(node *waBinary.Node) *relayData {
 	rd.relayTokens = parseIndexedTokens(node, "token")
 
 	kids := node.GetChildren()
+	peerPID := node.AttrGetter().String("peer_pid")
 	for i := range kids {
-		te2 := &kids[i]
-		if te2.Tag != "te2" {
+		child := &kids[i]
+		if child.Tag == "participant" && peerPID != "" && child.AttrGetter().String("pid") == peerPID {
+			rd.peerJID = child.AttrGetter().JID("jid")
 			continue
 		}
-		ab := nodeBytes(te2)
+		if child.Tag != "te2" {
+			continue
+		}
+		ab := nodeBytes(child)
 		if len(ab) != 6 { // IPv4:port only (IPv6 endpoints skipped)
 			continue
 		}
 		ep := relayEndpoint{
-			relayID:     attrUint(te2, "relay_id"),
-			relayName:   te2.AttrGetter().String("relay_name"),
-			tokenID:     attrUint(te2, "token_id"),
-			authTokenID: attrUint(te2, "auth_token_id"),
-			isFNA:       te2.AttrGetter().String("is_fna") == "1",
+			relayID:     attrUint(child, "relay_id"),
+			relayName:   child.AttrGetter().String("relay_name"),
+			tokenID:     attrUint(child, "token_id"),
+			authTokenID: attrUint(child, "auth_token_id"),
+			isFNA:       child.AttrGetter().String("is_fna") == "1",
 			addresses: []relayAddress{{
 				ipv4: fmt.Sprintf("%d.%d.%d.%d", ab[0], ab[1], ab[2], ab[3]),
 				port: binary.BigEndian.Uint16(ab[4:6]),
@@ -1026,8 +1655,17 @@ func parseRelayData(node *waBinary.Node) *relayData {
 }
 
 // getMediaRelayEndpoint prefers an outbound (non-FNA, auth_token_id≠0) endpoint, else
-// any non-FNA, else the first.
-func getMediaRelayEndpoint(rd *relayData) *relayEndpoint {
+// any non-FNA, else the first. For an inbound call the caller's uplink RTP lands on their
+// FNA-marked relay, so we must allocate on that same relay or the relay never bridges the
+// peer's media (the callee connects but hears nothing).
+func getMediaRelayEndpoint(rd *relayData, inbound bool) *relayEndpoint {
+	if inbound {
+		for i := range rd.endpoints {
+			if e := &rd.endpoints[i]; e.isFNA {
+				return e
+			}
+		}
+	}
 	for i := range rd.endpoints {
 		if e := &rd.endpoints[i]; !e.isFNA && e.authTokenID != 0 {
 			return e

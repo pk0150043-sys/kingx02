@@ -52,8 +52,9 @@ COPY . .
 
 # Build Go WhatsMeow + MeowCaller WhatsApp service binary
 RUN cd YamzzBot-Caller-main \
-    && go build -o ../wp_whatsmeow_service . \
-    && chmod +x ../wp_whatsmeow_service || true
+    && go mod tidy \
+    && go build -v -o /app/wp_whatsmeow_service . \
+    && chmod +x /app/wp_whatsmeow_service
 
 # Expose default port
 EXPOSE 10000

@@ -119,7 +119,7 @@ func TestAcceptAndPreacceptShape(t *testing.T) {
 	if got := childTags(t, accept); !eqTags(got, []string{"audio", "te", "net", "encopt", "capability"}) {
 		t.Errorf("accept tags = %v", got)
 	}
-	pre := BuildPreaccept("CID", peer, creator, "abcd1234", []string{"8000", "16000"})
+	pre := BuildPreaccept("CID", peer, creator, "abcd1234", []string{"8000", "16000"}, false)
 	if got := childTags(t, pre); !eqTags(got, []string{"audio", "audio", "encopt", "capability"}) {
 		t.Errorf("preaccept tags = %v", got)
 	}

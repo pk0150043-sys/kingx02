@@ -2,6 +2,7 @@ package mlow
 
 import (
 	"encoding/hex"
+	"math"
 	"testing"
 )
 
@@ -131,5 +132,35 @@ func TestExcPre(t *testing.T) {
 	}
 	if vBad != 0 {
 		t.Errorf("voiced exc_pre diverges from C (%d subframes)", vBad)
+	}
+}
+
+func TestLowRateUvPulseShape(t *testing.T) {
+	state := [2]float32{}
+	got := []float32{1, 0, 0}
+	smplLowRateUvPulseShape(got, &state)
+	want := []float32{0.5, 0.333, 0.110889}
+	for i := range want {
+		if math.Abs(float64(got[i]-want[i])) > 1e-6 {
+			t.Fatalf("sample %d got %.8f, want %.8f", i, got[i], want[i])
+		}
+	}
+	if math.Abs(float64(state[1]-0.110889)) > 1e-6 {
+		t.Fatalf("carried output got %.8f, want 0.110889", state[1])
+	}
+}
+
+func TestLowRateTilt(t *testing.T) {
+	state := float32(0.5)
+	got := []float32{1, 0}
+	smplLowRateTilt(got, &state)
+	want := []float32{0.92, 0.16}
+	for i := range want {
+		if math.Abs(float64(got[i]-want[i])) > 1e-6 {
+			t.Fatalf("sample %d got %.8f, want %.8f", i, got[i], want[i])
+		}
+	}
+	if state != 0 {
+		t.Fatalf("carried input got %.8f, want 0", state)
 	}
 }

@@ -6,6 +6,7 @@
 //	cli listen                    Log in and print incoming call signaling.
 //	cli autoaccept [file.wav]     Log in and auto-answer incoming calls, wiring
 //	                              mic ↔ speaker (or recording the peer to file.wav).
+//	cli web                       Start a localhost browser call console.
 //
 // meowcaller wraps an already-connected whatsmeow client: this command owns the
 // whatsmeow login/QR boilerplate and the logger, then hands the connected client
@@ -110,6 +111,8 @@ func main() {
 			recordPath = os.Args[2]
 		}
 		err = runListen(ctx, rec, true, recordPath)
+	case "web":
+		err = runWebConsole(ctx, rec)
 	default:
 		usage()
 	}
@@ -119,7 +122,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: cli [--diagdump <dir>] <call <target> | play <target> <file.mp3|wav|opus> | listen | autoaccept [record.wav]>")
+	fmt.Fprintln(os.Stderr, "usage: cli [--diagdump <dir>] <call <target> | play <target> <file.mp3|wav|opus> | listen | autoaccept [record.wav] | web>")
 	os.Exit(2)
 }
 
@@ -174,13 +177,11 @@ func (d *diagSplitter) Write(p []byte) (int, error) {
 // file path the file is streamed to the peer instead (peer still goes to speaker).
 func runCall(ctx context.Context, rec *diag.Recorder, target, file string) error {
 	log := zerolog.Ctx(ctx)
-	wa, err := connectClient(ctx)
+	wa, client, err := connectManagedClient(ctx, rec)
 	if err != nil {
 		return err
 	}
 	defer wa.Disconnect()
-
-	client := meowcaller.NewClient(wa, meowcaller.WithLogger(*zerolog.Ctx(ctx)), meowcaller.WithDiagnostics(rec))
 
 	call, err := client.Call(ctx, target)
 	if err != nil {
@@ -213,13 +214,12 @@ func runCall(ctx context.Context, rec *diag.Recorder, target, file string) error
 // one and wires mic ↔ speaker, or records the peer's audio to recordPath (.wav).
 func runListen(ctx context.Context, rec *diag.Recorder, autoAccept bool, recordPath string) error {
 	log := zerolog.Ctx(ctx)
-	wa, err := connectClient(ctx)
+	wa, client, err := connectManagedClient(ctx, rec)
 	if err != nil {
 		return err
 	}
 	defer wa.Disconnect()
 
-	client := meowcaller.NewClient(wa, meowcaller.WithLogger(*zerolog.Ctx(ctx)), meowcaller.WithDiagnostics(rec))
 	client.OnIncomingCall(func(call *meowcaller.Call) {
 		log.Info().Str("call_id", call.ID()).Str("peer", call.Peer().String()).Bool("auto_accept", autoAccept).Msg("incoming call")
 		if !autoAccept {
@@ -239,7 +239,8 @@ func runListen(ctx context.Context, rec *diag.Recorder, autoAccept bool, recordP
 		if vb, err := newVideoBridge(*zerolog.Ctx(ctx)); err == nil {
 			call.ReceiveVideo(meowcaller.VideoSinkFunc(vb.WriteFrame))
 			call.OnVideoState(func(s meowcaller.VideoState) { vb.SetOrientation(s.Orientation) })
-			vb.OnFrame(func(au []byte) { _ = call.SendVideo(au) })
+			vb.OnFrame(func(au []byte) { _ = call.SendVideoWithDuration(au, browserVideoFrameDuration) })
+			call.OnVideoKeyframeRequest(vb.RequestKeyframe)
 			go func() { <-ctx.Done(); _ = vb.Close() }()
 			log.Info().Str("video_url", vb.URL()).Bool("offer_is_video", call.IsVideo()).Msg("open in a browser to see/send video")
 		} else {
@@ -308,12 +309,9 @@ func openFileSource(file string) (meowcaller.AudioSource, error) {
 	}
 }
 
-// connectClient opens whatsmeow's auth store and logs in (QR on first run),
-// returning a connected client. This is the consumer's responsibility —
-// meowcaller wraps an already-connected client. busy_timeout absorbs brief lock
-// contention so a busy session doesn't error out with "database is locked".
-func connectClient(ctx context.Context) (*whatsmeow.Client, error) {
-	log := zerolog.Ctx(ctx)
+// openClient opens whatsmeow's auth store without connecting. This lets callers install
+// meowcaller's raw call handlers before the network receive loop starts.
+func openClient(ctx context.Context, verboseWhatsmeow bool) (*whatsmeow.Client, error) {
 	// Present as a Google Chrome web client. The connection already advertises the
 	// WEB platform; these companion props make the linked-device entry read
 	// "Google Chrome (Mac OS)" instead of the default. DeviceProps is read at
@@ -321,7 +319,11 @@ func connectClient(ctx context.Context) (*whatsmeow.Client, error) {
 	store.DeviceProps.Os = proto.String("Mac OS")
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_CHROME.Enum()
 
-	container, err := sqlstore.New(ctx, "sqlite", "file:wa-voip.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", waLog.Zerolog(*zerolog.Ctx(ctx)).Sub("db"))
+	waLogger := *zerolog.Ctx(ctx)
+	if !verboseWhatsmeow {
+		waLogger = waLogger.Level(zerolog.InfoLevel)
+	}
+	container, err := sqlstore.New(ctx, "sqlite", "file:wa-voip.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", waLog.Zerolog(waLogger).Sub("db"))
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
@@ -329,29 +331,51 @@ func connectClient(ctx context.Context) (*whatsmeow.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load device: %w", err)
 	}
-	client := whatsmeow.NewClient(device, waLog.Zerolog(*zerolog.Ctx(ctx)).Sub("wa"))
+	client := whatsmeow.NewClient(device, waLog.Zerolog(waLogger).Sub("wa"))
+	return client, nil
+}
 
+func connectManagedClient(ctx context.Context, rec *diag.Recorder, onQR ...func(string, time.Duration)) (*whatsmeow.Client, *meowcaller.Client, error) {
+	wa, err := openClient(ctx, rec != nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	client := meowcaller.NewClient(wa, meowcaller.WithLogger(*zerolog.Ctx(ctx)), meowcaller.WithDiagnostics(rec))
+	if err = connectClient(ctx, wa, onQR...); err != nil {
+		return nil, nil, err
+	}
+	return wa, client, nil
+}
+
+// connectClient logs in a preconfigured client (QR on first run).
+func connectClient(ctx context.Context, client *whatsmeow.Client, onQR ...func(string, time.Duration)) error {
+	log := zerolog.Ctx(ctx)
 	if client.Store.ID == nil {
 		qr, _ := client.GetQRChannel(ctx)
 		if err := client.Connect(); err != nil {
-			return nil, fmt.Errorf("connect: %w", err)
+			return fmt.Errorf("connect: %w", err)
 		}
 		for evt := range qr {
 			if evt.Event == "code" {
-				log.Info().Int("valid_s", int(evt.Timeout.Seconds())).Str("qr_code", evt.Code).Msg("scan in WhatsApp > Linked devices")
+				log.Info().Int("valid_s", int(evt.Timeout.Seconds())).Msg("scan in WhatsApp > Linked devices")
+				for _, fn := range onQR {
+					if fn != nil {
+						fn(evt.Code, evt.Timeout)
+					}
+				}
 			} else {
 				log.Info().Str("event", evt.Event).Msg("login event")
 			}
 		}
 	} else if err := client.Connect(); err != nil {
-		return nil, fmt.Errorf("connect: %w", err)
+		return fmt.Errorf("connect: %w", err)
 	}
 	// After QR pairing the server sends a 515 and whatsmeow disconnects to reconnect
 	// with the new creds. WaitForConnection bails on that *expected* disconnect, so we
 	// instead wait for the Connected event (dispatched only after authentication) and
 	// the connected+logged-in state to settle across the reconnect.
 	if err := waitUntilReady(ctx, client, 60*time.Second); err != nil {
-		return nil, err
+		return err
 	}
 	log.Info().Str("self_lid", client.Store.GetLID().String()).Msg("connected")
 
@@ -363,7 +387,7 @@ func connectClient(ctx context.Context) (*whatsmeow.Client, error) {
 	if err := client.SendPresence(ctx, types.PresenceAvailable); err != nil {
 		log.Warn().Err(err).Msg("send presence failed; continuing")
 	}
-	return client, nil
+	return nil
 }
 
 // waitUntilReady blocks until the client is connected and logged in, tolerating the

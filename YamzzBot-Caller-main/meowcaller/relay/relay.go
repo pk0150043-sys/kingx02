@@ -34,8 +34,8 @@ const (
 	SctpPort = 5000
 )
 
-// ClassifyRelayPacket demuxes by first byte: top two bits zero ⇒ STUN; 0x80/0x81 ⇒
-// RTCP; 0x90 ⇒ RTP (WARP); anything else ⇒ Other.
+// ClassifyRelayPacket demuxes STUN from RTP/RTCP using the RTP version and payload
+// type ranges. WhatsApp video RTCP sets a profile bit, so its first byte can be 0x91.
 func ClassifyRelayPacket(data []byte, log ...zerolog.Logger) RelayPacketKind {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/41095d4e6ba4610e054e9ede3af1d5e88a83faee/src/voip/transport.rs#L57-L70
 	lg := pickLog(log)
@@ -45,17 +45,16 @@ func ClassifyRelayPacket(data []byte, log ...zerolog.Logger) RelayPacketKind {
 	}
 	first := data[0]
 	if first&0xc0 != 0 {
-		switch first {
-		case 0x80, 0x81:
+		if data[1] >= 192 && data[1] <= 223 {
 			lg.Trace().Int("packet_bytes", len(data)).Str("kind", "rtcp").Msg("classified relay packet")
 			return RelayPacketRtcp
-		case 0x90:
+		}
+		if first>>6 == 2 {
 			lg.Trace().Int("packet_bytes", len(data)).Str("kind", "rtp").Msg("classified relay packet")
 			return RelayPacketRtp
-		default:
-			lg.Trace().Int("packet_bytes", len(data)).Str("kind", "other").Msg("classified relay packet")
-			return RelayPacketOther
 		}
+		lg.Trace().Int("packet_bytes", len(data)).Str("kind", "other").Msg("classified relay packet")
+		return RelayPacketOther
 	}
 	lg.Trace().Int("packet_bytes", len(data)).Str("kind", "stun").Msg("classified relay packet")
 	return RelayPacketStun

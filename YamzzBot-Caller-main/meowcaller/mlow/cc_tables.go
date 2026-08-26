@@ -31,6 +31,22 @@ const (
 	ccFcbgVDeltaN       = 67
 )
 
+// Two-subframe residual-energy distributions used by the low-rate operating point.
+var (
+	ccNrgresGain2Dcmf = []byte{
+		139, 194, 196, 200, 209, 225, 239, 243, 246, 246, 253, 255,
+		253, 249, 244, 239, 233, 231, 230, 228, 219, 216, 214, 214,
+		213, 211, 214, 215, 220, 223, 230, 234, 237, 240, 242, 244,
+		245, 245, 246, 242, 237, 230, 220, 210, 190, 170, 148, 125,
+		104, 83, 64, 49, 36, 22, 14, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+		8, 8, 8, 8, 8, 8, 8,
+	}
+	ccNrgresShape2Dcmf = []byte{
+		47, 52, 137, 58, 61, 21, 73, 240, 55, 95, 255,
+		68, 83, 108, 48, 50, 49, 45, 35, 155, 31, 41,
+	}
+)
+
 // --- SILK fixed-point primitives (cc-prefixed to avoid the vad.go set) ---
 
 func ccSmulbb(a, b int32) int32 { return int32(int16(a)) * int32(int16(b)) }
@@ -343,6 +359,8 @@ func ccDcmfChunks(b []byte, step int) [][]uint16 {
 
 // CcTables is the runtime nrgres/gains/LTP/pulse table set.
 type CcTables struct {
+	nrgresGain2     []uint16
+	nrgresShape2    []uint16
 	nrgresGain4     []uint16
 	nrgresShape4    []uint16
 	fcbgOffset      [][]uint16
@@ -361,6 +379,8 @@ type CcTables struct {
 
 func (s *ccSeed) build() *CcTables {
 	t := &CcTables{
+		nrgresGain2:    ccDcmf(ccNrgresGain2Dcmf),
+		nrgresShape2:   ccDcmf(ccNrgresShape2Dcmf),
 		nrgresGain4:    ccDcmf(s.nrgresGain4Dcmf),
 		nrgresShape4:   ccDcmf(s.nrgresShape4Dcmf),
 		fcbgOffset:     ccDcmfChunks(s.fcbgOffsetDcmf, ccFcbgOffsetSteps),
@@ -403,8 +423,22 @@ func LoadCcTables() *CcTables {
 
 // --- accessors (logical-index API matching smpl_cc_tables.rs) ---
 
-func (t *CcTables) NrgresGain4() []uint16  { return t.nrgresGain4 }
-func (t *CcTables) NrgresShape4() []uint16 { return t.nrgresShape4 }
+func (t *CcTables) NrgresGain(numSubframes int32) []uint16 {
+	if numSubframes == 2 {
+		return t.nrgresGain2
+	}
+	return t.nrgresGain4
+}
+
+func (t *CcTables) NrgresShape(numSubframes int32) []uint16 {
+	if numSubframes == 2 {
+		return t.nrgresShape2
+	}
+	return t.nrgresShape4
+}
+
+func (t *CcTables) NrgresGain4() []uint16  { return t.NrgresGain(4) }
+func (t *CcTables) NrgresShape4() []uint16 { return t.NrgresShape(4) }
 
 func (t *CcTables) FcbgOffset(tableIx, bucket, minOffset int) []uint16 {
 	row := t.fcbgOffset[tableIx*ccFcbgOffsetBuckets+bucket]

@@ -12,7 +12,7 @@ type SmplGainResult struct {
 	GainDelta int32
 }
 
-// DecodeSmplGains decodes the gains+nrgres reads (the p3==4 path). subfrCounts are
+// DecodeSmplGains decodes the gains+nrgres reads. subfrCounts are
 // the per-subframe pulse counts. Group A/E tables come from the seed-built CcTables
 // (the mem param is retained for call-site stability; only pitch lag reads use it).
 func DecodeSmplGains(dec *RangeDecoder, _ *SmplMem, p3 int32, subfrCounts [4]int32) SmplGainResult {
@@ -21,12 +21,15 @@ func DecodeSmplGains(dec *RangeDecoder, _ *SmplMem, p3 int32, subfrCounts [4]int
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/924eb2c15aa9ffc7362293c74b2888e171831434/wacore/src/voip/mlow/smpl_gains.rs#L29-L67 (seed cc-table rewire: Group A/E from CcTables)
 	cc := LoadCcTables()
 
-	// main gain (n=85) + delta gain (n=99)
-	gainMain := dec.DecodeCDF(cc.NrgresGain4())
-	gainDelta := dec.DecodeCDF(cc.NrgresShape4())
+	// Main and shape distributions depend on the two- or four-subframe geometry.
+	gainMain := dec.DecodeCDF(cc.NrgresGain(p3))
+	gainDelta := dec.DecodeCDF(cc.NrgresShape(p3))
 	res.GainMain = gainMain
 	res.GainDelta = gainDelta
 	cfgSel := int32(2)
+	if p3 == 2 {
+		cfgSel = 1
+	}
 
 	// gain reconstruction: base7 = gain_main*nrg_step - 0x154000; cbv = gain_recon[sf + p3*delta].
 	off6 := p3 * gainDelta

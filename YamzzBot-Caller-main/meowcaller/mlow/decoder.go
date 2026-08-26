@@ -27,9 +27,10 @@ func newSmplDecoderState() *SmplDecoderState {
 
 // MlowDecoder is a stateful pure-Go MLow decoder.
 type MlowDecoder struct {
-	state      *SmplDecoderState
-	redundancy int32
-	log        zerolog.Logger
+	state              *SmplDecoderState
+	redundancy         int32
+	droppedUnsupported uint32
+	log                zerolog.Logger
 }
 
 // NewMlowDecoder allocates a fresh decoder.
@@ -150,6 +151,19 @@ func (d *MlowDecoder) decodeFrame(frame []byte) []float32 {
 		d.log.Trace().Bool("sid", toc.SID).Bool("active", toc.Active).Msg("decode frame: inactive/SID, emitting silence")
 		return make([]float32, outLen)
 	}
+	if toc.SampleRate != 16000 || toc.FrameMs != 60 {
+		d.droppedUnsupported++
+		if d.droppedUnsupported == 1 || d.droppedUnsupported%100 == 0 {
+			d.log.Warn().
+				Uint32("dropped", d.droppedUnsupported).
+				Uint8("toc_byte", frame[0]).
+				Int("sample_rate", toc.SampleRate).
+				Bool("low_rate", toc.Flag2).
+				Int("frame_ms", toc.FrameMs).
+				Msg("dropping unsupported active MLow frame")
+		}
+		return make([]float32, opusFrameSamps)
+	}
 	return d.decodeActiveFrame(frame, outLen)
 }
 
@@ -161,6 +175,10 @@ func (d *MlowDecoder) decodeActiveFrame(frame []byte, outLen int) []float32 {
 	mem := LoadSmplMem()
 	dec := NewRangeDecoder(frame[1:])
 	lowRate := (frame[0]>>2)&1 != 0
+	numSubframes := int32(4)
+	if lowRate {
+		numSubframes = 2
+	}
 
 	d.log.Trace().Int("config", config).Bool("low_rate", lowRate).Int("body_bytes", len(frame)-1).Int("internal_frames", 3).Msg("decode active frame")
 
@@ -169,7 +187,7 @@ func (d *MlowDecoder) decodeActiveFrame(frame []byte, outLen int) []float32 {
 	var avgNormBr float32
 	for f := 0; f < 3; f++ {
 		lsf := DecodeSmplLsf(dec, tbl, &d.state.Lstate, config, f)
-		pulses := DecodeSmplPulses(dec, mem, SmplIntfLen, 4, 1, int32(config), lsf.Stage1)
+		pulses := DecodeSmplPulses(dec, mem, SmplIntfLen, numSubframes, 1, int32(config), lsf.Stage1)
 		voiced := lsf.Stage1 == 1
 		var total int32
 		for _, c := range pulses.Subfr {
@@ -177,7 +195,7 @@ func (d *MlowDecoder) decodeActiveFrame(frame []byte, outLen int) []float32 {
 		}
 		params := CelpDecParams{Voiced: voiced, SfPulses: pulses.Subfr, TotalPulses: total}
 		if voiced {
-			pr := DecodeSmplPitch(dec, mem, &d.state.Lstate, SmplIntfLen, 4, int32(config), pulses.Subfr)
+			pr := DecodeSmplPitch(dec, mem, &d.state.Lstate, SmplIntfLen, numSubframes, int32(config), pulses.Subfr)
 			for b := 0; b < 8; b++ {
 				v := float64(pr.BlockLags[b])*0.5 + 32.0
 				if v > 320.0 {
@@ -185,14 +203,14 @@ func (d *MlowDecoder) decodeActiveFrame(frame []byte, outLen int) []float32 {
 				}
 				params.BlockLags[b] = float32(v)
 			}
-			for sf := 0; sf < 4; sf++ {
+			for sf := 0; sf < int(numSubframes); sf++ {
 				params.AcbgIdx[sf] = pr.GainIdx[sf]
 				if pr.FiltIdx[sf] > 0 {
 					params.FcbgIdx[sf] = pr.FiltIdx[sf]
 				}
 			}
 		} else {
-			g := DecodeSmplGains(dec, mem, 4, pulses.Subfr)
+			g := DecodeSmplGains(dec, mem, numSubframes, pulses.Subfr)
 			params.NrgresDbqQ14 = g.GainQ
 			params.FcbgIdx = g.NrgRes
 		}
@@ -208,6 +226,9 @@ func (d *MlowDecoder) decodeActiveFrame(frame []byte, outLen int) []float32 {
 		d.state.Celp.SynthFrame(nlsf, int(lsf.Extra), pulses.Pulses, &params, lowRate, SmplIntfLen, sig[:])
 		d.state.PrevNLSF = nlsf
 		out = append(out, sig[:]...)
+	}
+	if dec.Err != 0 {
+		d.log.Warn().Int32("range_error", dec.Err).Int("config", config).Msg("MLow active-frame range decode failed")
 	}
 
 	// Per-packet harmonic postfilter (final pitch comb + 48-sample group delay) over the whole packet.

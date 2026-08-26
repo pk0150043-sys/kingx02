@@ -49,3 +49,33 @@ func TestDecodeSmplGains(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeSmplGainsTwoSubframes(t *testing.T) {
+	gain2 := ccDcmf([]byte{
+		139, 194, 196, 200, 209, 225, 239, 243, 246, 246, 253, 255,
+		253, 249, 244, 239, 233, 231, 230, 228, 219, 216, 214, 214,
+		213, 211, 214, 215, 220, 223, 230, 234, 237, 240, 242, 244,
+		245, 245, 246, 242, 237, 230, 220, 210, 190, 170, 148, 125,
+		104, 83, 64, 49, 36, 22, 14, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+		8, 8, 8, 8, 8, 8, 8,
+	})
+	shape2 := ccDcmf([]byte{
+		47, 52, 137, 58, 61, 21, 73, 240, 55, 95, 255,
+		68, 83, 108, 48, 50, 49, 45, 35, 155, 31, 41,
+	})
+
+	enc := NewRangeEncoder(16)
+	enc.EncodeCDF(30, gain2)
+	enc.EncodeCDF(10, shape2)
+	enc.Done()
+	dec := NewRangeDecoder(enc.Bytes())
+	got := DecodeSmplGains(dec, LoadSmplMem(), 2, [4]int32{})
+
+	if got.GainMain != 30 || got.GainDelta != 10 {
+		t.Fatalf("gain symbols got main=%d shape=%d, want main=30 shape=10", got.GainMain, got.GainDelta)
+	}
+	want := [4]int32{-800294, -794406}
+	if got.GainQ != want {
+		t.Fatalf("gain reconstruction got %v, want %v", got.GainQ, want)
+	}
+}

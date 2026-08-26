@@ -1,11 +1,11 @@
 [phases.setup]
-nixPkgs = ['python311', 'nodejs_20', 'go_1_23', 'ffmpeg', 'git', 'curl']
+nixPkgs = ['python311', 'nodejs_20', 'go_1_23', 'ffmpeg', 'git', 'curl', 'gcc']
 
 [phases.install]
 cmds = [
     'pip install -r requirements.txt',
     'npm install',
-    'cd YamzzBot-Caller-main && go build -o ../wp_whatsmeow_service . && chmod +x ../wp_whatsmeow_service || true'
+    'cd YamzzBot-Caller-main && go mod tidy && go build -v -o ../wp_whatsmeow_service . && chmod +x ../wp_whatsmeow_service'
 ]
 
 [start]

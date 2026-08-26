@@ -1,6 +1,7 @@
 package signaling
 
 import (
+	"bytes"
 	"strconv"
 
 	"github.com/rs/zerolog"
@@ -14,16 +15,13 @@ import (
 // from random bytes are passed in so the builders stay pure.
 
 // CapabilityOffer is the capability blob for <offer>/<accept> (ver=1).
-var CapabilityOffer = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x13}
+var CapabilityOffer = []byte{0x01, 0x05, 0xf7, 0x09, 0xe0, 0xbb, 0x13}
 
-// CapabilityVideoOffer is the capability blob a REAL WhatsApp VIDEO-call offer
-// carries (ver=1), captured live from a genuine client. It differs from the
-// audio-call CapabilityOffer in bytes 4-5 (e0fa vs e4bb); a video offer sent with
-// the audio capability is not rendered as an incoming video call by the callee.
+// CapabilityVideoOffer is the capability blob observed in WhatsApp video offers.
 var CapabilityVideoOffer = []byte{0x01, 0x05, 0xf7, 0x09, 0xe0, 0xfa, 0x13}
 
 // CapabilityPreaccept is the capability blob for <preaccept> (ver=1).
-var CapabilityPreaccept = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x07}
+var CapabilityPreaccept = []byte{0x01, 0x05, 0xf7, 0x09, 0xe0, 0xbb, 0x07}
 
 // EncodeLatency is the relay latency wire encoding: 0x2000000 + rttMs.
 func EncodeLatency(rttMs uint32) string {
@@ -72,8 +70,9 @@ func BuildOffer(p *OfferParams, log ...zerolog.Logger) waBinary.Node {
 		children = append(children, videoOfferNode())
 	}
 	children = append(children, waBinary.Node{Tag: "net", Attrs: waBinary.Attrs{"medium": "3"}})
-	if p.Capability != nil {
-		children = append(children, waBinary.Node{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: p.Capability})
+	capability := offerCapability(p.Video, p.Capability)
+	if capability != nil {
+		children = append(children, waBinary.Node{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capability})
 	}
 	if len(p.DeviceKeys) > 1 {
 		lg.Trace().Int("device_keys", len(p.DeviceKeys)).Msg("offer: multi-device, using destination")
@@ -91,6 +90,13 @@ func BuildOffer(p *OfferParams, log ...zerolog.Logger) waBinary.Node {
 		children = append(children, waBinary.Node{Tag: "device-identity", Content: p.DeviceIdentity})
 	}
 	return callWrap(p.To, nil, offerAction("offer", p.CallID, p.CallCreator, children))
+}
+
+func offerCapability(video bool, capability []byte) []byte {
+	if video && bytes.Equal(capability, CapabilityOffer) {
+		return CapabilityVideoOffer
+	}
+	return capability
 }
 
 // encNode builds one <enc v=2 type=… count=0> child carrying the ciphertext.
@@ -117,7 +123,7 @@ type AcceptParams struct {
 	Video        bool           // true = advertise <video> (video call)
 }
 
-// BuildAccept builds <accept>: audio → [te priority=2] → net medium=2 → encopt →
+// BuildAccept builds <accept>: audio → [video] → [te priority=2] → net medium=2 → encopt →
 // [capability] → [metadata] → [rte] → [voip_settings].
 func BuildAccept(p *AcceptParams, log ...zerolog.Logger) waBinary.Node {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/41095d4e6ba4610e054e9ede3af1d5e88a83faee/wacore/src/voip/stanza.rs#L124-L162
@@ -135,14 +141,14 @@ func BuildAccept(p *AcceptParams, log ...zerolog.Logger) waBinary.Node {
 	for _, rate := range p.AudioRates {
 		children = append(children, audioOpus(rate))
 	}
+	if p.Video {
+		children = append(children, videoAcceptNode())
+	}
 	if p.RelayTe != nil {
 		children = append(children, waBinary.Node{Tag: "te", Attrs: waBinary.Attrs{"priority": "2"}, Content: p.RelayTe})
 	}
 	children = append(children, waBinary.Node{Tag: "net", Attrs: waBinary.Attrs{"medium": "2"}})
 	children = append(children, waBinary.Node{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}})
-	if p.Video {
-		children = append(children, videoAcceptNode())
-	}
 	if p.Capability != nil {
 		children = append(children, waBinary.Node{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: p.Capability})
 	}
@@ -164,9 +170,9 @@ func audioOpus(rate string) waBinary.Node {
 	return waBinary.Node{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": rate}}
 }
 
-// BuildPreaccept builds <preaccept>: audio → encopt → capability(preaccept blob),
+// BuildPreaccept builds <preaccept>: audio → [video] → encopt → capability,
 // wrapped with the random wrapper id.
-func BuildPreaccept(callID string, to, callCreator types.JID, wrapperID string, audioRates []string, log ...zerolog.Logger) waBinary.Node {
+func BuildPreaccept(callID string, to, callCreator types.JID, wrapperID string, audioRates []string, video bool, log ...zerolog.Logger) waBinary.Node {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/41095d4e6ba4610e054e9ede3af1d5e88a83faee/wacore/src/voip/stanza.rs#L171-L201
 	lg := pickLog(log)
 	lg.Debug().
@@ -174,12 +180,19 @@ func BuildPreaccept(callID string, to, callCreator types.JID, wrapperID string, 
 		Str("wrapper_id", wrapperID).
 		Strs("audio_rates", audioRates).
 		Msg("building preaccept stanza")
-	children := make([]waBinary.Node, 0, len(audioRates)+2)
+	children := make([]waBinary.Node, 0, len(audioRates)+3)
 	for _, rate := range audioRates {
 		children = append(children, audioOpus(rate))
 	}
+	if video {
+		children = append(children, videoPreacceptNode())
+	}
 	children = append(children, waBinary.Node{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}})
-	children = append(children, waBinary.Node{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: CapabilityPreaccept})
+	capability := CapabilityPreaccept
+	if video {
+		capability = CapabilityOffer
+	}
+	children = append(children, waBinary.Node{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capability})
 	return callWrap(to, &wrapperID, offerAction("preaccept", callID, callCreator, children))
 }
 

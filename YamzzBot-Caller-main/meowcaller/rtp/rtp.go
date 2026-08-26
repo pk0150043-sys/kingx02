@@ -13,13 +13,18 @@ import (
 
 const (
 	RtpPayloadTypeOpus uint8 = 120
+	// RtpPayloadTypeAppData carries protobuf call reactions and other RTC app data.
+	RtpPayloadTypeAppData uint8 = 119
 	// RtpPayloadTypeH264 is the WhatsApp video (H.264) RTP payload type, used to demux
 	// video off the relay. Source of truth: https://github.com/JotaDev66/WaCalls/blob/2d6a1f666426049a89ef9541414e771acdcf8a16/internal/voip/core/types.go#L44
 	RtpPayloadTypeH264          uint8  = 97
 	WhatsappRtpExtensionProfile uint16 = 0xdebe
 	WhatsappRtpHeaderSize       int    = 16
 	WhatsappRtpHeaderDtxSize    int    = 20
+	WhatsappVideoRtpHeaderSize  int    = 28
 	WhatsappRtpExtensionDtxWord uint32 = 0x30010000
+	VideoMediaFrameInfoIDR      uint8  = 0x08
+	VideoMediaFrameInfoDelta    uint8  = 0x20
 
 	rtpVersion          = 2
 	srtpAuthTagLen      = 10
@@ -101,25 +106,59 @@ func EstimateSrtpRtpWireBytes(opusPayload []byte) int {
 	return headerSize + len(opusPayload) + tagLen
 }
 
-// RtpHeader is the fixed RTP header plus an optional 0xdebe extension word.
+// VideoRtpExtension is WhatsApp's video RTP metadata extension set.
+type VideoRtpExtension struct {
+	MediaFrameInfo    uint8
+	FrameNumber       *uint16
+	InitialBandwidth  uint16
+	ShortOffset       int16
+	TransportSequence uint16
+}
+
+// DisplayOrientation returns the CVO receiver rotation as clockwise quarter turns.
+func (e *VideoRtpExtension) DisplayOrientation() int {
+	// Source of truth: https://www.etsi.org/deliver/etsi_ts/126100_126199/126114/15.05.00_60/ts_126114v150500p.pdf
+	return int(e.MediaFrameInfo & 0x03)
+}
+
+func (e *VideoRtpExtension) encode() []byte {
+	frameInfoLength := 1
+	if e.FrameNumber != nil {
+		frameInfoLength = 3
+	}
+	ext := make([]byte, 0, 16)
+	ext = append(ext, 0x30|byte(frameInfoLength-1), e.MediaFrameInfo)
+	if e.FrameNumber != nil {
+		ext = binary.BigEndian.AppendUint16(ext, *e.FrameNumber)
+	}
+	ext = append(ext, 0x51)
+	ext = binary.BigEndian.AppendUint16(ext, e.InitialBandwidth)
+	ext = append(ext, 0x61)
+	ext = binary.BigEndian.AppendUint16(ext, uint16(e.ShortOffset))
+	ext = append(ext, 0x91)
+	ext = binary.BigEndian.AppendUint16(ext, e.TransportSequence)
+	for len(ext)%4 != 0 {
+		ext = append(ext, 0)
+	}
+	return ext
+}
+
+// RtpHeader is the fixed RTP header plus an optional 0xdebe extension.
 type RtpHeader struct {
 	Marker         bool
 	PayloadType    uint8
 	SequenceNumber uint16
 	Timestamp      uint32
 	Ssrc           uint32
-	ExtensionWord  *uint32 // nil = no 0xdebe extension word
-	// ExtensionBytes carries a raw 0xdebe extension body (RFC 8285 one-byte headers,
-	// already 4-byte padded). When set it takes precedence over ExtensionWord — used
-	// by the video send path to emit the WhatsApp WARP video frame-descriptor.
-	ExtensionBytes []byte
+	ExtensionWord  *uint32            // nil = no audio extension word
+	VideoExtension *VideoRtpExtension // nil = no video extension block
 }
 
-// ByteSize is the on-wire header size (16, or 20 with an extension word).
+// ByteSize is the on-wire header size.
 func (h *RtpHeader) ByteSize() int {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/41095d4e6ba4610e054e9ede3af1d5e88a83faee/wacore/src/voip/rtp.rs#L93-L99
-	if len(h.ExtensionBytes) > 0 {
-		return 12 + 4 + len(h.ExtensionBytes)
+	if h.VideoExtension != nil {
+		return WhatsappRtpHeaderSize + len(h.VideoExtension.encode())
 	}
 	if h.ExtensionWord != nil {
 		return WhatsappRtpHeaderDtxSize
@@ -162,6 +201,84 @@ func RtpHeaderByteLength(data []byte, log ...zerolog.Logger) (int, bool) {
 	return headerLen, true
 }
 
+// RtpExtensionProfileAndData returns the extension profile and word-aligned payload.
+func RtpExtensionProfileAndData(data []byte) (uint16, []byte, bool) {
+	if len(data) < 12 || (data[0]>>6)&0x03 != rtpVersion {
+		return 0, nil, false
+	}
+	extensionOffset := 12 + int(data[0]&0x0f)*4
+	if len(data) < extensionOffset || data[0]&0x10 == 0 {
+		return 0, nil, false
+	}
+	if len(data) < extensionOffset+4 {
+		return 0, nil, false
+	}
+	words := int(binary.BigEndian.Uint16(data[extensionOffset+2 : extensionOffset+4]))
+	dataStart := extensionOffset + 4
+	dataEnd := dataStart + words*4
+	if dataEnd > len(data) {
+		return 0, nil, false
+	}
+	return binary.BigEndian.Uint16(data[extensionOffset : extensionOffset+2]), data[dataStart:dataEnd], true
+}
+
+// ParseWhatsappVideoExtension decodes WhatsApp's one-byte-header video extensions.
+func ParseWhatsappVideoExtension(data []byte) (*VideoRtpExtension, bool) {
+	// Source of truth: https://github.com/purpshell/meowcaller/blob/2af70f9b5f88de1ab3b9ba5e9ecda8687810f498/datasheets/group-video-reactions.md#L109-L117
+	profile, ext, ok := RtpExtensionProfileAndData(data)
+	if !ok || profile != WhatsappRtpExtensionProfile {
+		return nil, false
+	}
+	parsed := &VideoRtpExtension{}
+	var hasFrameInfo, hasShortOffset bool
+	for offset := 0; offset < len(ext); {
+		header := ext[offset]
+		offset++
+		if header == 0 {
+			continue
+		}
+		id := header >> 4
+		length := int(header&0x0f) + 1
+		if id == 15 || offset+length > len(ext) {
+			return nil, false
+		}
+		value := ext[offset : offset+length]
+		offset += length
+		switch id {
+		case 3:
+			if length != 1 && length != 3 {
+				return nil, false
+			}
+			parsed.MediaFrameInfo = value[0]
+			if length == 3 {
+				frameNumber := binary.BigEndian.Uint16(value[1:3])
+				parsed.FrameNumber = &frameNumber
+			}
+			hasFrameInfo = true
+		case 5:
+			if length != 2 {
+				return nil, false
+			}
+			parsed.InitialBandwidth = binary.BigEndian.Uint16(value)
+		case 6:
+			if length != 2 {
+				return nil, false
+			}
+			parsed.ShortOffset = int16(binary.BigEndian.Uint16(value))
+			hasShortOffset = true
+		case 9:
+			if length != 2 {
+				return nil, false
+			}
+			parsed.TransportSequence = binary.BigEndian.Uint16(value)
+		}
+	}
+	if !hasFrameInfo || !hasShortOffset {
+		return nil, false
+	}
+	return parsed, true
+}
+
 // IsRtpVersion2 reports a version-2 RTP packet.
 func IsRtpVersion2(data []byte) bool {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/41095d4e6ba4610e054e9ede3af1d5e88a83faee/wacore/src/voip/rtp.rs#L129-L131
@@ -184,11 +301,12 @@ func ParseRtpHeader(data []byte, log ...zerolog.Logger) (RtpHeader, bool) {
 		Ssrc:           binary.BigEndian.Uint32(data[8:12]),
 		ExtensionWord:  nil,
 	}
+	h.VideoExtension, _ = ParseWhatsappVideoExtension(data)
 	lg.Trace().Uint32("ssrc", h.Ssrc).Uint16("seq", h.SequenceNumber).Uint32("timestamp", h.Timestamp).Uint8("payload_type", h.PayloadType).Bool("marker", h.Marker).Msg("parsed rtp header")
 	return h, true
 }
 
-// EncodeRtpHeader encodes the RTP header (16 or 20 bytes with the 0xdebe extension).
+// EncodeRtpHeader encodes the RTP header and its WhatsApp extension.
 func EncodeRtpHeader(header *RtpHeader, log ...zerolog.Logger) []byte {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/41095d4e6ba4610e054e9ede3af1d5e88a83faee/wacore/src/voip/rtp.rs#L146-L175
 	lg := pickLog(log)
@@ -206,20 +324,23 @@ func EncodeRtpHeader(header *RtpHeader, log ...zerolog.Logger) []byte {
 	buf[3] = byte(header.SequenceNumber)
 	binary.BigEndian.PutUint32(buf[4:8], header.Timestamp)
 	binary.BigEndian.PutUint32(buf[8:12], header.Ssrc)
+	var videoExtension []byte
+	if header.VideoExtension != nil {
+		videoExtension = header.VideoExtension.encode()
+	}
 	if size >= 16 {
 		binary.BigEndian.PutUint16(buf[12:14], WhatsappRtpExtensionProfile)
-		if len(header.ExtensionBytes) > 0 {
-			binary.BigEndian.PutUint16(buf[14:16], uint16(len(header.ExtensionBytes)/4))
-			copy(buf[16:], header.ExtensionBytes)
-		} else {
-			var extWords uint16
-			if header.ExtensionWord != nil {
-				extWords = 1
-			}
-			binary.BigEndian.PutUint16(buf[14:16], extWords)
+		var extWords uint16
+		if header.VideoExtension != nil {
+			extWords = uint16(len(videoExtension) / 4)
+		} else if header.ExtensionWord != nil {
+			extWords = 1
 		}
+		binary.BigEndian.PutUint16(buf[14:16], extWords)
 	}
-	if size >= 20 && header.ExtensionWord != nil && len(header.ExtensionBytes) == 0 {
+	if header.VideoExtension != nil {
+		copy(buf[16:], videoExtension)
+	} else if size >= 20 && header.ExtensionWord != nil {
 		binary.BigEndian.PutUint32(buf[16:20], *header.ExtensionWord)
 	}
 	lg.Trace().Uint32("ssrc", header.Ssrc).Uint16("seq", header.SequenceNumber).Uint32("timestamp", header.Timestamp).Uint8("payload_type", header.PayloadType).Bool("marker", header.Marker).Bool("extension", header.ExtensionWord != nil).Int("header_bytes", size).Msg("encoded rtp header")
@@ -236,6 +357,74 @@ type RtpStream struct {
 	audioPacketIndex int
 	warpPiggyback    bool
 	log              zerolog.Logger
+}
+
+// VideoRtpStream sequences WhatsApp video packets. All packets in one access unit
+// share a timestamp; the marker packet advances the 90 kHz clock.
+type VideoRtpStream struct {
+	ssrc              uint32
+	seq               uint16
+	timestamp         uint32
+	lastSentTimestamp uint32
+	sent              bool
+	tsStride          uint32
+	transportSequence uint16
+	frameNumber       uint16
+	firstPacket       bool
+}
+
+func NewVideoRtpStream(ssrc, tsStride uint32) *VideoRtpStream {
+	return &VideoRtpStream{ssrc: ssrc, seq: 1, tsStride: tsStride, frameNumber: 1, firstPacket: true}
+}
+
+func (s *VideoRtpStream) RtpTimestamp() uint32 {
+	if s.sent {
+		return s.lastSentTimestamp
+	}
+	return s.timestamp
+}
+
+func (s *VideoRtpStream) SetTimestampStride(tsStride uint32) bool {
+	if tsStride == 0 {
+		return false
+	}
+	s.tsStride = tsStride
+	return true
+}
+
+func (s *VideoRtpStream) NextPacket(lastInAccessUnit bool, mediaFrameInfo uint8) RtpHeader {
+	var frameNumber *uint16
+	if s.firstPacket {
+		value := s.frameNumber
+		frameNumber = &value
+	}
+	ext := &VideoRtpExtension{
+		MediaFrameInfo:    mediaFrameInfo,
+		FrameNumber:       frameNumber,
+		InitialBandwidth:  0,
+		ShortOffset:       0,
+		TransportSequence: s.transportSequence,
+	}
+	header := RtpHeader{
+		Marker:         lastInAccessUnit,
+		PayloadType:    RtpPayloadTypeH264,
+		SequenceNumber: s.seq,
+		Timestamp:      s.timestamp,
+		Ssrc:           s.ssrc,
+		VideoExtension: ext,
+	}
+	s.lastSentTimestamp = header.Timestamp
+	s.sent = true
+	s.seq++
+	s.transportSequence++
+	if lastInAccessUnit {
+		s.timestamp += s.tsStride
+		s.frameNumber++
+		s.firstPacket = true
+	} else {
+		s.firstPacket = false
+	}
+	return header
 }
 
 // NewRtpStream builds a sequencer for ssrc with samplesPerPacket per packet.

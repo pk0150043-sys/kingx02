@@ -470,9 +470,12 @@ func encodeSmplGains(enc *RangeEncoder, _ *SmplMem, p3 int32, subfrCounts [4]int
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/encode.rs#L294-L335
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/924eb2c15aa9ffc7362293c74b2888e171831434/wacore/src/voip/mlow/encode.rs#L294-L335 (seed cc-table rewire: Group A/E from CcTables)
 	cc := LoadCcTables()
-	enc.EncodeCDF(gp.GainMain, cc.NrgresGain4())
-	enc.EncodeCDF(gp.GainDelta, cc.NrgresShape4())
+	enc.EncodeCDF(gp.GainMain, cc.NrgresGain(p3))
+	enc.EncodeCDF(gp.GainDelta, cc.NrgresShape(p3))
 	cfgSel := int32(2)
+	if p3 == 2 {
+		cfgSel = 1
+	}
 
 	off6 := p3 * gp.GainDelta
 	base7 := gp.GainMain*cc.NrgStep(cfgSel) - 0x154000
