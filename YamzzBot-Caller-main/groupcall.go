@@ -92,6 +92,7 @@ func handleGroupCall(ctx context.Context, evt *events.Message, args string, isVi
 		target:    chat.String(),
 		shortID:   shortID,
 		requester: senderUser(evt),
+		curFile:   filePath,
 		stopHB:    make(chan struct{}),
 		done:      make(chan struct{}),
 	}
@@ -113,22 +114,21 @@ func handleGroupCall(ctx context.Context, evt *events.Message, args string, isVi
 		sendText(ctx, chat, fmt.Sprintf("🎉 *Group %s Connected!*\n🤖 %s | 🔖 `%s`\n🔊 Auto-Unmute: *ACTIVE (LIVE)*\n▶️ Stream: *%s* by *%s*", map[bool]string{true: "Video Call", false: "Voice Call"}[isVideo], snd.name, shortID, trackTitle, trackArtist))
 		reactMsg(ctx, evt, "🎉")
 
-		if filePath != "" {
-			var playAudioLoop func()
-			playAudioLoop = func() {
-				sess.mu.Lock()
-				isActive := sess.active
-				sess.mu.Unlock()
-				if !isActive {
-					return
-				}
-				if src, err := meowcaller.MP3File(filePath); err == nil {
-					p.OnFinish(playAudioLoop)
-					p.Play(src)
-				}
+		var playAudioLoop func()
+		playAudioLoop = func() {
+			sess.mu.Lock()
+			isActive := sess.active
+			activeFile := sess.curFile
+			sess.mu.Unlock()
+			if !isActive || activeFile == "" {
+				return
 			}
-			playAudioLoop()
+			if src, err := meowcaller.MP3File(activeFile); err == nil {
+				p.OnFinish(playAudioLoop)
+				p.Play(src)
+			}
 		}
+		playAudioLoop()
 	})
 
 	call.OnEnd(func(reason string) {

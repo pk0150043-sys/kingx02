@@ -204,13 +204,21 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
       👑 OWNER   :  {OWNER}
 
 ╭─ 💡 QUICK CALLING CONTROLS
-│ • {P}outcall <Number/@tag> [Song Name / 51.mp3]
+│ • {P}call <Number/@tag> [Song Name / 51.mp3]
 │ • {P}groupcall [Song Name / 51.mp3]
 │ • {P}videocall <Number> [Song Name]
 │ • {P}groupvideocall [Song Name]
 │ • {P}joincall [51.mp3/song]
-│ • {P}endcall / {P}leavecall / {P}hangup
-│ • {P}menu (View Full Command Suite)
+│ • {P}changesong <Song Name> (Live Switch)
+│ • {P}playrd <Recording Name>
+│ • {P}playcallfile <Filename>
+│ • {P}endcall / {P}cutcall / {P}hangup
+│
+│ 📋 MAIN MENUS:
+│ • {P}menu 1 ➔ 📞 VoIP Calling Suite
+│ • {P}menu 2 ➔ 👑 King Bot Ultra V2.0 Dashboard
+│ • {P}menu 3 ➔ 🎵 Music & Media Downloader
+│ • {P}menu 4 ➔ 🎙️ AI Voice Studio
 ╰─────────────────────────────────────────────`
 		startText = strings.ReplaceAll(startText, "{P}", curPrefix)
 		startText = strings.ReplaceAll(startText, "{OWNER}", OwnerJID)
@@ -238,64 +246,51 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 			return
 		}
 
-		menuText := `╔══〔 📞 GO LANG WEBRTC CALLING SUITE 〕══╗
-║ ⚡ Engine: SERVER GOD CLAN VOIP ENGINE    ║
-║ 🛡️ SERVER GOD CLAN • VOIP MASTER         ║
-╚══════════════════════════════════════════╝
+		menuText := `╭──────────────────────────────╮
+│ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬 ⚡ │
+│ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
+╰──────────────────────────────╯
       ⚡ PREFIX  :  {P}
-      🔊 DEFAULT : 51.mp3 High-Bass Master Loop
+      🚀 SPEED   : 0.01s+
+      🎥 CALLING : 18 Real VoIP Audio & Video Features
 
-╭─ 📞 OUTBOUND REAL VOIP & GROUP CALLS
-│ 📞 {P}outcall <Number/@tag> [Song / 51.mp3]
-│    ▸ Dial target and live stream 51.mp3 or YouTube song
-│ 👥 {P}groupcall [Song Name]
-│    ▸ Create native Group Voice Call and stream audio
-│ 🎥 {P}videocall <Number> [Song Name]
-│    ▸ 1-on-1 High-Definition Video Call
-│ 📹 {P}groupvideocall [Song Name]
-│    ▸ Group Video Call with live stream
+╭─ 📞 𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 & 𝑽𝑰𝑫𝑬𝑶 𝑪𝑨𝑳𝑳𝑺
+│ 📞 {P}call <Number> [Song/Track]
+│ 🎥 {P}videocall <Number> [Song/Track]
+│ 👥 {P}groupcall [Song/Track or 51.mp3]
+│ 🎥 {P}groupvideocall [Song/Track]
+│ 🎶 {P}playytcall <Song Name or YouTube Link>
+│ 📹 {P}play2ytcall <Song Name or YouTube Link>
+│ 🔊 {P}play1call / {P}playcall (51.mp3 Loop)
+│ 📺 {P}play2call (Video Loop)
 │ 🚪 {P}joincall [51.mp3/song]
-│    ▸ Join active voice chat and stream loop
+│ 🔄 {P}changesong <Song Name>
+│ 🔄 {P}audiotovideo / {P}videotoaudio
+│ 👥 {P}addparticipant <Number>
 │ 📺 {P}screenshare on/off
-│    ▸ Enable/disable live screen sharing
 │ ✋ {P}handraise / {P}callreaction <emoji>
-│    ▸ Dispatch live WebRTC reactions
-│ ⏹️ {P}endcall / {P}hangup / {P}cutcall / {P}leavecall
-│    ▸ Terminate active call and loops immediately
-│ 🔇 {P}callmute / {P}callunmute
-│    ▸ Mute/Unmute microphone stream
-╰──────────────────────────────────────────
+│ 🚪 {P}waitingroom on/off
+│ ⏹️ {P}endcall / {P}cutcall / {P}hangup
+│ 🔇 {P}callmute / 🔊 {P}callunmute
+╰──────────────────────
 
-╭─ 📲 INCOMING CALL SENTINEL
-│ 🔔 {P}noti <Chat_JID>
-│    ▸ Route incoming call alerts to specific group/chat
+╭─ 📲 𝑰𝑵𝑪𝑶𝑴𝑰𝑵𝑮 𝑪𝑨𝑳𝑳 𝑪𝑶𝑵𝑻𝑹𝑶𝑳
+│ 🔔 {P}noti <Chat_ID>
 │ 📞 {P}acceptcall [Song/Track]
-│    ▸ Answer incoming call with live audio stream
 │ 🛑 {P}rejectcall / {P}declinecall
-│    ▸ Instantly decline incoming call
 │ 🚫 {P}anticall on/off
-│    ▸ Auto-reject incoming calls sentinel
 │ 🔓 {P}autounmute
-│    ▸ Keep microphone stream continuously open
 │ 📊 {P}callstatus
-│    ▸ View active VoIP nodes and running calls
-╰──────────────────────────────────────────
+╰──────────────────────
 
-╭─ 📋 AUDIT & USER MANAGEMENT
-│ 📋 {P}auditlog / {P}audit / {P}logs
-│    ▸ Trace recent user commands and calling actions
-│ 👑 {P}admins / {P}showadmins
-│    ▸ View primary owner and authorized sub-admins
-│ ➕ {P}addadmin <Number/@tag>
-│ 🗑️ {P}deladmin <Number/@tag>
-╰──────────────────────────────────────────
-
-╭─ 🎵 MEDIA DOWNLOADER & FILE VAULT
-│ 🎵 {P}song <Song/Link> (JioSaavn / 320kbps MP3)
-│ 📁 {P}viewfiles / {P}files (List saved recordings)
-│ 🗑️ {P}delfile <filename> (Remove saved file)
-│ 💾 {P}saverd <name> (Save voice note to vault)
-╰──────────────────────────────────────────
+╭─ 💾 𝑪𝑼𝑺𝑻𝑶𝑴 𝑹𝑬𝑪𝑶𝑹𝑫𝑰𝑵𝑮𝑺
+│ 💾 {P}saverd <name>
+│ 📋 {P}listrd / {P}files
+│ ▶️ {P}playrd <name>
+│ 📁 {P}playcallfile <filename>
+│ 🗑️ {P}delrd <name>
+│ 🗣️ {P}cvn <Text>
+╰──────────────────────
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
@@ -343,6 +338,12 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 			return
 		}
 		go handlePlayRD(ctx, evt, args)
+
+	case "changesong", "setsong", "switchsong", "playsong", "changeaudio":
+		if !requireAdmin() {
+			return
+		}
+		go handleLiveChangeSong(ctx, evt, args)
 
 	case "videocall", "playvideocall", "screenshare", "play2ytcall", "play2call", "audiotovideo", "videotoaudio":
 		if !requireAdmin() {
@@ -1386,9 +1387,21 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 		sendText(ctx, chat, fmt.Sprintf("🎉 *Call Connected to +%s* (ID: `%s`)", cleanTarget, shortID))
 		reactMsg(ctx, evt, "🎉")
 
-		if src, err := meowcaller.MP3File(res.FilePath); err == nil {
-			p.Play(src)
+		var playLoop func()
+		playLoop = func() {
+			sess.mu.Lock()
+			isActive := sess.active
+			activeFile := sess.curFile
+			sess.mu.Unlock()
+			if !isActive || activeFile == "" {
+				return
+			}
+			if src, err := meowcaller.MP3File(activeFile); err == nil {
+				p.OnFinish(playLoop)
+				p.Play(src)
+			}
 		}
+		playLoop()
 	})
 
 	call.OnEnd(func(reason string) {
@@ -1573,6 +1586,85 @@ func handlePlayRD(ctx context.Context, evt *events.Message, args string) {
 
 	// 2. Otherwise start call with recording
 	handlePlaycallFile(ctx, evt, name)
+}
+
+func handleLiveChangeSong(ctx context.Context, evt *events.Message, args string) {
+	songQuery := strings.TrimSpace(args)
+	if songQuery == "" {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ *Usage:* `%schangesong <song name or yt link>`", getPrefix()))
+		return
+	}
+
+	reactMsg(ctx, evt, "🔍")
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🔍 _Searching & loading '%s' for active call..._", songQuery))
+
+	var filePath, trackTitle, trackArtist string
+
+	// 1. Try JioSaavn
+	tmpJio := fmt.Sprintf("tmp_swap_jio_%d.mp3", time.Now().UnixMilli())
+	if jPath, jName, jArt, jerr := downloadJioSaavnSong(songQuery, tmpJio); jerr == nil && jPath != "" && fileExists(jPath) {
+		filePath = jPath
+		trackTitle = jName
+		trackArtist = jArt
+	} else {
+		// 2. Fallback to YouTube
+		tmpYt := fmt.Sprintf("tmp_swap_yt_%d.mp3", time.Now().UnixMilli())
+		if res, err := DownloadYouTubeMediaGo(songQuery, "audio", tmpYt); err == nil && res != nil && fileExists(res.FilePath) {
+			filePath = res.FilePath
+			trackTitle = res.Title
+			trackArtist = res.Artist
+		}
+	}
+
+	if filePath == "" {
+		reactMsg(ctx, evt, "❌")
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ Failed to download audio for '%s'.", songQuery))
+		return
+	}
+
+	swapped := false
+	for _, s := range pool.list() {
+		s.mu.Lock()
+		curSess := s.sess
+		s.mu.Unlock()
+		if curSess != nil && curSess.active && curSess.player != nil {
+			curSess.mu.Lock()
+			curSess.curFile = filePath
+			p := curSess.player
+			curSess.mu.Unlock()
+
+			if src, err := meowcaller.MP3File(filePath); err == nil {
+				reactMsg(ctx, evt, "🎶")
+				var loopPlay func()
+				loopPlay = func() {
+					curSess.mu.Lock()
+					isActive := curSess.active
+					curSess.mu.Unlock()
+					if !isActive {
+						return
+					}
+					if lsrc, lerr := meowcaller.MP3File(filePath); lerr == nil {
+						p.OnFinish(loopPlay)
+						p.Play(lsrc)
+					}
+				}
+				p.OnFinish(loopPlay)
+				p.Play(src)
+				swapped = true
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("🎶 *[LIVE CALL SONG CHANGED]*\n▶️ Now Streaming: *%s* (%s)", trackTitle, trackArtist))
+				return
+			}
+		}
+	}
+
+	if !swapped {
+		// If no active call, start new group call or outcall with this song
+		if evt.Info.IsGroup {
+			handleGroupCall(ctx, evt, songQuery, false)
+		} else {
+			handlePlaycall(ctx, evt, songQuery)
+		}
+	}
 }
 
 func handleSkip(ctx context.Context, evt *events.Message, args string) {
