@@ -246,58 +246,8 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 			return
 		}
 
-		menuText := `╭──────────────────────────────╮
-│ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬 ⚡ │
-│ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
-╰──────────────────────────────╯
-      ⚡ PREFIX  :  {P}
-      🚀 SPEED   : 0.01s+
-      🎥 CALLING : 18 Real VoIP Audio & Video Features
-
-╭─ 📞 𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 & 𝑽𝑰𝑫𝑬𝑶 𝑪𝑨𝑳𝑳𝑺
-│ 📞 {P}call <Number> [Song/Track]
-│ 🎥 {P}videocall <Number> [Song/Track]
-│ 👥 {P}groupcall [Song/Track or 51.mp3]
-│ 🎥 {P}groupvideocall [Song/Track]
-│ 🎶 {P}playytcall <Song Name or YouTube Link>
-│ 📹 {P}play2ytcall <Song Name or YouTube Link>
-│ 🔊 {P}play1call / {P}playcall (51.mp3 Loop)
-│ 📺 {P}play2call (Video Loop)
-│ 🚪 {P}joincall [51.mp3/song]
-│ 🔄 {P}changesong <Song Name>
-│ 🔄 {P}audiotovideo / {P}videotoaudio
-│ 👥 {P}addparticipant <Number>
-│ 📺 {P}screenshare on/off
-│ ✋ {P}handraise / {P}callreaction <emoji>
-│ 🚪 {P}waitingroom on/off
-│ ⏹️ {P}endcall / {P}cutcall / {P}hangup
-│ 🔇 {P}callmute / 🔊 {P}callunmute
-╰──────────────────────
-
-╭─ 📲 𝑰𝑵𝑪𝑶𝑴𝑰𝑵𝑮 𝑪𝑨𝑳𝑳 𝑪𝑶𝑵𝑻𝑹𝑶𝑳
-│ 🔔 {P}noti <Chat_ID>
-│ 📞 {P}acceptcall [Song/Track]
-│ 🛑 {P}rejectcall / {P}declinecall
-│ 🚫 {P}anticall on/off
-│ 🔓 {P}autounmute
-│ 📊 {P}callstatus
-╰──────────────────────
-
-╭─ 💾 𝑪𝑼𝑺𝑻𝑶𝑴 𝑹𝑬𝑪𝑶𝑹𝑫𝑰𝑵𝑮𝑺
-│ 💾 {P}saverd <name>
-│ 📋 {P}listrd / {P}files
-│ ▶️ {P}playrd <name>
-│ 📁 {P}playcallfile <filename>
-│ 🗑️ {P}delrd <name>
-│ 🗣️ {P}cvn <Text>
-╰──────────────────────
-
-╭──────────────────────────────╮
-│ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
-╰──────────────────────────────╯`
-		menuText = strings.ReplaceAll(menuText, "{P}", curPrefix)
 		reactMsg(ctx, evt, "👑")
-		sendText(ctx, evt.Info.Chat, menuText)
+		sendText(ctx, evt.Info.Chat, getCallingEngineMenu(curPrefix))
 
 	case "ping", "runtime", "speed", "status", "stats":
 		handlePing(ctx, evt)
@@ -2095,50 +2045,75 @@ func getUltraDashboardMenu(prefix string) string {
 }
 
 func getCallingEngineMenu(prefix string) string {
-	tpl := `╭──────────────────────────────╮
-│ 📞 𝑽𝑶𝑰𝑷 𝑪𝑨𝑳𝑳𝑰𝑵𝑮 𝑬𝑵𝑮𝑰𝑵𝑬 ⚡ │
-│ 🛡️ 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵     │
-╰──────────────────────────────╯
+	tpl := `╔══〔 📞 GO LANG WEBRTC CALLING SUITE 〕══╗
+║ ⚡ Engine: SERVER GOD CLAN VOIP ENGINE    ║
+║ 🛡️ SERVER GOD CLAN • VOIP MASTER         ║
+╚══════════════════════════════════════════╝
       ⚡ PREFIX  :  {P}
-      🚀 SPEED   : 0.01s+
-      🎥 CALLING : 18 Real VoIP Audio & Video Features
+      🔊 DEFAULT : 51.mp3 High-Bass Master Loop
 
-╭─ 📞 𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 & 𝑽𝑰𝑫𝑬𝑶 𝑪𝑨𝑳𝑳𝑺
-│ 📞 {P}call <Number> [Song/Track]
-│ 🎥 {P}videocall <Number> [Song/Track]
-│ 👥 {P}groupcall [Song/Track or 51.mp3]
-│ 🎥 {P}groupvideocall [Song/Track]
-│ 🎶 {P}playytcall <Song Name or YouTube Link>
-│ 📹 {P}play2ytcall <Song Name or YouTube Link>
+╭─ 📞 OUTBOUND REAL VOIP & GROUP CALLS
+│ 📞 {P}outcall <Number/@tag> [Song / 51.mp3]
+│    ▸ Dial target and live stream 51.mp3 or YouTube song
+│ 👥 {P}groupcall [Song Name]
+│    ▸ Create native Group Voice Call and stream audio
+│ 🎥 {P}videocall <Number> [Song Name]
+│    ▸ 1-on-1 High-Definition Video Call
+│ 📹 {P}groupvideocall [Song Name]
+│    ▸ Group Video Call with live stream
+│ 🎶 {P}playytcall <Song Name / Link>
+│    ▸ Stream YouTube song into active live call
+│ 📹 {P}play2ytcall <Song Name / Link>
+│    ▸ Stream YouTube video into active live video call
 │ 🔊 {P}play1call / {P}playcall (51.mp3 Loop)
-│ 📺 {P}play2call (Video Loop)
+│ 📺 {P}play2call (2.mp4 Video Loop)
 │ 🚪 {P}joincall [51.mp3/song]
+│    ▸ Join active voice chat and stream loop
+│ 🔄 {P}changesong <Song Name>
+│    ▸ Switch audio in ongoing call without leaving
 │ 🔄 {P}audiotovideo / {P}videotoaudio
 │ 👥 {P}addparticipant <Number>
 │ 📺 {P}screenshare on/off
+│    ▸ Enable/disable live screen sharing
 │ ✋ {P}handraise / {P}callreaction <emoji>
+│    ▸ Dispatch live WebRTC reactions
 │ 🚪 {P}waitingroom on/off
-│ ⏹️ {P}endcall / {P}hangup / {P}cutcall
+│ ⏹️ {P}endcall / {P}hangup / {P}cutcall / {P}leavecall
+│    ▸ Terminate active call and loops immediately
 │ 🔇 {P}callmute / 🔊 {P}callunmute
-╰──────────────────────
+│    ▸ Mute/Unmute microphone stream
+╰──────────────────────────────────────────
 
-╭─ 📲 𝑰𝑵𝑪𝑶𝑴𝑰𝑵𝑮 𝑪𝑨𝑳𝑳 𝑪𝑶𝑵𝑻𝑹𝑶𝑳
-│ 🔔 {P}noti <Chat_ID>
+╭─ 📲 INCOMING CALL SENTINEL
+│ 🔔 {P}noti <Chat_JID>
+│    ▸ Route incoming call alerts to specific group/chat
 │ 📞 {P}acceptcall [Song/Track]
+│    ▸ Answer incoming call with live audio stream
 │ 🛑 {P}rejectcall / {P}declinecall
+│    ▸ Instantly decline incoming call
 │ 🚫 {P}anticall on/off
+│    ▸ Auto-reject incoming calls sentinel
 │ 🔓 {P}autounmute
+│    ▸ Keep microphone stream continuously open
 │ 📊 {P}callstatus
-╰──────────────────────
+│    ▸ View active VoIP nodes and running calls
+╰──────────────────────────────────────────
 
-╭─ 💾 𝑪𝑼𝑺𝑻𝑶𝑴 𝑹𝑬𝑪𝑶𝑹𝑫𝑰𝑵𝑮𝑺 & 𝑭𝑰𝑳𝑬𝑺
-│ 📁 {P}viewfiles / {P}files
-│ 🗑️ {P}delfile <filename>
-│ 💾 {P}saverd <name>
-│ 📋 {P}listrd
-│ ▶️ {P}playrd <name>
-│ 🗣️ {P}cvn <Text>
-╰──────────────────────
+╭─ 💾 CUSTOM RECORDINGS & VAULT
+│ 💾 {P}saverd <name> (Save voice note to vault)
+│ 📋 {P}listrd / {P}viewfiles / {P}files
+│ ▶️ {P}playrd <name> (Stream recording on call)
+│ 📁 {P}playcallfile <filename>
+│ 🗑️ {P}delrd <name> / {P}delfile <name>
+│ 🗣️ {P}cvn <Text> (Call Voice Speech Injector)
+╰──────────────────────────────────────────
+
+╭─ 📋 AUDIT & USER MANAGEMENT
+│ 📋 {P}auditlog / {P}audit / {P}logs
+│ 👑 {P}admins / {P}showadmins
+│ ➕ {P}addadmin <Number/@tag>
+│ 🗑️ {P}deladmin <Number/@tag>
+╰──────────────────────────────────────────
 
 ╭──────────────────────────────╮
 │ ⚡ 𝑷𝑶𝑾𝑬𝑹𝑬𝑫 𝑩𝒀 𝑺𝑬𝑹𝑽𝑬𝑹 𝑮𝑶𝑫 𝑪𝑳𝑨𝑵 ⚡ │
