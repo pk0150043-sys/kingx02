@@ -559,6 +559,40 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		}
 		go handleDemoteParticipant(ctx, evt, args)
 
+	case "react", "reaction":
+		if !requireAdmin() {
+			return
+		}
+		emoji := strings.TrimSpace(args)
+		if emoji == "" {
+			emoji = "👑"
+		}
+		cli := getActiveClient()
+		if cli != nil {
+			msgID := evt.Info.ID
+			chat := evt.Info.Chat
+			targetParticipant := evt.Info.Sender.String()
+			ctxInfo := evt.Message.GetExtendedTextMessage().GetContextInfo()
+			if ctxInfo != nil && ctxInfo.GetStanzaID() != "" {
+				msgID = ctxInfo.GetStanzaID()
+				if ctxInfo.GetParticipant() != "" {
+					targetParticipant = ctxInfo.GetParticipant()
+				}
+			}
+			_, _ = cli.SendMessage(ctx, chat, &waE2E.Message{
+				ReactionMessage: &waE2E.ReactionMessage{
+					Key: &waCommon.MessageKey{
+						RemoteJID:   proto.String(chat.String()),
+						FromMe:      proto.Bool(false),
+						ID:          proto.String(msgID),
+						Participant: proto.String(targetParticipant),
+					},
+					Text:              proto.String(emoji),
+					SenderTimestampMS: proto.Int64(time.Now().UnixMilli()),
+				},
+			})
+		}
+
 	// ── Target & Roast Commands ──
 	case "target", "roasttarget":
 		if !requireAdmin() {
@@ -1858,7 +1892,15 @@ func sendImage(ctx context.Context, to types.JID, imgName string, caption string
 	sendText(ctx, to, caption)
 }
 
+var enableCmdReactions = false
+
 func reactMsg(ctx context.Context, evt *events.Message, emoji string) {
+	if !enableCmdReactions && emoji != "FORCE" {
+		return
+	}
+	if emoji == "FORCE" {
+		emoji = "⚡"
+	}
 	cli := getActiveClient()
 	if cli == nil {
 		return
