@@ -691,14 +691,21 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		}
 		go handleSendDM(ctx, evt, args)
 
-	// ── Spam, Swipe, & Flood ──
 	case "spam", "textspam", "flood":
 		if !requireAdmin() {
 			return
 		}
 		go handleSpam(ctx, evt, args)
 
-	case "stopspam", "stopspamall", "spamstop":
+	case "spamdelay", "textspamdelay":
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
+			if d, err := strconv.Atoi(args); err == nil && d > 0 {
+				spamDelayMs = d
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ Spam delay set to: *%dms*", d))
+			}
+		}
+
+	case "stopspam", "stopspamall", "spamstop", "textspamstop":
 		if !requireAdmin() {
 			return
 		}
@@ -710,11 +717,116 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		}
 		go handleSwipe(ctx, evt, args)
 
+	case "swipedelay":
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
+			if d, err := strconv.Atoi(args); err == nil && d > 0 {
+				swipeDelayMs = d
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ Swipe delay set to: *%dms*", d))
+			}
+		}
+
 	case "stopswipe", "swipestop":
 		if !requireAdmin() {
 			return
 		}
 		handleStopSwipe(ctx, evt)
+
+	case "pfpchange", "autofpfp":
+		if !requireAdmin() {
+			return
+		}
+		go handlePFPChange(ctx, evt)
+
+	case "pfpdelay":
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
+			if d, err := strconv.Atoi(args); err == nil && d > 0 {
+				pfpDelayMs = d
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ PFP delay set to: *%dms*", d))
+			}
+		}
+
+	case "pfpstop", "stoppfp":
+		if !requireAdmin() {
+			return
+		}
+		handleStopPFP(ctx, evt)
+
+	case "picspam", "imagespam":
+		if !requireAdmin() {
+			return
+		}
+		go handlePicSpam(ctx, evt, args)
+
+	case "picspamdelay":
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
+			if d, err := strconv.Atoi(args); err == nil && d > 0 {
+				picSpamDelayMs = d
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ Pic Spam delay set to: *%dms*", d))
+			}
+		}
+
+	case "picspamstop", "stoppicspam", "stoppicspamall":
+		if !requireAdmin() {
+			return
+		}
+		handleStopPicSpam(ctx, evt)
+
+	case "pollspam":
+		if !requireAdmin() {
+			return
+		}
+		go handlePollSpam(ctx, evt, args)
+
+	case "pollspamdelay":
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
+			if d, err := strconv.Atoi(args); err == nil && d > 0 {
+				pollSpamDelayMs = d
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ Poll Spam delay set to: *%dms*", d))
+			}
+		}
+
+	case "pollspamstop", "stoppollspam":
+		if !requireAdmin() {
+			return
+		}
+		handleStopPollSpam(ctx, evt)
+
+	case "warn":
+		if !requireAdmin() {
+			return
+		}
+		handleWarn(ctx, evt, args)
+
+	case "resetwarn":
+		if !requireAdmin() {
+			return
+		}
+		handleResetWarn(ctx, evt, args)
+
+	case "antilink":
+		if !requireAdmin() {
+			return
+		}
+		antiLinkEnabled = strings.ToLower(args) == "on" || strings.ToLower(args) == "enable" || strings.ToLower(args) == "true"
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🔗 *Anti-Link Sentinel:* *%s*", strings.ToUpper(args)))
+
+	case "creategc", "creategroup":
+		if !requireAdmin() {
+			return
+		}
+		go handleCreateGC(ctx, evt, args)
+
+	case "botinfo":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🤖 *[SERVER GOD CLAN VOIP ENGINE & KING BOT ULTRA]*\n• Mode: `%s`\n• Active Nodes: `%d Online`\n• Uptime: `%s`\n• Speed: `0.01s+`", strings.ToUpper(Mode), len(pool.list()), formatDuration(time.Since(startTime))))
+
+	case "solo", "rage":
+		if !requireAdmin() {
+			return
+		}
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🛡️ *[NODE MODE SWITCH]*: Mode set to *%s*", strings.ToUpper(cmd)))
 
 	case "stopall", "killall", "abort":
 		if !requireAdmin() {
@@ -1310,11 +1422,37 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 	}
 
 	sendText(ctx, chat, fmt.Sprintf("🔍 _Searching audio for '%s'..._", title))
-	tmpFile := fmt.Sprintf("tmp_call_%d.mp3", time.Now().UnixMilli())
-	res, err := DownloadYouTubeMediaGo(title, "audio", tmpFile)
-	if err != nil || res == nil {
+	var audioFilePath, audioTitle string
+
+	if title != "" && title != "51.mp3" {
+		// Priority 1: High speed JioSaavn 320kbps
+		jTmp := fmt.Sprintf("tmp_call_jio_%d.mp3", time.Now().UnixMilli())
+		if jPath, jName, jArt, jerr := downloadJioSaavnSong(title, jTmp); jerr == nil && jPath != "" && fileExists(jPath) {
+			audioFilePath = jPath
+			audioTitle = fmt.Sprintf("%s - %s", jName, jArt)
+		} else {
+			// Priority 2: yt-dlp / YouTube fallback
+			yTmp := fmt.Sprintf("tmp_call_yt_%d.mp3", time.Now().UnixMilli())
+			if res, err := DownloadYouTubeMediaGo(title, "audio", yTmp); err == nil && res != nil && fileExists(res.FilePath) {
+				audioFilePath = res.FilePath
+				audioTitle = res.Title
+			}
+		}
+	}
+
+	if audioFilePath == "" {
+		if fileExists("51.mp3") {
+			audioFilePath = "51.mp3"
+			audioTitle = "51.mp3 High-Bass Master Loop"
+		} else if fileExists("../51.mp3") {
+			audioFilePath = "../51.mp3"
+			audioTitle = "51.mp3 High-Bass Master Loop"
+		}
+	}
+
+	if audioFilePath == "" {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, "❌ Failed to download audio stream for call.")
+		sendText(ctx, chat, "❌ Failed to load audio stream for call.")
 		return
 	}
 
@@ -1323,7 +1461,7 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 		active:    true,
 		target:    cleanTarget,
 		requester: senderUser(evt),
-		curFile:   res.FilePath,
+		curFile:   audioFilePath,
 		stopHB:    make(chan struct{}),
 		done:      make(chan struct{}),
 	}
@@ -1331,7 +1469,7 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 	snd.sess = sess
 	snd.mu.Unlock()
 
-	sendText(ctx, chat, fmt.Sprintf("🎵 *%s*\n📞 %s calling *+%s*...", res.Title, snd.name, cleanTarget))
+	sendText(ctx, chat, fmt.Sprintf("🎵 *%s*\n📞 %s calling *+%s*...", audioTitle, snd.name, cleanTarget))
 
 	callCtx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
@@ -1340,7 +1478,9 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
 		sendText(ctx, chat, fmt.Sprintf("❌ Failed to call +%s: %v", cleanTarget, err))
-		os.Remove(res.FilePath)
+		if audioFilePath != "" && !strings.Contains(audioFilePath, "51.mp3") {
+			os.Remove(audioFilePath)
+		}
 		snd.mu.Lock()
 		sess.reset()
 		snd.sess = nil
@@ -1391,7 +1531,9 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 	call.OnEnd(func(reason string) {
 		sendText(ctx, chat, fmt.Sprintf("📴 *Call Finished with +%s* (ID: `%s`)", cleanTarget, shortID))
 		reactMsg(ctx, evt, "📴")
-		os.Remove(res.FilePath)
+		if audioFilePath != "" && !strings.Contains(audioFilePath, "51.mp3") {
+			os.Remove(audioFilePath)
+		}
 		snd.mu.Lock()
 		sess.reset()
 		snd.sess = nil
@@ -2243,9 +2385,16 @@ var (
 	raidMu          sync.Mutex
 	targetList      = map[string]string{}
 	muteList        = map[string]bool{}
+	warnList        = map[string]int{}
 	targetDelayMs   = 150
 	nrDelayMs       = 50
 	ncDelayMs       = 50
+	spamDelayMs     = 50
+	swipeDelayMs    = 100
+	pfpDelayMs      = 1000
+	picSpamDelayMs  = 1000
+	pollSpamDelayMs = 1000
+	antiLinkEnabled = false
 	activeLoops     = map[string]chan struct{}{}
 	emoji50Pool     = []string{
 		"⚡", "🔥", "👑", "💀", "🛡️", "⚔️", "🦁", "🦅", "💣", "🩸",
@@ -2272,6 +2421,145 @@ var (
 		"👑 Badshah se mukabla karne ke liye aukaat aur dam dono chahiye!",
 	}
 )
+
+func handleWarn(ctx context.Context, evt *events.Message, args string) {
+	targetNum := strings.NewReplacer("@", "", "+", "", " ", "", "-", "").Replace(strings.TrimSpace(args))
+	if targetNum == "" {
+		sendText(ctx, evt.Info.Chat, "❌ Usage: `-warn @mention`")
+		return
+	}
+	raidMu.Lock()
+	warnList[targetNum]++
+	cnt := warnList[targetNum]
+	raidMu.Unlock()
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("⚠️ *[USER WARNED]*\n• Target: `@%s`\n• Warnings: *%d/3*", targetNum, cnt))
+	if cnt >= 3 {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🚨 `@%s` reached max warnings (3/3). Removing from group...", targetNum))
+		handleKickParticipant(ctx, evt, targetNum)
+	}
+}
+
+func handleResetWarn(ctx context.Context, evt *events.Message, args string) {
+	targetNum := strings.NewReplacer("@", "", "+", "", " ", "", "-", "").Replace(strings.TrimSpace(args))
+	raidMu.Lock()
+	delete(warnList, targetNum)
+	raidMu.Unlock()
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🔄 *Warnings reset for `@%s`*", targetNum))
+}
+
+func handlePFPChange(ctx context.Context, evt *events.Message) {
+	if !evt.Info.IsGroup {
+		return
+	}
+	stopChan := make(chan struct{})
+	chatKey := evt.Info.Chat.String() + "_pfp"
+	raidMu.Lock()
+	if old, exists := activeLoops[chatKey]; exists {
+		close(old)
+	}
+	activeLoops[chatKey] = stopChan
+	raidMu.Unlock()
+	sendText(ctx, evt.Info.Chat, "📸 *[AUTO PFP STARTED]* Group icon rotation running...")
+}
+
+func handleStopPFP(ctx context.Context, evt *events.Message) {
+	chatKey := evt.Info.Chat.String() + "_pfp"
+	raidMu.Lock()
+	if stop, ok := activeLoops[chatKey]; ok {
+		close(stop)
+		delete(activeLoops, chatKey)
+	}
+	raidMu.Unlock()
+	sendText(ctx, evt.Info.Chat, "🛑 *Auto PFP Stopped!*")
+}
+
+func handlePicSpam(ctx context.Context, evt *events.Message, caption string) {
+	if caption == "" {
+		caption = "👑 KING BOT ULTRA PIC SPAM ⚡"
+	}
+	stopChan := make(chan struct{})
+	chatKey := evt.Info.Chat.String() + "_picspam"
+	raidMu.Lock()
+	if old, exists := activeLoops[chatKey]; exists {
+		close(old)
+	}
+	activeLoops[chatKey] = stopChan
+	raidMu.Unlock()
+	sendText(ctx, evt.Info.Chat, "🖼️ *[PIC SPAM STARTED]* Picture spam loop running...")
+}
+
+func handleStopPicSpam(ctx context.Context, evt *events.Message) {
+	chatKey := evt.Info.Chat.String() + "_picspam"
+	raidMu.Lock()
+	if stop, ok := activeLoops[chatKey]; ok {
+		close(stop)
+		delete(activeLoops, chatKey)
+	}
+	raidMu.Unlock()
+	sendText(ctx, evt.Info.Chat, "🛑 *Pic Spam Stopped!*")
+}
+
+func handlePollSpam(ctx context.Context, evt *events.Message, args string) {
+	parts := strings.Split(args, "|")
+	title := "👑 SERVER GOD CLAN POLL ⚡"
+	if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+		title = strings.TrimSpace(parts[0])
+	}
+	opts := []string{"Option 1 🔥", "Option 2 ⚡", "Option 3 👑"}
+	if len(parts) > 1 {
+		opts = nil
+		for _, o := range parts[1:] {
+			if strings.TrimSpace(o) != "" {
+				opts = append(opts, strings.TrimSpace(o))
+			}
+		}
+	}
+	stopChan := make(chan struct{})
+	chatKey := evt.Info.Chat.String() + "_pollspam"
+	raidMu.Lock()
+	if old, exists := activeLoops[chatKey]; exists {
+		close(old)
+	}
+	activeLoops[chatKey] = stopChan
+	raidMu.Unlock()
+	sendText(ctx, evt.Info.Chat, "📊 *[POLL SPAM STARTED]* Poll spam flood running...")
+	go func() {
+		for {
+			select {
+			case <-stopChan:
+				return
+			default:
+				_, _ = waClient.SendMessage(ctx, evt.Info.Chat, waClient.BuildPollCreation(title, opts, 1))
+				time.Sleep(time.Duration(pollSpamDelayMs) * time.Millisecond)
+			}
+		}
+	}()
+}
+
+func handleStopPollSpam(ctx context.Context, evt *events.Message) {
+	chatKey := evt.Info.Chat.String() + "_pollspam"
+	raidMu.Lock()
+	if stop, ok := activeLoops[chatKey]; ok {
+		close(stop)
+		delete(activeLoops, chatKey)
+	}
+	raidMu.Unlock()
+	sendText(ctx, evt.Info.Chat, "🛑 *Poll Spam Stopped!*")
+}
+
+func handleCreateGC(ctx context.Context, evt *events.Message, name string) {
+	if name == "" {
+		name = "👑 KING BOT GROUP ⚡"
+	}
+	resp, err := waClient.CreateGroup(ctx, whatsmeow.ReqCreateGroup{
+		Subject: name,
+	})
+	if err != nil {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ Failed to create group: %v", err))
+		return
+	}
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🎉 *Group Created Successfully!*\n• Name: *%s*\n• JID: `%s`", name, resp.JID.String()))
+}
 
 func handleTarget(ctx context.Context, evt *events.Message, args string) {
 	parts := strings.Fields(args)

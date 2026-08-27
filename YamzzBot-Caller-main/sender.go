@@ -120,12 +120,55 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 			p.logger.Warn().Err(err).Msg("failed to answer incoming call")
 			return
 		}
+
+		sess := &callSession{
+			sender:  s,
+			active:  true,
+			call:    inCall,
+			shortID: inCall.ID(),
+			curFile: "51.mp3",
+			stopHB:  make(chan struct{}),
+			done:    make(chan struct{}),
+		}
+		s.mu.Lock()
+		s.sess = sess
+		s.mu.Unlock()
+
 		inCall.OnReady(func() {
 			player := meowcaller.NewPlayer()
 			inCall.Subscribe(player)
-			if src, err := meowcaller.MP3File("51.mp3"); err == nil {
-				player.Play(src)
+			sess.mu.Lock()
+			sess.player = player
+			sess.mu.Unlock()
+
+			filePath := "51.mp3"
+			if !fileExists(filePath) && fileExists("../51.mp3") {
+				filePath = "../51.mp3"
 			}
+
+			var loopPlay func()
+			loopPlay = func() {
+				sess.mu.Lock()
+				isActive := sess.active
+				activeFile := sess.curFile
+				sess.mu.Unlock()
+				if !isActive || activeFile == "" {
+					return
+				}
+				if src, err := meowcaller.MP3File(activeFile); err == nil {
+					player.OnFinish(loopPlay)
+					player.Play(src)
+				}
+			}
+			loopPlay()
+		})
+
+		inCall.OnEnd(func(reason string) {
+			s.mu.Lock()
+			sess.reset()
+			s.sess = nil
+			s.mu.Unlock()
+			sess.stopAll()
 		})
 	})
 
