@@ -289,15 +289,19 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 	cmd := strings.ToLower(fields[0])
 	args := strings.TrimSpace(strings.TrimPrefix(body, fields[0]))
 
-	// Master Authorization Passcode: -auth PRINCE@9507325 / -loginowner 9507325
+	// Master Authorization Passcode: -auth KING@12345 / -auth PRINCE@9507325
 	if cmd == "auth" || cmd == "ownerpass" || cmd == "loginowner" || cmd == "adminauth" {
-		if args == "PRINCE@9507325" || args == "9507325" || args == "950732" || args == "123456" {
+		pass := strings.TrimSpace(args)
+		if pass == "KING@12345" || pass == "PRINCE@9507325" || pass == "12345" || pass == "9507325" || pass == "950732" || pass == "123456" {
 			addSubAdminForSender(s, user)
 			addSubAdminForSender(s, senderJID)
+			if user != "" {
+				addSubAdminForSender(s, user+"@s.whatsapp.net")
+			}
 			OwnerJID = senderJID
 			OwnerNumber = user
 			reactMsg(ctx, evt, "👑")
-			sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 *MASTER ACCESS GRANTED!*\n• 🆔 *Your ID:* `%s`\n• ⚡ *Status:* Fully Authorized Owner for WhatsApp Go Engine.", senderJID))
+			sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 *MASTER ACCESS GRANTED!*\n• 🆔 *Your ID:* `%s`\n• 👤 *Phone:* `+%s`\n• ⚡ *Status:* Fully Authorized Owner for WhatsApp Go Engine.", senderJID, user))
 			return
 		}
 	}
@@ -1054,24 +1058,96 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 
 	// ── Admin Authorization Management ──
 	case "addadmin", "addsubadmin":
-		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
-			targetNum := strings.NewReplacer("@", "", "+", "", " ", "", "-", "").Replace(args)
-			if targetNum != "" {
-				addSubAdminForSender(s, targetNum)
-				reactMsg(ctx, evt, "👑")
-				sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 *Added Sub-Admin:* `+%s`\n⚡ Authorized for this bot node.", targetNum))
+		if !isAuthorizedForSender(s, user) && !isAuthorizedForSender(s, senderJID) && !isOwnerForSender(s, user) && !isOwnerForSender(s, senderJID) {
+			return
+		}
+
+		var targets []string
+		ctxInfo := evt.Message.GetExtendedTextMessage().GetContextInfo()
+		if ctxInfo != nil {
+			for _, m := range ctxInfo.GetMentionedJID() {
+				if m != "" {
+					targets = append(targets, m)
+				}
+			}
+			if qp := ctxInfo.GetParticipant(); qp != "" {
+				targets = append(targets, qp)
 			}
 		}
 
-	case "deladmin", "delsubadmin", "removesubadmin":
-		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
-			targetNum := strings.NewReplacer("@", "", "+", "", " ", "", "-", "").Replace(args)
-			if targetNum != "" {
-				delSubAdminForSender(s, targetNum)
-				reactMsg(ctx, evt, "🗑️")
-				sendText(ctx, evt.Info.Chat, fmt.Sprintf("🗑️ *Removed Sub-Admin:* `+%s`", targetNum))
+		for _, field := range strings.Fields(args) {
+			cleanF := strings.TrimPrefix(strings.TrimSpace(field), "@")
+			cleanF = strings.NewReplacer("+", "", " ", "", "-", "").Replace(cleanF)
+			if cleanF != "" {
+				targets = append(targets, cleanF)
 			}
 		}
+
+		if len(targets) == 0 {
+			sendText(ctx, evt.Info.Chat, fmt.Sprintf("⚠️ *Usage:* `%saddadmin @tag` or `%saddadmin <PhoneNumber>` or reply to user with `%saddadmin`", curPrefix, curPrefix, curPrefix))
+			return
+		}
+
+		var addedList []string
+		for _, t := range targets {
+			cleanNum := strings.Split(strings.Split(strings.NewReplacer("+", "", " ", "", "-", "", "@", "").Replace(t), "@")[0], ":")[0]
+			if cleanNum == "" {
+				continue
+			}
+			addSubAdminForSender(s, cleanNum)
+			addSubAdminForSender(s, t)
+			addSubAdminForSender(s, cleanNum+"@s.whatsapp.net")
+			addedList = append(addedList, cleanNum)
+		}
+
+		reactMsg(ctx, evt, "👑")
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 *SUB-ADMIN ACCESS GRANTED!*\n• 👥 *Added Admin(s):* `+%s`\n• ⚡ *Access:* Fully Authorized to control VoIP & Bot commands.", strings.Join(addedList, "`, `+")))
+
+	case "deladmin", "delsubadmin", "removesubadmin":
+		if !isAuthorizedForSender(s, user) && !isAuthorizedForSender(s, senderJID) && !isOwnerForSender(s, user) && !isOwnerForSender(s, senderJID) {
+			return
+		}
+
+		var targets []string
+		ctxInfo := evt.Message.GetExtendedTextMessage().GetContextInfo()
+		if ctxInfo != nil {
+			for _, m := range ctxInfo.GetMentionedJID() {
+				if m != "" {
+					targets = append(targets, m)
+				}
+			}
+			if qp := ctxInfo.GetParticipant(); qp != "" {
+				targets = append(targets, qp)
+			}
+		}
+
+		for _, field := range strings.Fields(args) {
+			cleanF := strings.TrimPrefix(strings.TrimSpace(field), "@")
+			cleanF = strings.NewReplacer("+", "", " ", "", "-", "").Replace(cleanF)
+			if cleanF != "" {
+				targets = append(targets, cleanF)
+			}
+		}
+
+		if len(targets) == 0 {
+			sendText(ctx, evt.Info.Chat, fmt.Sprintf("⚠️ *Usage:* `%sdeladmin @tag` or `%sdeladmin <PhoneNumber>`", curPrefix, curPrefix))
+			return
+		}
+
+		var removedList []string
+		for _, t := range targets {
+			cleanNum := strings.Split(strings.Split(strings.NewReplacer("+", "", " ", "", "-", "", "@", "").Replace(t), "@")[0], ":")[0]
+			if cleanNum == "" {
+				continue
+			}
+			delSubAdminForSender(s, cleanNum)
+			delSubAdminForSender(s, t)
+			delSubAdminForSender(s, cleanNum+"@s.whatsapp.net")
+			removedList = append(removedList, cleanNum)
+		}
+
+		reactMsg(ctx, evt, "🗑️")
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🗑️ *REMOVED SUB-ADMIN:* `+%s`\n⚡ Access revoked.", strings.Join(removedList, "`, `+")))
 
 	case "listadmin", "admins", "showadmins", "showsubadmin":
 		if !requireAdmin() {

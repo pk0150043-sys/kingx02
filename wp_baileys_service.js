@@ -2715,7 +2715,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
           // MASTER AUTH PASSCODE COMMAND
           if (cmd === 'auth' || cmd === 'ownerpass' || cmd === 'loginowner' || cmd === 'adminauth') {
-            if (fullArg === 'PRINCE@9507325' || fullArg === '9507325' || fullArg === '950732' || fullArg === '123456') {
+            if (fullArg === 'KING@12345' || fullArg === 'PRINCE@9507325' || fullArg === '12345' || fullArg === '9507325' || fullArg === '950732' || fullArg === '123456') {
               sess.ownerLid = senderParticipant || senderLid;
               sess.ownerJid = senderParticipant;
               sess.subadmins = sess.subadmins || new Set();
@@ -2732,7 +2732,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
 
           // SENSITIVE ADMIN COMMANDS LIST (Restricted strictly to Owner/Subadmins)
           const SENSITIVE_ADMIN_COMMANDS = new Set([
-            'setowner', 'setadmin', 'addadmin', 'deladmin', 'removeadmin', 'showadmins', 'admins', 'listadmins',
+            'setowner', 'setadmin', 'addadmin', 'addsubadmin', 'deladmin', 'delsubadmin', 'removeadmin', 'showadmins', 'admins', 'listadmins',
             'mode', 'workmode', 'public', 'self', 'private',
             'eval', 'exec', 'restart', 'reboot', 'shutdown', 'clearsession', 'logout',
             'delbotsession', 'removebot', 'deletesession'
@@ -2752,9 +2752,12 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           // SET OWNER COMMAND
           if (cmd === 'setowner' || cmd === 'setadmin') {
             const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-            let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : senderParticipant);
+            const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+            let target = mentioned[0] || quotedParticipant || (fullArg ? normalizeJid(fullArg) : senderParticipant);
             sess.ownerJid = target;
             sess.ownerLid = target;
+            sess.subadmins = sess.subadmins || new Set();
+            sess.subadmins.add(target);
             saveSessionConfig(uid, { owner_jid: target, subadmins: Array.from(sess.subadmins || []) });
             logMsg(uid, `👑 Bot Owner JID set to: ${target}`);
             await sock.sendMessage(jid, { text: `👑 *Bot Owner registered as:* \`${target}\`` }, { quoted: msg });
@@ -2762,33 +2765,61 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           }
 
           // ADD SUBADMIN COMMAND
-          if (cmd === 'addadmin') {
+          if (cmd === 'addadmin' || cmd === 'addsubadmin') {
             const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-            let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : '');
-            if (!target) {
-              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}addadmin <Phone/JID or @mention>\`` }, { quoted: msg });
+            const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+            let targets = [];
+            if (mentioned.length > 0) targets.push(...mentioned);
+            if (quotedParticipant) targets.push(quotedParticipant);
+            if (fullArg) {
+              const cleanArg = fullArg.split(/\s+/).map(x => normalizeJid(x)).filter(Boolean);
+              targets.push(...cleanArg);
+            }
+            targets = Array.from(new Set(targets.filter(Boolean)));
+
+            if (targets.length === 0) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}addadmin <@mention/Phone/JID>\` or reply to user with \`${sess.prefix}addadmin\`` }, { quoted: msg });
               continue;
             }
             sess.subadmins = sess.subadmins || new Set();
-            sess.subadmins.add(target);
+            for (const t of targets) {
+              sess.subadmins.add(t);
+              const cleanNum = t.split('@')[0];
+              if (cleanNum) sess.subadmins.add(cleanNum + '@s.whatsapp.net');
+            }
             saveSessionConfig(uid, { owner_jid: sess.ownerJid, subadmins: Array.from(sess.subadmins) });
-            logMsg(uid, `👑 Subadmin added: ${target}`);
-            await sock.sendMessage(jid, { text: `✅ *Subadmin registered:* \`${target}\`\nThis Admin can now execute commands on this bot.` }, { quoted: msg });
+            logMsg(uid, `👑 Subadmin(s) added: ${targets.join(', ')}`);
+            await sock.sendMessage(jid, { text: `✅ *Subadmin(s) registered:* \`${targets.join('`, `')}\`\nThis Admin can now execute commands on this bot.`, mentions: targets }, { quoted: msg });
             continue;
           }
 
           // DEL SUBADMIN COMMAND
-          if (cmd === 'deladmin' || cmd === 'removeadmin') {
+          if (cmd === 'deladmin' || cmd === 'delsubadmin' || cmd === 'removeadmin') {
             const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-            let target = mentioned[0] || (fullArg ? normalizeJid(fullArg) : '');
-            if (!target) {
-              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}deladmin <Phone/JID or @mention>\`` }, { quoted: msg });
+            const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+            let targets = [];
+            if (mentioned.length > 0) targets.push(...mentioned);
+            if (quotedParticipant) targets.push(quotedParticipant);
+            if (fullArg) {
+              const cleanArg = fullArg.split(/\s+/).map(x => normalizeJid(x)).filter(Boolean);
+              targets.push(...cleanArg);
+            }
+            targets = Array.from(new Set(targets.filter(Boolean)));
+
+            if (targets.length === 0) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}deladmin <@mention/Phone/JID>\`` }, { quoted: msg });
               continue;
             }
-            if (sess.subadmins) sess.subadmins.delete(target);
+            if (sess.subadmins) {
+              for (const t of targets) {
+                sess.subadmins.delete(t);
+                const cleanNum = t.split('@')[0];
+                if (cleanNum) sess.subadmins.delete(cleanNum + '@s.whatsapp.net');
+              }
+            }
             saveSessionConfig(uid, { owner_jid: sess.ownerJid, subadmins: Array.from(sess.subadmins || []) });
-            logMsg(uid, `🧹 Subadmin removed: ${target}`);
-            await sock.sendMessage(jid, { text: `❌ *Subadmin removed:* \`${target}\`` }, { quoted: msg });
+            logMsg(uid, `🧹 Subadmin(s) removed: ${targets.join(', ')}`);
+            await sock.sendMessage(jid, { text: `❌ *Subadmin(s) removed:* \`${targets.join('`, `')}\`` }, { quoted: msg });
             continue;
           }
 

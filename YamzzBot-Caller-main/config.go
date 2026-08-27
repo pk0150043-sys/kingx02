@@ -245,29 +245,41 @@ func addSubAdmin(sender string) {
 func addSubAdminForSender(s *Sender, sender string) {
 	configMu.Lock()
 	defer configMu.Unlock()
-	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sender)
-	clean = strings.Split(strings.Split(clean, "@")[0], ":")[0]
+	raw := strings.TrimSpace(sender)
+	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(raw)
+	cleanUser := strings.Split(strings.Split(clean, "@")[0], ":")[0]
+
+	if cleanUser != "" {
+		SubAdmins[cleanUser] = true
+		SubAdmins[cleanUser+"@s.whatsapp.net"] = true
+	}
+	if raw != "" {
+		SubAdmins[raw] = true
+	}
+	if clean != "" {
+		SubAdmins[clean] = true
+	}
 
 	if s != nil {
-		key := s.uid
-		if key == "" {
-			key = s.name
-		}
-		if key != "" {
-			if _, exists := BotAdmins[key]; !exists {
-				BotAdmins[key] = map[string]bool{}
-			}
-			BotAdmins[key][clean] = true
-			if s.number() != "" && s.number() != "?" {
-				if _, exists := BotAdmins[s.number()]; !exists {
-					BotAdmins[s.number()] = map[string]bool{}
+		keys := []string{s.uid, s.name, s.number()}
+		for _, k := range keys {
+			if k != "" && k != "?" {
+				if _, exists := BotAdmins[k]; !exists {
+					BotAdmins[k] = map[string]bool{}
 				}
-				BotAdmins[s.number()][clean] = true
+				if cleanUser != "" {
+					BotAdmins[k][cleanUser] = true
+					BotAdmins[k][cleanUser+"@s.whatsapp.net"] = true
+				}
+				if raw != "" {
+					BotAdmins[k][raw] = true
+				}
+				if clean != "" {
+					BotAdmins[k][clean] = true
+				}
 			}
-			return
 		}
 	}
-	SubAdmins[clean] = true
 }
 
 func delSubAdmin(sender string) {
@@ -277,26 +289,32 @@ func delSubAdmin(sender string) {
 func delSubAdminForSender(s *Sender, sender string) {
 	configMu.Lock()
 	defer configMu.Unlock()
-	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sender)
-	clean = strings.Split(strings.Split(clean, "@")[0], ":")[0]
+	raw := strings.TrimSpace(sender)
+	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(raw)
+	cleanUser := strings.Split(strings.Split(clean, "@")[0], ":")[0]
+
+	if cleanUser != "" {
+		delete(SubAdmins, cleanUser)
+		delete(SubAdmins, cleanUser+"@s.whatsapp.net")
+	}
+	delete(SubAdmins, raw)
+	delete(SubAdmins, clean)
 
 	if s != nil {
-		key := s.uid
-		if key == "" {
-			key = s.name
-		}
-		if key != "" {
-			if m, exists := BotAdmins[key]; exists {
-				delete(m, clean)
-			}
-			if s.number() != "" && s.number() != "?" {
-				if m, exists := BotAdmins[s.number()]; exists {
-					delete(m, clean)
+		keys := []string{s.uid, s.name, s.number()}
+		for _, k := range keys {
+			if k != "" && k != "?" {
+				if _, exists := BotAdmins[k]; exists {
+					if cleanUser != "" {
+						delete(BotAdmins[k], cleanUser)
+						delete(BotAdmins[k], cleanUser+"@s.whatsapp.net")
+					}
+					delete(BotAdmins[k], raw)
+					delete(BotAdmins[k], clean)
 				}
 			}
 		}
 	}
-	delete(SubAdmins, clean)
 }
 
 func listSubAdmins() []string {
