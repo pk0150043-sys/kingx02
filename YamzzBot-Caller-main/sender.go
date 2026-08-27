@@ -439,17 +439,16 @@ func (p *senderPool) removeSender(name string) error {
 	return fmt.Errorf("sender %s gak ketemu", name)
 }
 
-// mainSenderEvents nangkep event di sender utama: pesan masuk (→ router command) &
-// lifecycle. Cuma sender utama yang punya handler ini.
+// mainSenderEvents handles events for a specific sender node
 func mainSenderEvents(s *Sender, evt any) {
 	ctx := context.Background()
 	switch v := evt.(type) {
 	case *events.Message:
-		handleMessage(ctx, v)
+		handleMessage(ctx, s, v)
 	case *events.Connected:
-		pool.logger.Info().Str("sender", s.name).Msg("✅ bot utama connected")
+		pool.logger.Info().Str("sender", s.name).Msg("✅ bot node connected")
 		_ = s.wa.SendPresence(ctx, types.PresenceAvailable)
 	case *events.LoggedOut:
-		pool.logger.Warn().Msg("⚠️ bot utama logged out — hapus yamzzbot.db & login ulang")
+		pool.logger.Warn().Str("sender", s.name).Msg("⚠️ bot node logged out")
 	}
 }

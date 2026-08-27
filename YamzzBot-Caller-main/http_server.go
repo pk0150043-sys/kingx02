@@ -223,11 +223,57 @@ func startHTTPServer(ctx context.Context, port string) {
 			}
 			json.NewDecoder(r.Body).Decode(&body)
 			if body.OwnerJID != "" {
-				OwnerJID = body.OwnerJID
+				s := pool.findByName(uid)
+				if s != nil {
+					s.mu.Lock()
+					s.owner = body.OwnerJID
+					s.mu.Unlock()
+				}
 				clean := strings.Split(strings.Split(body.OwnerJID, "@")[0], ":")[0]
-				addSubAdmin(clean)
+				addSubAdminForSender(s, clean)
 			}
 			json.NewEncoder(w).Encode(map[string]any{"success": true})
+
+		case "set_admin", "add_admin":
+			var body struct {
+				Admin string `json:"admin"`
+				Phone string `json:"phone"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			adm := body.Admin
+			if adm == "" {
+				adm = body.Phone
+			}
+			if adm != "" {
+				s := pool.findByName(uid)
+				clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(adm)
+				clean = strings.Split(strings.Split(clean, "@")[0], ":")[0]
+				addSubAdminForSender(s, clean)
+			}
+			json.NewEncoder(w).Encode(map[string]any{"success": true})
+
+		case "del_admin", "remove_admin":
+			var body struct {
+				Admin string `json:"admin"`
+				Phone string `json:"phone"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			adm := body.Admin
+			if adm == "" {
+				adm = body.Phone
+			}
+			if adm != "" {
+				s := pool.findByName(uid)
+				clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(adm)
+				clean = strings.Split(strings.Split(clean, "@")[0], ":")[0]
+				delSubAdminForSender(s, clean)
+			}
+			json.NewEncoder(w).Encode(map[string]any{"success": true})
+
+		case "admins", "list_admins":
+			s := pool.findByName(uid)
+			adms := listSubAdminsForSender(s)
+			json.NewEncoder(w).Encode(map[string]any{"success": true, "admins": adms})
 
 		case "refresh_qr":
 			qr, err := pool.startQRLogin(r.Context(), uid)

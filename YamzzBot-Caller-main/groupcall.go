@@ -33,19 +33,20 @@ func handleGroupCall(ctx context.Context, evt *events.Message, args string, isVi
 	var trackTitle, trackArtist string
 
 	if title != "" {
-		sendText(ctx, chat, fmt.Sprintf("🔍 _Searching YouTube & JioSaavn for '%s'..._", title))
-		res, err := DownloadYouTubeMediaGo(title, "audio", fmt.Sprintf("tmp_gc_%d.mp3", time.Now().UnixMilli()))
-		if err == nil && res != nil {
-			filePath = res.FilePath
-			trackTitle = res.Title
-			trackArtist = res.Artist
+		sendText(ctx, chat, fmt.Sprintf("🔍 _Searching JioSaavn & YouTube for '%s'..._", title))
+		// Priority 1: High quality JioSaavn instant audio stream
+		jPath, jName, jArt, jerr := downloadJioSaavnSong(title, fmt.Sprintf("tmp_gc_jio_%d.mp3", time.Now().UnixMilli()))
+		if jerr == nil && jPath != "" && fileExists(jPath) {
+			filePath = jPath
+			trackTitle = jName
+			trackArtist = jArt
 		} else {
-			// JioSaavn fallback
-			jPath, jName, jArt, jerr := downloadJioSaavnSong(title, fmt.Sprintf("tmp_gc_jio_%d.mp3", time.Now().UnixMilli()))
-			if jerr == nil && jPath != "" {
-				filePath = jPath
-				trackTitle = jName
-				trackArtist = jArt
+			// Priority 2: yt-dlp / YouTube fallback
+			res, err := DownloadYouTubeMediaGo(title, "audio", fmt.Sprintf("tmp_gc_%d.mp3", time.Now().UnixMilli()))
+			if err == nil && res != nil && fileExists(res.FilePath) {
+				filePath = res.FilePath
+				trackTitle = res.Title
+				trackArtist = res.Artist
 			}
 		}
 	}

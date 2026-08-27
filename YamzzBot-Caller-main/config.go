@@ -18,15 +18,10 @@ var (
 	OwnerNumber = "191525812211746"
 	OwnerJID    = "191525812211746@lid"
 
-	// SubAdmins set
-	SubAdmins = map[string]bool{
-		"191525812211746": true,
-		"918986269256":    true,
-	}
-
-	PlaycallCooldownSeconds = 10
-	TheresavAPIKey          = ""
-	TheresavResolution      = "720"
+	// Per-bot / per-sender Admin Sets: map[senderUID]map[adminNumber]bool
+	BotAdmins = map[string]map[string]bool{}
+	// Reverse lookup from bot number to UID
+	NumberToUID = map[string]string{}
 )
 
 func init() {
@@ -83,7 +78,16 @@ func setFeaturesDelay(d int) {
 	FeaturesDelay = d
 }
 
+// isAuthorized checks global owner authorization
 func isAuthorized(sender string) bool {
+	return isAuthorizedForSender(nil, sender)
+}
+
+// isAuthorizedForSender checks if sender is authorized for this specific bot node.
+// 1. Primary Owner & Master numbers always have master access across ALL bots.
+// 2. The bot node creator (s.owner) always has full admin access to their bot.
+// 3. Sub-admins explicitly added to THIS bot have access.
+func isAuthorizedForSender(s *Sender, sender string) bool {
 	configMu.RLock()
 	defer configMu.RUnlock()
 
@@ -106,6 +110,52 @@ func isAuthorized(sender string) bool {
 		return true
 	}
 
+	// Check bot-specific owner (the user who connected this bot instance from dashboard)
+	if s != nil {
+		s.mu.Lock()
+		botOwner := s.owner
+		botUID := s.uid
+		botName := s.name
+		botNum := s.number()
+		s.mu.Unlock()
+
+		if botOwner != "" {
+			cleanBotOwner := strings.NewReplacer("+", "", " ", "", "-", "").Replace(botOwner)
+			cleanBotOwner = strings.Split(strings.Split(cleanBotOwner, "@")[0], ":")[0]
+			if cleanUser == cleanBotOwner || raw == botOwner || strings.EqualFold(raw, botOwner) {
+				return true
+			}
+			if len(cleanBotOwner) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanBotOwner) || strings.HasSuffix(cleanBotOwner, cleanUser)) {
+				return true
+			}
+		}
+
+		// Check per-bot admins
+		for _, key := range []string{botUID, botName, botNum} {
+			if key != "" {
+				if m, exists := BotAdmins[key]; exists {
+					if m[cleanUser] || m[raw] || m[clean] {
+						return true
+					}
+					for adm := range m {
+						if strings.EqualFold(adm, raw) || strings.EqualFold(adm, cleanUser) {
+							return true
+						}
+						cleanAdm := strings.NewReplacer("+", "", " ", "", "-", "").Replace(adm)
+						cleanAdm = strings.Split(strings.Split(cleanAdm, "@")[0], ":")[0]
+						if cleanAdm == cleanUser {
+							return true
+						}
+						if len(cleanAdm) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanAdm) || strings.HasSuffix(cleanAdm, cleanUser)) {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Global SubAdmins set
 	if SubAdmins[cleanUser] || SubAdmins[raw] || SubAdmins[clean] {
 		return true
 	}
@@ -131,7 +181,13 @@ func isAuthorized(sender string) bool {
 	return false
 }
 
+// isOwner checks if user is primary master owner
 func isOwner(sender string) bool {
+	return isOwnerForSender(nil, sender)
+}
+
+// isOwnerForSender checks if user is owner of this specific bot or global master owner
+func isOwnerForSender(s *Sender, sender string) bool {
 	configMu.RLock()
 	defer configMu.RUnlock()
 
@@ -153,30 +209,122 @@ func isOwner(sender string) bool {
 		return true
 	}
 
+	// Check if user is the bot's instance owner
+	if s != nil {
+		s.mu.Lock()
+		botOwner := s.owner
+		s.mu.Unlock()
+
+		if botOwner != "" {
+			cleanBotOwner := strings.NewReplacer("+", "", " ", "", "-", "").Replace(botOwner)
+			cleanBotOwner = strings.Split(strings.Split(cleanBotOwner, "@")[0], ":")[0]
+			if cleanUser == cleanBotOwner || raw == botOwner || strings.EqualFold(raw, botOwner) {
+				return true
+			}
+			if len(cleanBotOwner) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanBotOwner) || strings.HasSuffix(cleanBotOwner, cleanUser)) {
+				return true
+			}
+		}
+	}
+
 	return false
 }
 
 func addSubAdmin(sender string) {
+	addSubAdminForSender(nil, sender)
+}
+
+func addSubAdminForSender(s *Sender, sender string) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sender)
 	clean = strings.Split(strings.Split(clean, "@")[0], ":")[0]
+
+	if s != nil {
+		key := s.uid
+		if key == "" {
+			key = s.name
+		}
+		if key != "" {
+			if _, exists := BotAdmins[key]; !exists {
+				BotAdmins[key] = map[string]bool{}
+			}
+			BotAdmins[key][clean] = true
+			if s.number() != "" && s.number() != "?" {
+				if _, exists := BotAdmins[s.number()]; !exists {
+					BotAdmins[s.number()] = map[string]bool{}
+				}
+				BotAdmins[s.number()][clean] = true
+			}
+			return
+		}
+	}
 	SubAdmins[clean] = true
 }
 
 func delSubAdmin(sender string) {
+	delSubAdminForSender(nil, sender)
+}
+
+func delSubAdminForSender(s *Sender, sender string) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sender)
 	clean = strings.Split(strings.Split(clean, "@")[0], ":")[0]
+
+	if s != nil {
+		key := s.uid
+		if key == "" {
+			key = s.name
+		}
+		if key != "" {
+			if m, exists := BotAdmins[key]; exists {
+				delete(m, clean)
+			}
+			if s.number() != "" && s.number() != "?" {
+				if m, exists := BotAdmins[s.number()]; exists {
+					delete(m, clean)
+				}
+			}
+		}
+	}
 	delete(SubAdmins, clean)
 }
 
 func listSubAdmins() []string {
+	return listSubAdminsForSender(nil)
+}
+
+func listSubAdminsForSender(s *Sender) []string {
 	configMu.RLock()
 	defer configMu.RUnlock()
-	var list []string
+	admSet := map[string]bool{}
 	for adm := range SubAdmins {
+		admSet[adm] = true
+	}
+	if s != nil {
+		key := s.uid
+		if key == "" {
+			key = s.name
+		}
+		if key != "" {
+			if m, exists := BotAdmins[key]; exists {
+				for adm := range m {
+					admSet[adm] = true
+				}
+			}
+		}
+		if s.number() != "" && s.number() != "?" {
+			if m, exists := BotAdmins[s.number()]; exists {
+				for adm := range m {
+					admSet[adm] = true
+				}
+			}
+		}
+	}
+
+	var list []string
+	for adm := range admSet {
 		list = append(list, adm)
 	}
 	return list

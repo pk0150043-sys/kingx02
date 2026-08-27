@@ -218,21 +218,48 @@ func findGeneratedFile(baseNoExt string) string {
 	return ""
 }
 
-// downloadJioSaavnSong searches and downloads track from JioSaavn API
+// downloadJioSaavnSong searches and downloads track from multiple JioSaavn API endpoints with rich fallbacks
 func downloadJioSaavnSong(query string, outPath string) (string, string, string, error) {
-	apiURL := fmt.Sprintf("https://saavn.dev/api/search/songs?query=%s", url.QueryEscape(query))
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(apiURL)
-	if err != nil {
-		return "", "", "", err
+	endpoints := []string{
+		fmt.Sprintf("https://saavn.dev/api/search/songs?query=%s", url.QueryEscape(query)),
+		fmt.Sprintf("https://jiosavan-api2.vercel.app/api/search/songs?query=%s&limit=5", url.QueryEscape(query)),
+		fmt.Sprintf("https://saavn.me/search/songs?query=%s&page=1&limit=5", url.QueryEscape(query)),
+		fmt.Sprintf("https://saavn-api-alpha.vercel.app/api/search/songs?query=%s", url.QueryEscape(query)),
 	}
-	defer resp.Body.Close()
 
-	var data struct {
-		Success bool `json:"success"`
-		Data    struct {
+	client := &http.Client{Timeout: 12 * time.Second}
+
+	for _, apiURL := range endpoints {
+		resp, err := client.Get(apiURL)
+		if err != nil {
+			continue
+		}
+
+		var data struct {
+			Success bool `json:"success"`
+			Data    struct {
+				Results []struct {
+					Name    string `json:"name"`
+					Title   string `json:"title"`
+					Song    string `json:"song"`
+					Artists struct {
+						Primary []struct {
+							Name string `json:"name"`
+						} `json:"primary"`
+					} `json:"artists"`
+					PrimaryArtists string `json:"primaryArtists"`
+					Singers        string `json:"singers"`
+					DownloadUrl    []struct {
+						Quality string `json:"quality"`
+						Url     string `json:"url"`
+						Link    string `json:"link"`
+					} `json:"downloadUrl"`
+				} `json:"results"`
+			} `json:"data"`
 			Results []struct {
 				Name    string `json:"name"`
+				Title   string `json:"title"`
+				Song    string `json:"song"`
 				Artists struct {
 					Primary []struct {
 						Name string `json:"name"`
@@ -241,51 +268,139 @@ func downloadJioSaavnSong(query string, outPath string) (string, string, string,
 				DownloadUrl []struct {
 					Quality string `json:"quality"`
 					Url     string `json:"url"`
+					Link    string `json:"link"`
 				} `json:"downloadUrl"`
 			} `json:"results"`
-		} `json:"data"`
-	}
+		}
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil || !data.Success || len(data.Data.Results) == 0 {
-		return "", "", "", fmt.Errorf("song not found")
-	}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&data)
+		resp.Body.Close()
+		if decodeErr != nil {
+			continue
+		}
 
-	res := data.Data.Results[0]
-	var audioURL string
-	for _, d := range res.DownloadUrl {
-		if d.Quality == "320kbps" || d.Quality == "160kbps" {
-			audioURL = d.Url
-			break
+		var results []struct {
+			Name    string `json:"name"`
+			Title   string `json:"title"`
+			Song    string `json:"song"`
+			Artists struct {
+				Primary []struct {
+					Name string `json:"name"`
+				} `json:"primary"`
+			} `json:"artists"`
+			PrimaryArtists string `json:"primaryArtists"`
+			Singers        string `json:"singers"`
+			DownloadUrl    []struct {
+				Quality string `json:"quality"`
+				Url     string `json:"url"`
+				Link    string `json:"link"`
+			} `json:"downloadUrl"`
+		}
+
+		if len(data.Data.Results) > 0 {
+			results = data.Data.Results
+		} else if len(data.Results) > 0 {
+			for _, r := range data.Results {
+				results = append(results, struct {
+					Name    string `json:"name"`
+					Title   string `json:"title"`
+					Song    string `json:"song"`
+					Artists struct {
+						Primary []struct {
+							Name string `json:"name"`
+						} `json:"primary"`
+					} `json:"artists"`
+					PrimaryArtists string `json:"primaryArtists"`
+					Singers        string `json:"singers"`
+					DownloadUrl    []struct {
+						Quality string `json:"quality"`
+						Url     string `json:"url"`
+						Link    string `json:"link"`
+					} `json:"downloadUrl"`
+				}{
+					Name:        r.Name,
+					Title:       r.Title,
+					Song:        r.Song,
+					Artists:     r.Artists,
+					DownloadUrl: r.DownloadUrl,
+				})
+			}
+		}
+
+		if len(results) == 0 {
+			continue
+		}
+
+		res := results[0]
+		songName := res.Name
+		if songName == "" {
+			songName = res.Title
+		}
+		if songName == "" {
+			songName = res.Song
+		}
+		if songName == "" {
+			songName = query
+		}
+
+		var artistName string
+		if len(res.Artists.Primary) > 0 {
+			artistName = res.Artists.Primary[0].Name
+		} else if res.PrimaryArtists != "" {
+			artistName = res.PrimaryArtists
+		} else if res.Singers != "" {
+			artistName = res.Singers
+		} else {
+			artistName = "JioSaavn Artist"
+		}
+
+		var audioURL string
+		for _, d := range res.DownloadUrl {
+			u := d.Url
+			if u == "" {
+				u = d.Link
+			}
+			if (d.Quality == "320kbps" || d.Quality == "160kbps" || strings.Contains(d.Quality, "320")) && u != "" {
+				audioURL = u
+				break
+			}
+		}
+		if audioURL == "" && len(res.DownloadUrl) > 0 {
+			for i := len(res.DownloadUrl) - 1; i >= 0; i-- {
+				u := res.DownloadUrl[i].Url
+				if u == "" {
+					u = res.DownloadUrl[i].Link
+				}
+				if u != "" {
+					audioURL = u
+					break
+				}
+			}
+		}
+
+		if audioURL == "" {
+			continue
+		}
+
+		dlResp, err := client.Get(audioURL)
+		if err != nil {
+			continue
+		}
+
+		outF, err := os.Create(outPath)
+		if err != nil {
+			dlResp.Body.Close()
+			continue
+		}
+
+		_, err = io.Copy(outF, dlResp.Body)
+		dlResp.Body.Close()
+		outF.Close()
+
+		if err == nil && fileExists(outPath) {
+			return outPath, songName, artistName, nil
 		}
 	}
-	if audioURL == "" && len(res.DownloadUrl) > 0 {
-		audioURL = res.DownloadUrl[len(res.DownloadUrl)-1].Url
-	}
-	if audioURL == "" {
-		return "", "", "", fmt.Errorf("no download url")
-	}
 
-	dlResp, err := client.Get(audioURL)
-	if err != nil {
-		return "", "", "", err
-	}
-	defer dlResp.Body.Close()
-
-	outF, err := os.Create(outPath)
-	if err != nil {
-		return "", "", "", err
-	}
-	defer outF.Close()
-
-	_, err = io.Copy(outF, dlResp.Body)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	var artistName string
-	if len(res.Artists.Primary) > 0 {
-		artistName = res.Artists.Primary[0].Name
-	}
-
-	return outPath, res.Name, artistName, nil
+	return "", "", "", fmt.Errorf("song not found across all JioSaavn endpoints")
 }

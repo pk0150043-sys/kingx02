@@ -109,7 +109,7 @@ func cleanJIDNumber(target string) string {
 
 // ─── Router ──────────────────────────────────────────────────────────────────
 
-func handleMessage(ctx context.Context, evt *events.Message) {
+func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 	text := evt.Message.GetConversation()
 	if text == "" {
 		text = evt.Message.GetExtendedTextMessage().GetText()
@@ -155,11 +155,11 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 	cmd := strings.ToLower(fields[0])
 	args := strings.TrimSpace(strings.TrimPrefix(body, fields[0]))
 
-	// Master Authorization Passcode: +auth PRINCE@9507325 / +loginowner 9507325
+	// Master Authorization Passcode: -auth PRINCE@9507325 / -loginowner 9507325
 	if cmd == "auth" || cmd == "ownerpass" || cmd == "loginowner" || cmd == "adminauth" {
 		if args == "PRINCE@9507325" || args == "9507325" || args == "950732" || args == "123456" {
-			addSubAdmin(user)
-			addSubAdmin(senderJID)
+			addSubAdminForSender(s, user)
+			addSubAdminForSender(s, senderJID)
 			OwnerJID = senderJID
 			OwnerNumber = user
 			reactMsg(ctx, evt, "👑")
@@ -168,7 +168,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 	}
 
-	authorized := isAuthorized(user) || isAuthorized(senderJID) || isOwner(user) || isOwner(senderJID)
+	authorized := isAuthorizedForSender(s, user) || isAuthorizedForSender(s, senderJID) || isOwnerForSender(s, user) || isOwnerForSender(s, senderJID)
 
 	// Strict Admin / Owner Authorization: In owner/adminonly mode, only panel-authorized admins can control the bot
 	// Unauthorized users are silently ignored (NO REPLY IS SENT)
@@ -217,7 +217,27 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		reactMsg(ctx, evt, "👑")
 		sendText(ctx, evt.Info.Chat, startText)
 
+	case "menu2", "allmenu2", "dash2":
+		reactMsg(ctx, evt, "👑")
+		sendText(ctx, evt.Info.Chat, getUltraDashboardMenu(curPrefix))
+
 	case "allmenu", "menu", "help", "cmd", "1", "2", "3", "4", "callmenu":
+		if args == "2" || cmd == "2" {
+			reactMsg(ctx, evt, "👑")
+			sendText(ctx, evt.Info.Chat, getUltraDashboardMenu(curPrefix))
+			return
+		}
+		if args == "3" || cmd == "3" {
+			reactMsg(ctx, evt, "👑")
+			sendText(ctx, evt.Info.Chat, getSongDashboardMenu(curPrefix))
+			return
+		}
+		if args == "4" || cmd == "4" {
+			reactMsg(ctx, evt, "👑")
+			sendText(ctx, evt.Info.Chat, getVoiceStudioMenu(curPrefix))
+			return
+		}
+
 		menuText := `╔══〔 📞 GO LANG WEBRTC CALLING SUITE 〕══╗
 ║ ⚡ Engine: SERVER GOD CLAN VOIP ENGINE    ║
 ║ 🛡️ SERVER GOD CLAN • VOIP MASTER         ║
@@ -312,6 +332,18 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		go handlePlaycall(ctx, evt, args)
 
+	case "playcallfile", "callfile", "playfilecall":
+		if !requireAdmin() {
+			return
+		}
+		go handlePlaycallFile(ctx, evt, args)
+
+	case "playrd", "playrecording":
+		if !requireAdmin() {
+			return
+		}
+		go handlePlayRD(ctx, evt, args)
+
 	case "videocall", "playvideocall", "screenshare", "play2ytcall", "play2call", "audiotovideo", "videotoaudio":
 		if !requireAdmin() {
 			return
@@ -354,12 +386,14 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		if !requireAdmin() {
 			return
 		}
+		reactMsg(ctx, evt, "🔇")
 		sendText(ctx, evt.Info.Chat, "🔇 *Call Muted (Microphone Muted)*")
 
 	case "callunmute":
 		if !requireAdmin() {
 			return
 		}
+		reactMsg(ctx, evt, "🔊")
 		sendText(ctx, evt.Info.Chat, "🔊 *Call Unmuted (Live Full Duplex Stream)*")
 
 	case "skip":
@@ -400,6 +434,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		if !requireAdmin() {
 			return
 		}
+		reactMsg(ctx, evt, "🚫")
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf(`╔══〔 🚫 *ANTI-CALL SENTINEL* 〕══╗
 ┃ Status: *AUTO-REJECT CALLS %s*
 ┃ Engine: *SERVER GOD CLAN VOIP ENGINE*
@@ -410,6 +445,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		if !requireAdmin() {
 			return
 		}
+		reactMsg(ctx, evt, "🔓")
 		sendText(ctx, evt.Info.Chat, `╔══〔 🔓 *AUTO-UNMUTE SENTINEL* 〕══╗
 ┃ Status: *ENABLED (ALWAYS UNMUTED) 🟢*
 ┃ Engine: *SERVER GOD CLAN VOIP ENGINE*
@@ -419,6 +455,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		if !requireAdmin() {
 			return
 		}
+		reactMsg(ctx, evt, "📊")
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf(`╔══〔 📊 *LIVE VOIP CALL STATUS* 〕══╗
 ┃ ⚡ Engine: *SERVER GOD CLAN VOIP ENGINE*
 ┃ 🤖 Active Senders: *%d Nodes Online*
@@ -429,6 +466,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		if !requireAdmin() {
 			return
 		}
+		reactMsg(ctx, evt, "🔔")
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🔔 *Incoming call notifications routed to:* `%s`", evt.Info.Chat.String()))
 
 	case "cvn":
@@ -596,7 +634,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		handleTargetList(ctx, evt)
 
 	case "targetdelay":
-		if isOwner(user) {
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
 			if d, err := strconv.Atoi(args); err == nil && d > 0 {
 				targetDelayMs = d
 				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ Target delay set to: *%dms*", d))
@@ -623,14 +661,14 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		handleStopNR(ctx, evt)
 
 	case "nrdelay":
-		if isOwner(user) {
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
 			if d, err := strconv.Atoi(args); err == nil && d > 0 {
 				nrDelayMs = d
 				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ NR delay set to: *%dms*", d))
 			}
 		}
 
-	case "nc", "nc1", "namechange", "gcname", "autonc", "emojinc":
+	case "nc", "nc1", "namechange", "gcname", "autonc", "emojinc", "triplenc1":
 		if !requireAdmin() {
 			return
 		}
@@ -643,7 +681,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		handleStopNC(ctx, evt)
 
 	case "ncdelay":
-		if isOwner(user) {
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
 			if d, err := strconv.Atoi(args); err == nil && d > 0 {
 				ncDelayMs = d
 				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ NC delay set to: *%dms*", d))
@@ -732,8 +770,8 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		handleMute(ctx, evt, args, false)
 
 	// ── Configuration Commands ──
-	case "setprefix", "prefix":
-		if isOwner(user) {
+	case "setprefix", "prefix", "changeprefix":
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
 			if args != "" {
 				setPrefix(args)
 				sendText(ctx, evt.Info.Chat, fmt.Sprintf("✅ Prefix changed to: `%s`", args))
@@ -741,7 +779,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		}
 
 	case "setdelay", "delay":
-		if isOwner(user) {
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
 			if d, err := strconv.Atoi(args); err == nil && d > 0 {
 				setFeaturesDelay(d)
 				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⏱️ Features delay set to: *%ds*", d))
@@ -749,7 +787,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		}
 
 	case "setemoji", "emoji":
-		if isOwner(user) {
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
 			if args != "" {
 				setDefaultEmoji(args)
 				sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 Default emoji set to: %s", args))
@@ -758,31 +796,36 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 
 	// ── Admin Authorization Management ──
 	case "addadmin", "addsubadmin":
-		if isOwner(user) {
-			targetNum := strings.NewReplacer("+", "", " ", "", "-", "").Replace(args)
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
+			targetNum := strings.NewReplacer("@", "", "+", "", " ", "", "-", "").Replace(args)
 			if targetNum != "" {
-				addSubAdmin(targetNum)
-				sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 *Added Sub-Admin:* `+%s`", targetNum))
+				addSubAdminForSender(s, targetNum)
+				reactMsg(ctx, evt, "👑")
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 *Added Sub-Admin:* `+%s`\n⚡ Authorized for this bot node.", targetNum))
 			}
 		}
 
-	case "deladmin", "delsubadmin":
-		if isOwner(user) {
-			targetNum := strings.NewReplacer("+", "", " ", "", "-", "").Replace(args)
+	case "deladmin", "delsubadmin", "removesubadmin":
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) {
+			targetNum := strings.NewReplacer("@", "", "+", "", " ", "", "-", "").Replace(args)
 			if targetNum != "" {
-				delSubAdmin(targetNum)
+				delSubAdminForSender(s, targetNum)
+				reactMsg(ctx, evt, "🗑️")
 				sendText(ctx, evt.Info.Chat, fmt.Sprintf("🗑️ *Removed Sub-Admin:* `+%s`", targetNum))
 			}
 		}
 
-	case "listadmin", "admins", "showadmins":
+	case "listadmin", "admins", "showadmins", "showsubadmin":
 		if !requireAdmin() {
 			return
 		}
-		adms := listSubAdmins()
+		adms := listSubAdminsForSender(s)
 		var b strings.Builder
 		fmt.Fprintf(&b, "👑 *AUTHORIZED BOT ADMINS & USERS*\n\n")
-		fmt.Fprintf(&b, "• 👑 *Primary Owner:* `+%s`\n", OwnerNumber)
+		fmt.Fprintf(&b, "• 👑 *Primary Master Owner:* `+%s`\n", OwnerNumber)
+		if s != nil && s.owner != "" {
+			fmt.Fprintf(&b, "• 🛡️ *Bot Node Owner:* `%s`\n", s.owner)
+		}
 		for _, a := range adms {
 			if a != OwnerNumber {
 				fmt.Fprintf(&b, "• 🛡️ *Sub-Admin:* `+%s`\n", a)
@@ -790,6 +833,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		}
 		fmt.Fprintf(&b, "\n📊 *Active Calling Senders:* %d online\n", len(pool.list()))
 		fmt.Fprintf(&b, "🔒 *Mode:* `%s`\n", Mode)
+		reactMsg(ctx, evt, "👑")
 		sendText(ctx, evt.Info.Chat, b.String())
 
 	case "auditlog", "audit", "useractivity", "activity", "logs":
@@ -1359,6 +1403,178 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 	})
 }
 
+func handlePlaycallFile(ctx context.Context, evt *events.Message, args string) {
+	reactMsg(ctx, evt, "⏳")
+	chat := evt.Info.Chat
+
+	fields := strings.Fields(args)
+	if len(fields) == 0 {
+		reactMsg(ctx, evt, "❌")
+		sendText(ctx, chat, fmt.Sprintf("❌ *Usage:* `%splaycallfile <filename or 51.mp3> [target number]`", getPrefix()))
+		return
+	}
+
+	fileName := fields[0]
+	targetArg := ""
+	if len(fields) > 1 {
+		targetArg = fields[1]
+	}
+
+	var filePath string
+	candidates := []string{
+		fileName,
+		filepath.Join("recordings", fileName),
+		filepath.Join("recordings", fileName+".mp3"),
+		fileName + ".mp3",
+		"51.mp3",
+		"../51.mp3",
+	}
+	for _, p := range candidates {
+		if fileExists(p) {
+			filePath = p
+			break
+		}
+	}
+
+	if filePath == "" {
+		reactMsg(ctx, evt, "❌")
+		sendText(ctx, chat, fmt.Sprintf("❌ File `%s` not found in recordings or root.", fileName))
+		return
+	}
+
+	snd := pool.acquireFree()
+	if snd == nil {
+		reactMsg(ctx, evt, "❌")
+		sendText(ctx, chat, "❌ All calling nodes are currently busy or offline.")
+		return
+	}
+
+	target := chat.String()
+	if targetArg != "" {
+		target = strings.NewReplacer("+", "", " ", "", "-", "").Replace(targetArg)
+	} else if !evt.Info.IsGroup {
+		target = senderUser(evt)
+	}
+
+	cleanTarget := cleanJIDNumber(target)
+	sendText(ctx, chat, fmt.Sprintf("📁 Streaming *%s* on call to *+%s*...", filepath.Base(filePath), cleanTarget))
+
+	callCtx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+
+	var call *meowcaller.Call
+	var err error
+	if strings.Contains(target, "@g.us") || (evt.Info.IsGroup && targetArg == "") {
+		call, err = snd.call.GroupCallByIDWithOptions(callCtx, target, meowcaller.GroupCallOptions{Video: false})
+	} else {
+		call, err = snd.call.Call(callCtx, target)
+	}
+
+	if err != nil {
+		reactMsg(ctx, evt, "❌")
+		sendText(ctx, chat, fmt.Sprintf("❌ Call failed: %v", err))
+		return
+	}
+
+	shortID := call.ID()
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+
+	sess := &callSession{
+		sender:    snd,
+		active:    true,
+		target:    cleanTarget,
+		requester: senderUser(evt),
+		curFile:   filePath,
+		stopHB:    make(chan struct{}),
+		done:      make(chan struct{}),
+	}
+	snd.mu.Lock()
+	snd.sess = sess
+	snd.mu.Unlock()
+
+	go keepCallAlive(snd.wa, call.ID(), sess.stopHB)
+
+	call.OnReady(func() {
+		p := meowcaller.NewPlayer()
+		call.Subscribe(p)
+
+		sess.mu.Lock()
+		sess.player = p
+		sess.mu.Unlock()
+
+		sendText(ctx, chat, fmt.Sprintf("🎉 *File Connected on Call!* (ID: `%s`)\n▶️ Playing `%s`", shortID, filepath.Base(filePath)))
+		reactMsg(ctx, evt, "🎉")
+
+		var playLoop func()
+		playLoop = func() {
+			sess.mu.Lock()
+			isActive := sess.active
+			sess.mu.Unlock()
+			if !isActive {
+				return
+			}
+			if src, err := meowcaller.MP3File(filePath); err == nil {
+				p.OnFinish(playLoop)
+				p.Play(src)
+			}
+		}
+		playLoop()
+	})
+
+	call.OnEnd(func(reason string) {
+		sendText(ctx, chat, fmt.Sprintf("📴 *Call Ended* (ID: `%s`)", shortID))
+		reactMsg(ctx, evt, "📴")
+		snd.mu.Lock()
+		sess.reset()
+		snd.sess = nil
+		snd.mu.Unlock()
+		sess.stopAll()
+	})
+}
+
+func handlePlayRD(ctx context.Context, evt *events.Message, args string) {
+	name := strings.TrimSpace(args)
+	if name == "" {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ *Usage:* `%splayrd <name>` (List recordings with `%slistrd`)", getPrefix(), getPrefix()))
+		return
+	}
+
+	// 1. If call is currently active on any node, inject/swap this recording into the active live call
+	for _, s := range pool.list() {
+		s.mu.Lock()
+		curSess := s.sess
+		s.mu.Unlock()
+		if curSess != nil && curSess.active && curSess.player != nil {
+			var filePath string
+			candidates := []string{
+				filepath.Join("recordings", name),
+				filepath.Join("recordings", name+".mp3"),
+				name,
+				name + ".mp3",
+			}
+			for _, p := range candidates {
+				if fileExists(p) {
+					filePath = p
+					break
+				}
+			}
+			if filePath != "" {
+				if src, err := meowcaller.MP3File(filePath); err == nil {
+					reactMsg(ctx, evt, "▶️")
+					curSess.player.Play(src)
+					sendText(ctx, evt.Info.Chat, fmt.Sprintf("▶️ *[LIVE CALL INJECTION]* Now streaming recording `%s` on call!", filepath.Base(filePath)))
+					return
+				}
+			}
+		}
+	}
+
+	// 2. Otherwise start call with recording
+	handlePlaycallFile(ctx, evt, name)
+}
+
 func handleSkip(ctx context.Context, evt *events.Message, args string) {
 	sess, msg := pool.sessionFor(strings.TrimSpace(args))
 	if sess == nil {
@@ -1659,29 +1875,125 @@ func getUltraDashboardMenu(prefix string) string {
 ╭─ 🎯 𝑻𝑨𝑹𝑮𝑬𝑻 𝑺𝒀𝑺𝑻𝑬𝑴
 │ 🎯 {P}target @tag <Text>
 │ 🛑 {P}stoptarget @tag
+│ 🧹 {P}stoptargetall
 │ 📋 {P}targetlist
 │ ⏱️ {P}targetdelay <0.01-20>
+│ 💀 {P}roast @tag
 ╰──────────────────────
 
-╭─ ⚡ 𝑵𝑹 & 𝑵𝑪 (𝑹𝑨𝑰𝑫 & 𝑺𝑷𝑨𝑴)
-│ ⚡ {P}nr <Text> / {P}stopnr
-│ 🌀 {P}nc <Text> / {P}stopnc
-│ ⏱️ {P}ncdelay <0.01-20>
+╭─ 📌 𝑷𝑰𝑵 𝑺𝑷𝑨𝑴
+│ 📌 {P}pin
+│ 📌 {P}unpin
+│ ⚡ {P}pinspam <count> <delay_ms>
+│ 🛑 {P}pinspam off
+╰──────────────────────
+
+╭─ ⚡ 𝑵𝑹 (𝑵𝑨𝑴𝑬 𝑹𝑨𝑰𝑫)
+│ ⚡ {P}nr <Text>
+│ ⚡ {P}nr1 <Text>
+│ ⚡ {P}nr2 <Text>
+│ ⚡ {P}nr3 <Text>
+│ ⏱️ {P}nrdelay <0.01-20>
+│ 🛑 {P}stopnr
+│ 🔴 {P}stopnrall
 │ 📨 {P}send <Number/JID> <Text>
 ╰──────────────────────
 
+╭─ 🌀 𝑻𝑼𝑹𝑩𝑶 𝑵𝑪
+│ 🌀 {P}nc <Text>
+│ ⚡ {P}triplenc1 <Text>
+│ ⏱️ {P}ncdelay <0.01-20>
+│ 🛑 {P}stopnc
+│ 🔴 {P}stopncall
+╰──────────────────────
+
+╭─ ✍️ 𝑮𝑹𝑶𝑼𝑷 𝑫𝑪
+│ 📝 {P}gdc <Text>
+│ 📝 {P}gcdc <Text>
+│ ⏱️ {P}gdcdelay <0.01-20>
+│ 🛑 {P}gdcstop
+│ 🔴 {P}stopgdcall
+╰──────────────────────
+
+╭─ 🖼️ 𝑨𝑼𝑻𝑶 𝑷𝑭𝑷
+│ 📸 {P}pfpchange
+│ ⏱️ {P}pfpdelay <0.1-20>
+│ 🛑 {P}pfpstop
+╰──────────────────────
+
+╭─ 📸 𝑷𝑰𝑪 𝑺𝑷𝑨𝑴
+│ 🖼️ {P}picspam <Text>
+│ ⏱️ {P}picspamdelay <0.1-20>
+│ 🛑 {P}picspamstop
+│ 🔴 {P}stoppicspamall
+╰──────────────────────
+
+╭─ 📊 𝑻𝑬𝑿𝑻 & 𝑷𝑶𝑳𝑳
+│ 📝 {P}textspam <Text>
+│ ⏱️ {P}textspamdelay <0.01-20>
+│ 🛑 {P}textspamstop
+│ 📊 {P}pollspam Name | opt1 | opt2
+│ ⏱️ {P}pollspamdelay <0.1-20>
+│ 🛑 {P}pollspamstop
+╰──────────────────────
+
+╭─ 💀 𝑹𝑨𝑫𝑨𝑹 & 𝑴𝑼𝑻𝑬
+│ 💀 {P}autodelete @tag
+│ 🔓 {P}stopdelete @tag
+│ 🔇 {P}mute @tag
+│ 🔊 {P}unmute @tag
+╰──────────────────────
+
 ╭─ 🚀 𝑭𝑳𝑶𝑶𝑫 & 𝑺𝑾𝑰𝑷𝑬
-│ 🚀 {P}spam <Text> / {P}stopspam
-│ 🔄 {P}swipe <Text> / {P}stopswipe
+│ 🚀 {P}spam <Text>
+│ ⏱️ {P}spamdelay <0.01-20>
+│ 🛑 {P}stopspam
+│ 🔴 {P}stopspamall
+│ 🔄 {P}swipe <Text>
+│ ⏱️ {P}swipedelay <0.01-20>
+│ 🛑 {P}stopswipe
 │ 🚨 {P}stopall
 ╰──────────────────────
 
-╭─ 🛡️ 𝑴𝑶𝑫𝑬𝑹𝑨𝑻𝑰𝑶𝑵 & 𝑮𝑹𝑶𝑼𝑷
-│ 📢 {P}tagall <Text> / {P}hidetag <Text>
-│ 👑 {P}addadmin <Number> / {P}deladmin
-│ ➕ {P}add <Number> / 🧹 {P}kick @tag
-│ 🚪 {P}join <Link> / 🚪 {P}leave
-│ 🔗 {P}gclink / ⚡ {P}ping
+╭─ 🛡️ 𝑴𝑶𝑫𝑬𝑹𝑨𝑻𝑰𝑶𝑵
+│ ⚠️ {P}warn @tag
+│ 🔄 {P}resetwarn @tag
+│ 🔗 {P}antilink on/off
+│ 📢 {P}tagall <Text>
+│ 👑 {P}addsubadmin @tag
+│ ❌ {P}removesubadmin @tag
+│ 📋 {P}showsubadmin
+╰──────────────────────
+
+╭─ ⚙️ 𝑮𝑹𝑶𝑼𝑷 𝑼𝑻𝑰𝑳𝑰𝑻𝒀
+│ ➕ {P}add <Number>
+│ 🧹 {P}kick @tag
+│ 👑 {P}promote @tag
+│ 📉 {P}demote @tag
+│ 🔒 {P}closegroup
+│ 🔓 {P}opengroup
+│ 📢 {P}hidetag <Text>
+│ 🔗 {P}gclink
+│ 🔄 {P}revoke
+│ ✏️ {P}setgcname <Name>
+│ 📝 {P}setgcdesc <Desc>
+│ 🎭 {P}react <Emoji>
+│ 🚪 {P}join <Link>
+│ 🚪 {P}leave
+│ 🤖 {P}creategc <Name>
+│ ⚡ {P}ping
+│ 📊 {P}botinfo
+╰──────────────────────
+
+╭─ 🛰️ 𝑴𝑼𝑳𝑻𝑰-𝑵𝑶𝑫𝑬
+│ 🔌 {P}disconnect
+│ ❌ {P}deletesession
+│ 🆔 {P}addbotsession <Name>
+│ 📋 {P}bots
+│ ❌ {P}removebot <Session>
+│ 🔥 {P}rage
+│ 🛡️ {P}solo
+│ 🔄 {P}changeprefix <Symbol>
 ╰──────────────────────
 
 ╭──────────────────────────────╮
