@@ -594,14 +594,22 @@
     }
 
     async function deleteCallingNode(uid) {
-      if (!confirm(`Delete calling node ${uid}?`)) return;
-      await fetch("/wp_call_delete_account", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid })
-      });
-      if (activeSelectedUid === uid) activeSelectedUid = null;
-      loadWpStatus();
+      if (!confirm(`Are you sure you want to completely delete calling node ${uid}?`)) return;
+      try {
+        const res = await fetch("/wp_call_delete_account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uid })
+        });
+        const data = await res.json();
+        if (activeSelectedUid === uid) {
+          activeSelectedUid = null;
+          document.getElementById("linkingCard").style.display = "none";
+        }
+        await loadWpStatus();
+      } catch (e) {
+        console.error("Delete node error:", e);
+      }
     }
 
     function clearLogs() {
