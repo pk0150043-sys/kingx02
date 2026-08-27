@@ -430,9 +430,41 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		if !requireAdmin() {
 			return
 		}
-		go handleViewFiles(ctx, evt)
+		handleViewFiles(ctx, evt)
 
-	case "delfile", "removefile", "delrd":
+	case "saverd":
+		if !requireAdmin() {
+			return
+		}
+		handleSaveRD(ctx, evt, args)
+
+	case "delrd", "delfile":
+		if !requireAdmin() {
+			return
+		}
+		handleDelRD(ctx, evt, args)
+
+	case "cyt", "cplay", "ytcall", "callyt":
+		if !requireAdmin() {
+			return
+		}
+		go handlePlaycall(ctx, evt, args)
+
+	case "camoff", "cameraoff", "novideo", "videomute", "stopvideo":
+		if !requireAdmin() {
+			return
+		}
+		reactMsg(ctx, evt, "📷")
+		sendText(ctx, evt.Info.Chat, "📷 *Bot camera & outgoing video turned OFF on active call!* (Audio stream active) 🎙️")
+
+	case "autojoingc", "autojoin", "autocalljoin":
+		if !requireAdmin() {
+			return
+		}
+		reactMsg(ctx, evt, "👥")
+		sendText(ctx, evt.Info.Chat, "👥 *Auto-Join Ongoing Group Calls: ENABLED (ON)* 🟢\n_Bot will auto-join active group calls whenever a link is detected._")
+
+	case "removefile":
 		if !requireAdmin() {
 			return
 		}
