@@ -733,7 +733,12 @@
                     ${isRunning ? '● RUNNING' : '○ STOPPED'}
                   </span>
                 </div>
-                <p style="font-size:12px;color:#a1a1aa;margin:4px 0 10px 0;">👑 Owner: <strong style="color:#ff0055;">SERVER GOD CLAN KING</strong> | 👤 Admin: <strong style="color:#00ffcc;">${a.admin_name || a.admin || (a.owner ? a.owner.split('@')[0] : 'Admin')}</strong> | Live Strikes: <strong id="live-strikes-${uid}" style="color:#34d399;">${st.groups || 0}</strong></p>
+                <p style="font-size:12px;color:#a1a1aa;margin:4px 0 10px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                  <span>👑 Owner: <strong style="color:#ff0055;">SERVER GOD CLAN KING</strong></span> |
+                  <span>👤 Admin: <strong style="color:#00ffcc;">${a.admin_name || a.admin || (a.owner ? a.owner.split('@')[0] : 'Admin')}</strong></span> |
+                  <span>⚡ Strikes: <strong id="live-strikes-${uid}" style="color:#34d399;">${st.groups || 0}</strong></span> |
+                  <span>⏱️ Live Uptime: <strong id="live-uptime-${uid}" style="color:#38bdf8;font-family:monospace;font-size:13px;background:rgba(0,0,0,0.4);padding:2px 8px;border-radius:6px;border:1px solid rgba(56,189,248,0.2);">${st.uptime_str || '00:00:00'}</strong></span>
+                </p>
                 
                 <label>Target Group Chat URL (Live Editable)</label>
                 <input id="url-${uid}" value="${a.url || ''}" placeholder="https://www.instagram.com/direct/t/...">
@@ -804,6 +809,10 @@
             const strikesEl = document.getElementById(`live-strikes-${uid}`);
             if (strikesEl) {
               strikesEl.textContent = st.groups || 0;
+            }
+            const uptimeEl = document.getElementById(`live-uptime-${uid}`);
+            if (uptimeEl) {
+              uptimeEl.textContent = st.uptime_str || '00:00:00';
             }
           });
         }

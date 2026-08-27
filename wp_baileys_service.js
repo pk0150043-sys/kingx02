@@ -5049,28 +5049,52 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           }
 
           if (cmd === 'pinspam') {
-            if (parts[1]?.toLowerCase() === 'off' || parts[1]?.toLowerCase() === 'stop') {
+            if (parts[1]?.toLowerCase() === 'off' || parts[1]?.toLowerCase() === 'stop' || fullArg.toLowerCase() === 'off' || fullArg.toLowerCase() === 'stop') {
               if (sess.chatLoops && sess.chatLoops[jid]) sess.chatLoops[jid].pinspam = false;
               await sock.sendMessage(jid, { text: `🛑 *Pin spam stopped in this chat!*` }, { quoted: msg });
               continue;
             }
 
-            const countLimit = parseInt(parts[1]) || 50;
-            const delayMs = parseDelayMs(parts[2], 100);
+            let customText = '';
+            let countLimit = 100;
+            let delayMs = 8000; // Default 8000ms (8s)
+
+            if (parts.length > 1 && /^\d+$/.test(parts[1])) {
+              countLimit = parseInt(parts[1]);
+              if (parts.length > 2 && /^\d+$/.test(parts[2])) {
+                delayMs = parseDelayMs(parts[2], 8000);
+                customText = parts.slice(3).join(' ').trim();
+              } else {
+                customText = parts.slice(2).join(' ').trim();
+              }
+            } else {
+              customText = fullArg.trim();
+            }
+
+            if (!customText) {
+              const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+              if (quotedMsg?.conversation) {
+                customText = quotedMsg.conversation;
+              } else if (quotedMsg?.extendedTextMessage?.text) {
+                customText = quotedMsg.extendedTextMessage.text;
+              } else {
+                customText = `📌 👑 PINNED BY KING BOT ULTRA ⚡ 👑`;
+              }
+            }
 
             sess.chatLoops = sess.chatLoops || {};
             sess.chatLoops[jid] = sess.chatLoops[jid] || {};
             sess.chatLoops[jid].pinspam = true;
 
             await sock.sendMessage(jid, {
-              text: `╔══〔 📌 *PIN SPAM ACTIVE* 〕══╗\n┃ Limit: *${countLimit} Pins*\n┃ Speed: *${delayMs}ms*\n┃ Status: *Continuous Pin Flood Running*\n╚═════════════════════════╝\n_Use \`${sess.prefix}pinspam off\` to stop._`
+              text: `╔══〔 📌 *PIN SPAM ACTIVE* 〕══╗\n┃ Text: *${customText}*\n┃ Limit: *${countLimit} Pins*\n┃ Delay: *${delayMs}ms (Default 8000ms)*\n┃ Status: *Continuous Pin Flood Running*\n╚═════════════════════════╝\n_Use \`${sess.prefix}pinspam off\` to stop._`
             }, { quoted: msg });
 
             (async () => {
               let sent = 0;
               while (sess.chatLoops?.[jid]?.pinspam && sent < countLimit) {
                 try {
-                  const m = await sock.sendMessage(jid, { text: `📌 [PIN RAID] KING BOT ULTRA ⚡` });
+                  const m = await sock.sendMessage(jid, { text: customText });
                   if (m?.key) {
                     await sock.sendMessage(jid, {
                       pin: m.key,

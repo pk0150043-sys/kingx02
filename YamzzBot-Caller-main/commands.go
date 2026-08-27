@@ -46,6 +46,136 @@ type callSession struct {
 	pranking   bool
 	curFile    string
 	prankTitle string
+	isMuted    bool
+	manualMute bool
+}
+
+var (
+	autoUnmuteEnabled = true
+	autoUnmuteMu      sync.RWMutex
+
+	autoJoinGCEnabled = false
+	autoJoinGCMu      sync.RWMutex
+)
+
+func IsAutoUnmuteEnabled() bool {
+	autoUnmuteMu.RLock()
+	defer autoUnmuteMu.RUnlock()
+	return autoUnmuteEnabled
+}
+
+func SetAutoUnmute(enabled bool) {
+	autoUnmuteMu.Lock()
+	defer autoUnmuteMu.Unlock()
+	autoUnmuteEnabled = enabled
+}
+
+func IsAutoJoinGCEnabled() bool {
+	autoJoinGCMu.RLock()
+	defer autoJoinGCMu.RUnlock()
+	return autoJoinGCEnabled
+}
+
+func SetAutoJoinGC(enabled bool) {
+	autoJoinGCMu.Lock()
+	defer autoJoinGCMu.Unlock()
+	autoJoinGCEnabled = enabled
+}
+
+func SendUnmuteSignal(cli *whatsmeow.Client, callID string, toJID, creatorJID types.JID) error {
+	node := signaling.BuildMuteV2(callID, toJID, creatorJID, "0")
+	return cli.DangerousInternals().SendNode(context.Background(), node)
+}
+
+func SendMuteSignal(cli *whatsmeow.Client, callID string, toJID, creatorJID types.JID) error {
+	node := signaling.BuildMuteV2(callID, toJID, creatorJID, "1")
+	return cli.DangerousInternals().SendNode(context.Background(), node)
+}
+
+func (s *callSession) Mute(cli *whatsmeow.Client) {
+	s.mu.Lock()
+	s.isMuted = true
+	s.manualMute = true
+	p := s.player
+	call := s.call
+	s.mu.Unlock()
+
+	if p != nil {
+		p.Pause()
+	}
+	if call != nil && cli != nil {
+		selfJID := cli.Store.GetLID()
+		if selfJID.IsEmpty() && cli.Store.ID != nil {
+			selfJID = cli.Store.ID.ToNonAD()
+		}
+		_ = SendMuteSignal(cli, call.ID(), call.Peer(), selfJID)
+		_ = SendMuteSignal(cli, call.ID(), call.Peer(), call.Peer())
+	}
+}
+
+func (s *callSession) Unmute(cli *whatsmeow.Client) {
+	s.mu.Lock()
+	s.isMuted = false
+	s.manualMute = false
+	p := s.player
+	call := s.call
+	s.mu.Unlock()
+
+	if p != nil {
+		p.Resume()
+	}
+	if call != nil && cli != nil {
+		selfJID := cli.Store.GetLID()
+		if selfJID.IsEmpty() && cli.Store.ID != nil {
+			selfJID = cli.Store.ID.ToNonAD()
+		}
+		_ = SendUnmuteSignal(cli, call.ID(), call.Peer(), selfJID)
+		_ = SendUnmuteSignal(cli, call.ID(), call.Peer(), call.Peer())
+	}
+}
+
+func (s *callSession) PlayAudioFile(filePath string, loop bool) error {
+	s.mu.Lock()
+	oldFile := s.curFile
+	s.curFile = filePath
+	p := s.player
+	s.mu.Unlock()
+
+	if oldFile != "" && oldFile != filePath && strings.HasPrefix(filepath.Base(oldFile), "tmp_") {
+		_ = os.Remove(oldFile)
+	}
+
+	if p == nil {
+		return fmt.Errorf("no active player on call")
+	}
+
+	src, err := meowcaller.MP3File(filePath)
+	if err != nil {
+		return err
+	}
+
+	if loop {
+		var loopPlay func()
+		loopPlay = func() {
+			s.mu.Lock()
+			isActive := s.active
+			activeFile := s.curFile
+			s.mu.Unlock()
+			if !isActive || activeFile == "" {
+				return
+			}
+			if lsrc, lerr := meowcaller.MP3File(activeFile); lerr == nil {
+				p.OnFinish(loopPlay)
+				p.Play(lsrc)
+			}
+		}
+		p.OnFinish(loopPlay)
+	} else {
+		p.OnFinish(nil)
+	}
+
+	p.Play(src)
+	return nil
 }
 
 func (s *callSession) reset() {
@@ -59,6 +189,8 @@ func (s *callSession) reset() {
 	s.pranking = false
 	s.curFile = ""
 	s.prankTitle = ""
+	s.isMuted = false
+	s.manualMute = false
 }
 
 func (s *callSession) stopAll() {
@@ -334,19 +466,17 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 		}
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🚪 *Call Waiting Room:* *%s*", args))
 
-	case "callmute":
+	case "callmute", "mute", "mutecall":
 		if !requireAdmin() {
 			return
 		}
-		reactMsg(ctx, evt, "🔇")
-		sendText(ctx, evt.Info.Chat, "🔇 *Call Muted (Microphone Muted)*")
+		handleMuteCall(ctx, evt)
 
-	case "callunmute":
+	case "callunmute", "unmute", "unmutecall":
 		if !requireAdmin() {
 			return
 		}
-		reactMsg(ctx, evt, "🔊")
-		sendText(ctx, evt.Info.Chat, "🔊 *Call Unmuted (Live Full Duplex Stream)*")
+		handleUnmuteCall(ctx, evt)
 
 	case "skip":
 		if !requireAdmin() {
@@ -393,15 +523,23 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 ┃ Action: *Auto-Decline Incoming Calls*
 ╚════════════════════════════════╝`, strings.ToUpper(args)))
 
-	case "autounmute":
+	case "autounmute", "autounmutes", "auto-unmute":
 		if !requireAdmin() {
 			return
 		}
-		reactMsg(ctx, evt, "🔓")
-		sendText(ctx, evt.Info.Chat, `╔══〔 🔓 *AUTO-UNMUTE SENTINEL* 〕══╗
-┃ Status: *ENABLED (ALWAYS UNMUTED) 🟢*
-┃ Engine: *SERVER GOD CLAN VOIP ENGINE*
-╚════════════════════════════════╝`)
+		handleToggleAutoUnmute(ctx, evt, args)
+
+	case "autojoingc", "autojoin", "autocalljoin":
+		if !requireAdmin() {
+			return
+		}
+		handleToggleAutoJoinGC(ctx, evt, args)
+
+	case "saverd", "saverecording", "saverec":
+		if !requireAdmin() {
+			return
+		}
+		handleSaveRD(ctx, evt, args)
 
 	case "callstatus":
 		if !requireAdmin() {
@@ -412,7 +550,9 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 ┃ ⚡ Engine: *SERVER GOD CLAN VOIP ENGINE*
 ┃ 🤖 Active Senders: *%d Nodes Online*
 ┃ 🔊 51.mp3 Master Loop: *READY*
-╚════════════════════════════════╝`, len(pool.list())))
+┃ 🛡️ Auto-Unmute: *%v*
+┃ 👥 Auto-Join GC: *%v*
+╚════════════════════════════════╝`, len(pool.list()), IsAutoUnmuteEnabled(), IsAutoJoinGCEnabled()))
 
 	case "noti":
 		if !requireAdmin() {
@@ -451,13 +591,6 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		}
 		reactMsg(ctx, evt, "📷")
 		sendText(ctx, evt.Info.Chat, "📷 *Bot camera & outgoing video turned OFF on active call!* (Audio stream active) 🎙️")
-
-	case "autojoingc", "autojoin", "autocalljoin":
-		if !requireAdmin() {
-			return
-		}
-		reactMsg(ctx, evt, "👥")
-		sendText(ctx, evt.Info.Chat, "👥 *Auto-Join Ongoing Group Calls: ENABLED (ON)* 🟢\n_Bot will auto-join active group calls whenever a link is detected._")
 
 	case "removefile":
 		if !requireAdmin() {
@@ -1447,12 +1580,78 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 	chat := evt.Info.Chat
 
 	target, title, err := resolveTarget(ctx, evt, args)
-	if err != nil {
+	if err != nil && !evt.Info.IsGroup {
 		reactMsg(ctx, evt, "❌")
 		sendText(ctx, chat, "❌ "+err.Error())
 		return
 	}
 	cleanTarget := cleanJIDNumber(target)
+
+	// 1. FIRST: Check if an active call already exists on any sender node.
+	// If active, HOT-SWAP song into active live call directly!
+	for _, s := range pool.list() {
+		s.mu.Lock()
+		curSess := s.sess
+		s.mu.Unlock()
+		if curSess != nil && curSess.active && curSess.player != nil {
+			if title == "" && args != "" {
+				title = strings.TrimSpace(args)
+			}
+			if title == "" {
+				sendText(ctx, chat, "ℹ️ *A call is already active!* To change song, type `"+getPrefix()+"changesong <song name>` or `"+getPrefix()+"cyt <song name>`.")
+				return
+			}
+
+			sendText(ctx, chat, fmt.Sprintf("🔍 _Searching audio for '%s'..._", title))
+
+			var audioFilePath, audioTitle string
+			if title != "" && title != "51.mp3" {
+				jTmp := fmt.Sprintf("tmp_call_swap_jio_%d.mp3", time.Now().UnixMilli())
+				if jPath, jName, jArt, jerr := downloadJioSaavnSong(title, jTmp); jerr == nil && jPath != "" && fileExists(jPath) {
+					audioFilePath = jPath
+					audioTitle = fmt.Sprintf("%s - %s", jName, jArt)
+				} else {
+					yTmp := fmt.Sprintf("tmp_call_swap_yt_%d.mp3", time.Now().UnixMilli())
+					if res, err := DownloadYouTubeMediaGo(title, "audio", yTmp); err == nil && res != nil && fileExists(res.FilePath) {
+						audioFilePath = res.FilePath
+						audioTitle = res.Title
+					}
+				}
+			}
+
+			if audioFilePath == "" {
+				if fileExists("51.mp3") {
+					audioFilePath = "51.mp3"
+					audioTitle = "51.mp3 High-Bass Master Loop"
+				} else if fileExists("../51.mp3") {
+					audioFilePath = "../51.mp3"
+					audioTitle = "51.mp3 High-Bass Master Loop"
+				}
+			}
+
+			if audioFilePath == "" {
+				reactMsg(ctx, evt, "❌")
+				sendText(ctx, chat, fmt.Sprintf("❌ Failed to download audio for '%s'.", title))
+				return
+			}
+
+			if err := curSess.PlayAudioFile(audioFilePath, true); err != nil {
+				reactMsg(ctx, evt, "❌")
+				sendText(ctx, chat, fmt.Sprintf("❌ Failed to play audio in call: %v", err))
+				return
+			}
+
+			reactMsg(ctx, evt, "🎶")
+			sendText(ctx, chat, fmt.Sprintf("🎶 *[LIVE CALL SONG CHANGED]* ⚡\n▶️ Now Streaming: *%s*\n🔁 Looping continuously on active call.", audioTitle))
+			return
+		}
+	}
+
+	// 2. NO ACTIVE CALL: Check if group chat or direct call
+	if evt.Info.IsGroup && target == "" {
+		handleGroupCall(ctx, evt, title, false)
+		return
+	}
 
 	snd := pool.acquireFree()
 	if snd == nil {
@@ -1518,7 +1717,7 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
 		sendText(ctx, chat, fmt.Sprintf("❌ Failed to call +%s: %v", cleanTarget, err))
-		if audioFilePath != "" && !strings.Contains(audioFilePath, "51.mp3") {
+		if audioFilePath != "" && strings.HasPrefix(filepath.Base(audioFilePath), "tmp_") {
 			os.Remove(audioFilePath)
 		}
 		snd.mu.Lock()
@@ -1548,31 +1747,33 @@ func handlePlaycall(ctx context.Context, evt *events.Message, args string) {
 		sess.player = p
 		sess.mu.Unlock()
 
-		sendText(ctx, chat, fmt.Sprintf("🎉 *Call Connected to +%s* (ID: `%s`)", cleanTarget, shortID))
+		sendText(ctx, chat, fmt.Sprintf("🎉 *Call Connected to +%s* (ID: `%s`)\n🔊 Auto-Unmute: *ACTIVE (LIVE)*\n▶️ Stream: *%s*", cleanTarget, shortID, audioTitle))
 		reactMsg(ctx, evt, "🎉")
 
-		var playLoop func()
-		playLoop = func() {
-			sess.mu.Lock()
-			isActive := sess.active
-			activeFile := sess.curFile
-			sess.mu.Unlock()
-			if !isActive || activeFile == "" {
-				return
-			}
-			if src, err := meowcaller.MP3File(activeFile); err == nil {
-				p.OnFinish(playLoop)
-				p.Play(src)
-			}
+		if audioFilePath != "" {
+			_ = sess.PlayAudioFile(audioFilePath, true)
 		}
-		playLoop()
+	})
+
+	call.OnMuteState(func(muted bool) {
+		sess.mu.Lock()
+		isMan := sess.manualMute
+		sess.mu.Unlock()
+
+		if muted && !isMan && IsAutoUnmuteEnabled() {
+			sess.Unmute(snd.wa)
+			sendText(ctx, chat, fmt.Sprintf("🔊 *[AUTO-UNMUTE]* Call audio unmuted automatically on (`%s`)!", shortID))
+		}
 	})
 
 	call.OnEnd(func(reason string) {
 		sendText(ctx, chat, fmt.Sprintf("📴 *Call Finished with +%s* (ID: `%s`)", cleanTarget, shortID))
 		reactMsg(ctx, evt, "📴")
-		if audioFilePath != "" && !strings.Contains(audioFilePath, "51.mp3") {
-			os.Remove(audioFilePath)
+		sess.mu.Lock()
+		curF := sess.curFile
+		sess.mu.Unlock()
+		if curF != "" && strings.HasPrefix(filepath.Base(curF), "tmp_") {
+			os.Remove(curF)
 		}
 		snd.mu.Lock()
 		sess.reset()
@@ -1589,7 +1790,7 @@ func handlePlaycallFile(ctx context.Context, evt *events.Message, args string) {
 	fields := strings.Fields(args)
 	if len(fields) == 0 {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, fmt.Sprintf("❌ *Usage:* `%splaycallfile <filename or 51.mp3> [target number]`", getPrefix()))
+		sendText(ctx, chat, fmt.Sprintf("❌ *Usage:* `%splaycallfile <filename>` or `%splayrd <name>`", getPrefix(), getPrefix()))
 		return
 	}
 
@@ -1601,12 +1802,10 @@ func handlePlaycallFile(ctx context.Context, evt *events.Message, args string) {
 
 	var filePath string
 	candidates := []string{
-		fileName,
 		filepath.Join("recordings", fileName),
 		filepath.Join("recordings", fileName+".mp3"),
+		fileName,
 		fileName + ".mp3",
-		"51.mp3",
-		"../51.mp3",
 	}
 	for _, p := range candidates {
 		if fileExists(p) {
@@ -1615,9 +1814,22 @@ func handlePlaycallFile(ctx context.Context, evt *events.Message, args string) {
 		}
 	}
 
+	// Case-insensitive search in recordings/
+	if filePath == "" {
+		if entries, err := os.ReadDir("recordings"); err == nil {
+			for _, e := range entries {
+				base := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
+				if strings.EqualFold(e.Name(), fileName) || strings.EqualFold(base, fileName) {
+					filePath = filepath.Join("recordings", e.Name())
+					break
+				}
+			}
+		}
+	}
+
 	if filePath == "" {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, chat, fmt.Sprintf("❌ File `%s` not found in recordings or root.", fileName))
+		sendText(ctx, chat, fmt.Sprintf("❌ Recording file `%s` not found in recordings/ folder. Use `%sviewfiles` to view all saved recordings.", fileName, getPrefix()))
 		return
 	}
 
@@ -1627,30 +1839,9 @@ func handlePlaycallFile(ctx context.Context, evt *events.Message, args string) {
 		curSess := s.sess
 		s.mu.Unlock()
 		if curSess != nil && curSess.active && curSess.player != nil {
-			curSess.mu.Lock()
-			curSess.curFile = filePath
-			p := curSess.player
-			curSess.mu.Unlock()
-
-			if src, err := meowcaller.MP3File(filePath); err == nil {
-				reactMsg(ctx, evt, "🎶")
-				var loopPlay func()
-				loopPlay = func() {
-					curSess.mu.Lock()
-					isActive := curSess.active
-					activeFile := curSess.curFile
-					curSess.mu.Unlock()
-					if !isActive || activeFile == "" {
-						return
-					}
-					if lsrc, lerr := meowcaller.MP3File(activeFile); lerr == nil {
-						p.OnFinish(loopPlay)
-						p.Play(lsrc)
-					}
-				}
-				p.OnFinish(loopPlay)
-				p.Play(src)
-				sendText(ctx, chat, fmt.Sprintf("🎶 *[ACTIVE CALL AUDIO CHANGED]*\n▶️ Now playing: `%s` in active call!", filepath.Base(filePath)))
+			if err := curSess.PlayAudioFile(filePath, true); err == nil {
+				reactMsg(ctx, evt, "▶️")
+				sendText(ctx, chat, fmt.Sprintf("▶️ *[ACTIVE CALL AUDIO CHANGED]* ⚡\n🎵 Now Streaming Recording: `%s` (Looping continuously)", filepath.Base(filePath)))
 				return
 			}
 		}
@@ -1721,20 +1912,18 @@ func handlePlaycallFile(ctx context.Context, evt *events.Message, args string) {
 		sendText(ctx, chat, fmt.Sprintf("🎉 *File Connected on Call!* (ID: `%s`)\n▶️ Playing `%s`", shortID, filepath.Base(filePath)))
 		reactMsg(ctx, evt, "🎉")
 
-		var playLoop func()
-		playLoop = func() {
-			sess.mu.Lock()
-			isActive := sess.active
-			sess.mu.Unlock()
-			if !isActive {
-				return
-			}
-			if src, err := meowcaller.MP3File(filePath); err == nil {
-				p.OnFinish(playLoop)
-				p.Play(src)
-			}
+		_ = sess.PlayAudioFile(filePath, true)
+	})
+
+	call.OnMuteState(func(muted bool) {
+		sess.mu.Lock()
+		isMan := sess.manualMute
+		sess.mu.Unlock()
+
+		if muted && !isMan && IsAutoUnmuteEnabled() {
+			sess.Unmute(snd.wa)
+			sendText(ctx, chat, fmt.Sprintf("🔊 *[AUTO-UNMUTE]* Call audio unmuted automatically on (`%s`)!", shortID))
 		}
-		playLoop()
 	})
 
 	call.OnEnd(func(reason string) {
@@ -1754,58 +1943,6 @@ func handlePlayRD(ctx context.Context, evt *events.Message, args string) {
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ *Usage:* `%splayrd <name>` (List recordings with `%slistrd`)", getPrefix(), getPrefix()))
 		return
 	}
-
-	// 1. If call is currently active on any node, inject/swap this recording into the active live call
-	for _, s := range pool.list() {
-		s.mu.Lock()
-		curSess := s.sess
-		s.mu.Unlock()
-		if curSess != nil && curSess.active && curSess.player != nil {
-			var filePath string
-			candidates := []string{
-				filepath.Join("recordings", name),
-				filepath.Join("recordings", name+".mp3"),
-				name,
-				name + ".mp3",
-			}
-			for _, p := range candidates {
-				if fileExists(p) {
-					filePath = p
-					break
-				}
-			}
-			if filePath != "" {
-				curSess.mu.Lock()
-				curSess.curFile = filePath
-				p := curSess.player
-				curSess.mu.Unlock()
-
-				if src, err := meowcaller.MP3File(filePath); err == nil {
-					reactMsg(ctx, evt, "▶️")
-					var loopPlay func()
-					loopPlay = func() {
-						curSess.mu.Lock()
-						isActive := curSess.active
-						activeFile := curSess.curFile
-						curSess.mu.Unlock()
-						if !isActive || activeFile == "" {
-							return
-						}
-						if lsrc, lerr := meowcaller.MP3File(activeFile); lerr == nil {
-							p.OnFinish(loopPlay)
-							p.Play(lsrc)
-						}
-					}
-					p.OnFinish(loopPlay)
-					p.Play(src)
-					sendText(ctx, evt.Info.Chat, fmt.Sprintf("▶️ *[LIVE CALL INJECTION]* Now streaming recording `%s` in active call loop!", filepath.Base(filePath)))
-					return
-				}
-			}
-		}
-	}
-
-	// 2. Otherwise start call with recording
 	handlePlaycallFile(ctx, evt, name)
 }
 
@@ -1849,30 +1986,10 @@ func handleLiveChangeSong(ctx context.Context, evt *events.Message, args string)
 		curSess := s.sess
 		s.mu.Unlock()
 		if curSess != nil && curSess.active && curSess.player != nil {
-			curSess.mu.Lock()
-			curSess.curFile = filePath
-			p := curSess.player
-			curSess.mu.Unlock()
-
-			if src, err := meowcaller.MP3File(filePath); err == nil {
+			if err := curSess.PlayAudioFile(filePath, true); err == nil {
 				reactMsg(ctx, evt, "🎶")
-				var loopPlay func()
-				loopPlay = func() {
-					curSess.mu.Lock()
-					isActive := curSess.active
-					curSess.mu.Unlock()
-					if !isActive {
-						return
-					}
-					if lsrc, lerr := meowcaller.MP3File(filePath); lerr == nil {
-						p.OnFinish(loopPlay)
-						p.Play(lsrc)
-					}
-				}
-				p.OnFinish(loopPlay)
-				p.Play(src)
 				swapped = true
-				sendText(ctx, evt.Info.Chat, fmt.Sprintf("🎶 *[LIVE CALL SONG CHANGED]*\n▶️ Now Streaming: *%s* (%s)", trackTitle, trackArtist))
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("🎶 *[LIVE CALL SONG CHANGED]* ⚡\n▶️ Now Streaming: *%s* (%s)\n🔁 Looping continuously on active call.", trackTitle, trackArtist))
 				return
 			}
 		}
@@ -1886,6 +2003,151 @@ func handleLiveChangeSong(ctx context.Context, evt *events.Message, args string)
 			handlePlaycall(ctx, evt, songQuery)
 		}
 	}
+}
+
+func handleMuteCall(ctx context.Context, evt *events.Message) {
+	mutedAny := false
+	for _, s := range pool.list() {
+		s.mu.Lock()
+		curSess := s.sess
+		s.mu.Unlock()
+		if curSess != nil && curSess.active {
+			curSess.Mute(s.wa)
+			mutedAny = true
+		}
+	}
+	reactMsg(ctx, evt, "🔇")
+	if mutedAny {
+		sendText(ctx, evt.Info.Chat, "🔇 *Active WhatsApp call microphone MUTED and audio paused!*")
+	} else {
+		sendText(ctx, evt.Info.Chat, "ℹ️ *No active live call currently in progress to mute.*")
+	}
+}
+
+func handleUnmuteCall(ctx context.Context, evt *events.Message) {
+	unmutedAny := false
+	for _, s := range pool.list() {
+		s.mu.Lock()
+		curSess := s.sess
+		s.mu.Unlock()
+		if curSess != nil && curSess.active {
+			curSess.Unmute(s.wa)
+			unmutedAny = true
+		}
+	}
+	reactMsg(ctx, evt, "🔊")
+	if unmutedAny {
+		sendText(ctx, evt.Info.Chat, "🔊 *Active WhatsApp call microphone UNMUTED and audio stream restored!*")
+	} else {
+		sendText(ctx, evt.Info.Chat, "ℹ️ *No active live call currently in progress to unmute.*")
+	}
+}
+
+func handleToggleAutoUnmute(ctx context.Context, evt *events.Message, args string) {
+	sub := strings.ToLower(strings.TrimSpace(args))
+	if sub == "on" || sub == "enable" || sub == "1" || sub == "true" {
+		SetAutoUnmute(true)
+	} else if sub == "off" || sub == "disable" || sub == "0" || sub == "false" {
+		SetAutoUnmute(false)
+	} else {
+		SetAutoUnmute(!IsAutoUnmuteEnabled())
+	}
+
+	reactMsg(ctx, evt, "🔓")
+	if IsAutoUnmuteEnabled() {
+		sendText(ctx, evt.Info.Chat, `╔══〔 🔓 *AUTO-UNMUTE SENTINEL* 〕══╗
+┃ Status: *ENABLED (ON) 🟢*
+┃ Engine: *SERVER GOD CLAN VOIP ENGINE*
+┃ Action: *Auto-Unmutes Microphone on Calls*
+╚════════════════════════════════╝`)
+	} else {
+		sendText(ctx, evt.Info.Chat, `╔══〔 🔒 *AUTO-UNMUTE SENTINEL* 〕══╗
+┃ Status: *DISABLED (OFF) ⚪*
+┃ Engine: *SERVER GOD CLAN VOIP ENGINE*
+╚════════════════════════════════╝`)
+	}
+}
+
+func handleToggleAutoJoinGC(ctx context.Context, evt *events.Message, args string) {
+	sub := strings.ToLower(strings.TrimSpace(args))
+	if sub == "on" || sub == "enable" || sub == "1" || sub == "true" {
+		SetAutoJoinGC(true)
+	} else if sub == "off" || sub == "disable" || sub == "0" || sub == "false" {
+		SetAutoJoinGC(false)
+	} else {
+		SetAutoJoinGC(!IsAutoJoinGCEnabled())
+	}
+
+	reactMsg(ctx, evt, "👥")
+	if IsAutoJoinGCEnabled() {
+		sendText(ctx, evt.Info.Chat, "👥 *Auto-Join Group Calls: ENABLED (ON)* 🟢\n_Bot will auto-join active group calls whenever a link is detected._")
+	} else {
+		sendText(ctx, evt.Info.Chat, "👥 *Auto-Join Group Calls: DISABLED (OFF)* ⚪")
+	}
+}
+
+func handleSaveRD(ctx context.Context, evt *events.Message, args string) {
+	name := strings.TrimSpace(args)
+	if name == "" {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("⚠️ *Usage:* Reply to an audio/voice note with `%ssaverd <name>`\nExample: Reply ➔ `%ssaverd prank1`", getPrefix(), getPrefix()))
+		return
+	}
+
+	ci := evt.Message.GetExtendedTextMessage().GetContextInfo()
+	quoted := ci.GetQuotedMessage()
+	if quoted == nil {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("⚠️ *Please reply to an audio or voice note message* while typing `%ssaverd %s`!", getPrefix(), name))
+		return
+	}
+
+	var rawAudio []byte
+	var err error
+
+	if audio := quoted.GetAudioMessage(); audio != nil {
+		rawAudio, err = waClient.Download(ctx, audio)
+	} else if doc := quoted.GetDocumentMessage(); doc != nil {
+		rawAudio, err = waClient.Download(ctx, doc)
+	} else {
+		sendText(ctx, evt.Info.Chat, "❌ Quoted message does not contain audio media.")
+		return
+	}
+
+	if err != nil || len(rawAudio) == 0 {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ Failed to download audio media: %v", err))
+		return
+	}
+
+	_ = os.MkdirAll("recordings", 0755)
+	cleanName := regexp.MustCompile(`[\\/:"*?<>|]`).ReplaceAllString(name, "")
+	targetFile := filepath.Join("recordings", cleanName+".mp3")
+
+	mp3Path, err := convertToMP3(rawAudio)
+	if err != nil {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ Audio conversion failed: %v", err))
+		return
+	}
+
+	_ = os.Rename(mp3Path, targetFile)
+	if !fileExists(targetFile) {
+		input, _ := os.ReadFile(mp3Path)
+		_ = os.WriteFile(targetFile, input, 0644)
+		_ = os.Remove(mp3Path)
+	}
+
+	fi, _ := os.Stat(targetFile)
+	var szStr string
+	if fi != nil {
+		szStr = fmt.Sprintf("%.1f KB", float64(fi.Size())/1024.0)
+	}
+
+	reactMsg(ctx, evt, "💾")
+	msg := fmt.Sprintf(`╔══〔 💾 *AUDIO RECORDING SAVED* 〕══╗
+┃ 📌 Name: *%s.mp3*
+┃ 📊 Size: *%s*
+┃ 📂 Path: *recordings/%s.mp3*
+╚════════════════════════════════════╝
+💡 *Play in call:* Send `+"`%splayrd %s`"+` or `+"`%splaycallfile %s`", cleanName, szStr, cleanName, getPrefix(), cleanName, getPrefix(), cleanName)
+	sendText(ctx, evt.Info.Chat, msg)
 }
 
 func handleSkip(ctx context.Context, evt *events.Message, args string) {
@@ -1914,15 +2176,22 @@ func handleStop(ctx context.Context, evt *events.Message, args string) {
 		sess.mu.Lock()
 		call := sess.call
 		player := sess.player
-		sess.reset()
+		curF := sess.curFile
 		sess.mu.Unlock()
+
 		if player != nil {
 			player.Stop()
 		}
 		if call != nil {
 			_ = call.Hangup()
 		}
+		if curF != "" && strings.HasPrefix(filepath.Base(curF), "tmp_") {
+			_ = os.Remove(curF)
+		}
 		sess.stopAll()
+		sess.mu.Lock()
+		sess.reset()
+		sess.mu.Unlock()
 		endedAny = true
 	}
 
@@ -1952,15 +2221,34 @@ func handleStop(ctx context.Context, evt *events.Message, args string) {
 			curSess.mu.Lock()
 			c := curSess.call
 			p := curSess.player
-			curSess.reset()
+			curF := curSess.curFile
 			curSess.mu.Unlock()
+
 			if p != nil {
 				p.Stop()
 			}
 			if c != nil {
 				_ = c.Hangup()
+				if s.wa != nil {
+					selfJID := s.wa.Store.GetLID()
+					if selfJID.IsEmpty() && s.wa.Store.ID != nil {
+						selfJID = s.wa.Store.ID.ToNonAD()
+					}
+					term := signaling.BuildTerminate(&signaling.TerminateParams{
+						CallID:      c.ID(),
+						To:          c.Peer(),
+						CallCreator: c.Peer(),
+					})
+					_ = s.wa.DangerousInternals().SendNode(context.Background(), term)
+				}
+			}
+			if curF != "" && strings.HasPrefix(filepath.Base(curF), "tmp_") {
+				_ = os.Remove(curF)
 			}
 			curSess.stopAll()
+			curSess.mu.Lock()
+			curSess.reset()
+			curSess.mu.Unlock()
 			endedAny = true
 		}
 		if curVSess != nil {

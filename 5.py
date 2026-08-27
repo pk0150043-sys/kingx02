@@ -1088,6 +1088,16 @@ def mask_email(email):
         masked = name[0] + "*" * (len(name) - 2) + name[-1]
     return f"{masked}@{domain}"
 
+def format_uptime(seconds):
+    if not seconds or seconds < 0:
+        return "00:00:00"
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    d, h = divmod(h, 24)
+    if d > 0:
+        return f"{d}d {h:02d}:{m:02d}:{s:02d}"
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
 def load_messages():
     msgs = []
     if os.path.exists("message.txt"):
@@ -1950,15 +1960,25 @@ def get_msg_box(p_page):
                     if el.is_visible():
                         return el
         except Exception:
+                        if btn.nth(i).is_visible():
+                            try:
+                                btn.nth(i).click(timeout=1000, force=True)
+                                time.sleep(0.2)
+                            except Exception:
+                                pass
+        except Exception:
             pass
+
     return None
 
 # ================= SINGLE GC PLAYWRIGHT AUTOMATION ENGINE =================
 def single_gc_playwright_worker(uid):
+    uid_str = str(uid)
     full_db = get_full_db()
-    acc = full_db.get("gc_accounts", {}).get(uid, {})
+    acc = full_db.get("gc_accounts", {}).get(uid) or full_db.get("gc_accounts", {}).get(uid_str, {})
     if not acc:
         gc_running[uid] = False
+        gc_running[uid_str] = False
         return
 
     url = str(acc.get("url") or acc.get("group_url") or "https://www.instagram.com/direct/inbox/").strip()
@@ -2015,9 +2035,6 @@ def single_gc_playwright_worker(uid):
     log_gc_terminal(uid, f"🚀 Single GC Playwright Engine deployed for: [{target_display}]", "SUCCESS")
     log_gc_terminal(uid, f"🎯 Group URL: {url} | Delay: {delay}s | Spacing: {space_lines} lines | Header/Footer: '{header_text}'", "INFO")
 
-    user_data_dir = os.path.abspath(f"./playwright_session_{uid}")
-    os.makedirs(user_data_dir, exist_ok=True)
-
     # Clean sessionid
     if "%3A" in sessionid or "%3a" in sessionid:
         sessionid = urllib.parse.unquote(sessionid).strip()
@@ -2037,7 +2054,11 @@ def single_gc_playwright_worker(uid):
     target_idx = 0
     msg_idx = 0
 
-    while gc_running.get(uid, False):
+    while gc_running.get(uid, False) or gc_running.get(uid_str, False):
+        user_data_dir = os.path.join(tempfile.gettempdir(), f"playwright_session_sgc_{uid}_{uuid.uuid4().hex[:6]}")
+        os.makedirs(user_data_dir, exist_ok=True)
+        browser = None
+
         try:
             from playwright.sync_api import sync_playwright
             with sync_playwright() as p:
@@ -2067,18 +2088,21 @@ def single_gc_playwright_worker(uid):
 
                 inner_count = 0
                 current_active_url = url
-                while gc_running.get(uid, False) and inner_count < 150:
-                    # Soft DOM purge / reload periodically for clean memory
-                    if inner_count > 0 and inner_count % 30 == 0:
+                while gc_running.get(uid, False) or gc_running.get(uid_str, False):
+                    # Soft DOM purge / reload periodically for clean memory (every 40 strikes)
+                    if inner_count > 0 and inner_count % 40 == 0:
                         log_gc_terminal(uid, "🧹 Soft Purge: Reloading DOM for smooth memory management...", "WARN")
-                        page.reload(wait_until="domcontentloaded")
-                        time.sleep(2)
-                        dismiss_instagram_modals(page)
-                        msg_box = get_msg_box(page)
+                        try:
+                            page.reload(wait_until="domcontentloaded", timeout=30000)
+                            time.sleep(2)
+                            dismiss_instagram_modals(page)
+                            msg_box = get_msg_box(page)
+                        except Exception:
+                            pass
 
                     # Dynamic Config Refresh from Database for Live Real-Time Updates
                     full_db = get_full_db()
-                    acc = full_db.get("gc_accounts", {}).get(uid, acc)
+                    acc = full_db.get("gc_accounts", {}).get(uid) or full_db.get("gc_accounts", {}).get(uid_str, acc)
 
                     # Check if user live-updated the group chat URL
                     live_url = (acc.get("url") or "").strip()
@@ -2142,7 +2166,7 @@ def single_gc_playwright_worker(uid):
                     else:
                         current_gc_name = nc_title_raw.replace("{target}", "").strip()
 
-                    # Force Name Lock every 20 strikes
+                    # Force Name Lock every 20 strikes if locker is enabled
                     if is_locker and inner_count >= 19:
                         try:
                             log_gc_terminal(uid, f"🔒 [LOCK] Locking group name to: '{current_gc_name}'...", "INFO")
@@ -2171,7 +2195,7 @@ def single_gc_playwright_worker(uid):
                         inner_count = 0
                         msg_box = get_msg_box(page)
 
-                    if not gc_running.get(uid):
+                    if not gc_running.get(uid) and not gc_running.get(uid_str):
                         break
 
                     # Construct stacked multi-target spaced payload
@@ -2223,9 +2247,13 @@ def single_gc_playwright_worker(uid):
                             msg_box = get_msg_box(page)
 
                         if not msg_box:
-                            log_gc_terminal(uid, "⚠️ Message box not found. Ensure group URL is like https://www.instagram.com/direct/t/12345/ and sessionid is valid.", "WARN")
-                            time.sleep(3)
-                            continue
+                            log_gc_terminal(uid, "⚠️ Message box not found. Checking page...", "WARN")
+                            time.sleep(2)
+                            dismiss_instagram_modals(page)
+                            msg_box = get_msg_box(page)
+                            if not msg_box:
+                                time.sleep(2)
+                                continue
 
                         # Focus the message input with fallback to direct DOM focus
                         try:
@@ -2266,29 +2294,49 @@ def single_gc_playwright_worker(uid):
                             gc_stats[uid]["groups"] = strike_count
                             gc_stats[uid]["running"] = True
                             gc_stats[uid]["log"] = f"Strike #{strike_count} sent to {target_label}"
+                        elif uid_str in gc_stats:
+                            gc_stats[uid_str]["groups"] = strike_count
+                            gc_stats[uid_str]["running"] = True
+                            gc_stats[uid_str]["log"] = f"Strike #{strike_count} sent to {target_label}"
 
                         status_tag = "LOCKER" if is_locker else "SLAMMER"
                         log_gc_terminal(uid, f"⚡ [{status_tag}] STRIKE #{strike_count} -> [{target_label}]: Long Spaced Message Sent ({space_lines} gap lines, Delay: {delay}s)", "SUCCESS")
                         time.sleep(delay)
                     except Exception as e_fill:
-                        log_gc_terminal(uid, f"❌ Strike send error: {e_fill}", "ERROR")
+                        log_gc_terminal(uid, f"❌ Strike send notice: {e_fill}. Retrying...", "ERROR")
                         time.sleep(2)
+                        dismiss_instagram_modals(page)
                         msg_box = get_msg_box(page)
 
-                browser.close()
-                if os.path.exists(user_data_dir):
-                    shutil.rmtree(user_data_dir, ignore_errors=True)
-                time.sleep(1)
+                if browser:
+                    browser.close()
+                    browser = None
 
         except Exception as e_engine:
-            log_gc_terminal(uid, f"⚠️ Playwright Engine notice: {e_engine}", "WARN")
+            log_gc_terminal(uid, f"⚠️ Single GC Engine notice: {e_engine}. Auto-recovering in 3s...", "WARN")
             time.sleep(3)
+        finally:
+            if browser:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+            if os.path.exists(user_data_dir):
+                try:
+                    shutil.rmtree(user_data_dir, ignore_errors=True)
+                except Exception:
+                    pass
 
     gc_running[uid] = False
+    gc_running[uid_str] = False
     if uid in gc_live:
         gc_live[uid]["running"] = False
+    if uid_str in gc_live:
+        gc_live[uid_str]["running"] = False
     if uid in gc_stats:
         gc_stats[uid]["running"] = False
+    if uid_str in gc_stats:
+        gc_stats[uid_str]["running"] = False
     log_gc_terminal(uid, "⏹️ Single GC Playwright Engine stopped.", "INFO")
 
 @app.route("/gc_add_account", methods=["POST"])
@@ -2348,20 +2396,17 @@ def gc_add_account():
         return jsonify({"status": "error", "message": "Session ID is required!"}), 400
 
     if not url:
-        return jsonify({"status": "error", "message": "Instagram Group Chat URL is required!"}), 400
-
-    display_target = opponent or "Default"
-    log_gc_terminal("AUTH", f"📥 Received Single GC Registration for Target(s) '{display_target}'...", "INFO")
+        return jsonify({"status": "error", "message": "Group URL is required!"}), 400
 
     uid = next_gc_uid()
-    gc_running[uid] = False
+    current_user = get_current_user()
 
-    account_data = {
+    acc = {
         "uid": uid,
-        "name": f"Single GC #{uid}" + (f" ({opponent})" if opponent else ""),
-        "username": opponent or "SingleGC",
-        "url": url,
+        "owner": current_user,
         "sessionid": sessionid,
+        "csrftoken": csrftoken,
+        "url": url,
         "opponent": opponent,
         "header_text": header_text,
         "footer_text": footer_text,
@@ -2371,18 +2416,19 @@ def gc_add_account():
         "gc_name": gc_name,
         "delay": delay,
         "is_locker": is_locker,
-        "owner": get_current_user(),
-        "createdAt": str(datetime.utcnow())
+        "created_at": datetime.now().isoformat()
     }
+    save_gc_account_db(uid, acc)
 
-    save_gc_account_db(uid, account_data)
+    gc_running[uid] = False
     gc_stats[uid] = {
-        "user": get_current_user(),
+        "user": current_user,
         "account": uid,
         "groups": 0,
         "failed": 0,
         "running": False,
         "uptime": 0,
+        "uptime_str": "00:00:00",
         "log": "Single GC Added Successfully"
     }
     gc_live[uid] = {"running": False, "started": None}
@@ -2391,7 +2437,7 @@ def gc_add_account():
 
 @app.route("/gc_start", methods=["POST"])
 def gc_start():
-    uid = request.json.get("uid")
+    uid = str(request.json.get("uid"))
     full_db = get_full_db()
     acc = full_db.get("gc_accounts", {}).get(uid)
     if not acc:
@@ -2400,8 +2446,9 @@ def gc_start():
     if gc_running.get(uid):
         return jsonify({"status": "already_running"})
 
+    start_time = time.time()
     gc_running[uid] = True
-    gc_live[uid] = {"running": True, "started": time.time()}
+    gc_live[uid] = {"running": True, "started": start_time}
     gc_stats[uid] = {
         "user": get_current_user(),
         "account": uid,
@@ -2409,6 +2456,8 @@ def gc_start():
         "failed": gc_stats.get(uid, {}).get("failed", 0),
         "running": True,
         "uptime": 0,
+        "uptime_str": "00:00:00",
+        "started": start_time,
         "log": "Starting Playwright browser engine..."
     }
     threading.Thread(target=single_gc_playwright_worker, args=(uid,), daemon=True).start()
@@ -2416,7 +2465,7 @@ def gc_start():
 
 @app.route("/gc_stop", methods=["POST"])
 def gc_stop():
-    uid = request.json.get("uid")
+    uid = str(request.json.get("uid"))
     gc_running[uid] = False
     if uid in gc_live:
         gc_live[uid]["running"] = False
@@ -2431,52 +2480,54 @@ def gc_delete_account():
     if not is_authenticated():
         return jsonify({"status": "login_required"}), 401
 
-    uid = request.json.get("uid")
+    uid = str(request.json.get("uid"))
     full_db = get_full_db()
     acc = full_db.get("gc_accounts", {}).get(uid)
     if not acc:
         return jsonify({"status": "invalid"})
 
+    me = str(get_current_user()).strip().lower()
     acc_owner = str(acc.get("owner", "")).strip().lower()
-    cur_user = str(get_current_user()).strip().lower()
-    if not is_owner() and acc_owner != cur_user:
-        return jsonify({"status": "denied"}), 403
+    if not is_owner() and acc_owner != me:
+        return jsonify({"status": "unauthorized"}), 403
 
-    gc_running.pop(uid, None)
-    gc_clients.pop(uid, None)
-    gc_stats.pop(uid, None)
-    gc_live.pop(uid, None)
-
+    gc_running[uid] = False
+    if uid in gc_stats:
+        del gc_stats[uid]
+    if uid in gc_live:
+        del gc_live[uid]
     delete_gc_account_db(uid)
-    log_gc_terminal(uid, "GC Account deleted from database.", "WARN")
-    return jsonify({"status": "ok"})
+    log_gc_terminal(uid, "Single GC Account deleted.", "WARN")
+    return jsonify({"status": "deleted"})
 
 @app.route("/gc_edit_account", methods=["POST"])
 def gc_edit_account():
     if not is_authenticated():
         return jsonify({"status": "login_required"}), 401
 
-    uid = request.json.get("uid")
+    uid = str(request.json.get("uid"))
     full_db = get_full_db()
     acc = full_db.get("gc_accounts", {}).get(uid)
     if not acc:
         return jsonify({"status": "invalid"})
 
+    me = str(get_current_user()).strip().lower()
     acc_owner = str(acc.get("owner", "")).strip().lower()
-    cur_user = str(get_current_user()).strip().lower()
-    if not is_owner() and acc_owner != cur_user:
-        return jsonify({"status": "denied"}), 403
+    if not is_owner() and acc_owner != me:
+        return jsonify({"status": "unauthorized"}), 403
 
-    acc["url"] = request.json.get("url", acc.get("url", "")).strip()
-    acc["opponent"] = request.json.get("opponent", acc.get("opponent", "")).strip()
-    acc["header_text"] = request.json.get("header_text", acc.get("header_text", "👑 SPAM BY KING 👑")).strip()
-    acc["footer_text"] = request.json.get("footer_text", acc.get("footer_text", "👑 SCRIPT BY SERVER GOD CLAN 👑")).strip()
-    acc["space_lines"] = int(request.json.get("space_lines", acc.get("space_lines", 35)))
-    acc["use_long_format"] = bool(request.json.get("use_long_format", acc.get("use_long_format", True)))
-    acc["gc_name"] = request.json.get("gc_name", acc.get("gc_name", "")).strip()
-    acc["delay"] = float(request.json.get("delay", 4))
+    data = request.json or {}
+    acc["url"] = data.get("url", acc.get("url", "")).strip()
+    acc["opponent"] = data.get("opponent", acc.get("opponent", "")).strip()
+    acc["header_text"] = data.get("header_text", acc.get("header_text", "👑 SPAM BY KING 👑")).strip()
+    acc["footer_text"] = data.get("footer_text", acc.get("footer_text", "👑 SCRIPT BY SERVER GOD CLAN 👑")).strip()
+    acc["space_lines"] = int(data.get("space_lines", acc.get("space_lines", 35)))
+    acc["use_long_format"] = bool(data.get("use_long_format", acc.get("use_long_format", True)))
+    acc["gc_name"] = data.get("gc_name", acc.get("gc_name", "LOCKED BY GOD CLAN")).strip()
+    acc["delay"] = float(data.get("delay", acc.get("delay", 4)))
+    acc["is_locker"] = bool(data.get("is_locker", acc.get("is_locker", True)))
 
-    raw_msgs = request.json.get("messages", "")
+    raw_msgs = data.get("messages")
     if isinstance(raw_msgs, str):
         acc["messages"] = [m.strip() for m in raw_msgs.replace(",", "\n").replace("\r", "").split("\n") if m.strip()]
     elif isinstance(raw_msgs, list):
@@ -2504,7 +2555,7 @@ def gc_status():
             acc_copy["system_owner"] = "SERVER GOD CLAN KING"
             accounts[uid] = acc_copy
             if uid not in gc_stats:
-                gc_stats[uid] = {"user": acc.get("owner", ""), "account": uid, "groups": 0, "failed": 0, "running": False, "uptime": 0, "log": "Awaiting Start"}
+                gc_stats[uid] = {"user": acc.get("owner", ""), "account": uid, "groups": 0, "failed": 0, "running": False, "uptime": 0, "uptime_str": "00:00:00", "log": "Awaiting Start"}
             visible[uid] = gc_stats[uid]
     else:
         for uid, acc in gc_accounts.items():
@@ -2515,15 +2566,23 @@ def gc_status():
                 acc_copy["system_owner"] = "SERVER GOD CLAN KING"
                 accounts[uid] = acc_copy
                 if uid not in gc_stats:
-                    gc_stats[uid] = {"user": acc.get("owner", ""), "account": uid, "groups": 0, "failed": 0, "running": False, "uptime": 0, "log": "Awaiting Start"}
+                    gc_stats[uid] = {"user": acc.get("owner", ""), "account": uid, "groups": 0, "failed": 0, "running": False, "uptime": 0, "uptime_str": "00:00:00", "log": "Awaiting Start"}
                 visible[uid] = gc_stats[uid]
 
     for uid, s in visible.items():
-        if gc_live.get(uid, {}).get("running"):
+        uid_str = str(uid)
+        live_info = gc_live.get(uid) or gc_live.get(uid_str)
+        if live_info and live_info.get("running") and live_info.get("started"):
             s["running"] = True
-            s["uptime"] = int(time.time() - gc_live[uid]["started"])
+            elapsed = int(time.time() - live_info["started"])
+            s["uptime"] = elapsed
+            s["uptime_str"] = format_uptime(elapsed)
+            s["started"] = live_info["started"]
         else:
             s["running"] = False
+            s["uptime"] = 0
+            s["uptime_str"] = "00:00:00"
+
     if is_owner():
         ret_gc_logs = gc_terminal_logs
     else:
@@ -2620,47 +2679,100 @@ def scrape_instagram_groups(sessionid, csrftoken=None, max_groups=150, log_fn=No
     return links
 
 def multi_gc_playwright_worker(uid):
+    uid_str = str(uid)
     full_db = get_full_db()
-    acc = full_db.get("accounts", {}).get(uid, {})
+    acc = full_db.get("accounts", {}).get(uid_str) or full_db.get("accounts", {}).get(uid, {})
     if not acc:
         ig_running[uid] = False
+        ig_running[uid_str] = False
         log_ig_terminal(uid, "Account not found in DB. Stopping.", "ERROR")
         return
 
     sessionid = (acc.get("sessionid") or "").strip()
     csrftoken = (acc.get("csrftoken") or "").strip()
-    user_data_dir = os.path.join(tempfile.gettempdir(), f"ig_multi_browser_{uid}")
-    os.makedirs(user_data_dir, exist_ok=True)
 
-    log_ig_terminal(uid, f"🚀 Multi-GC Playwright Engine deployed for Bot #{uid}!", "SUCCESS")
+    # Clean session & CSRF cookies
+    clean_sess = sessionid
+    if "sessionid=" in clean_sess:
+        m = re.search(r'sessionid=([^;]+)', clean_sess)
+        if m:
+            clean_sess = m.group(1).strip()
+    if "%3A" in clean_sess or "%3a" in clean_sess:
+        clean_sess = urllib.parse.unquote(clean_sess).strip()
+
+    clean_csrf = csrftoken
+    if not clean_csrf or clean_csrf == "missing":
+        if "csrftoken=" in sessionid:
+            m = re.search(r'csrftoken=([^;]+)', sessionid)
+            if m:
+                clean_csrf = m.group(1).strip()
+
+    log_ig_terminal(uid, f"🚀 Multi-GC Playwright Engine deployed for Bot #{uid} (1-Text + 1-NC Mode)!", "SUCCESS")
 
     cycle_count = 0
-    while ig_running.get(uid, False):
+    msg_idx = 0
+    nc_idx = 0
+
+    while ig_running.get(uid, False) or ig_running.get(uid_str, False):
+        user_data_dir = os.path.join(tempfile.gettempdir(), f"ig_multi_browser_{uid}_{uuid.uuid4().hex[:6]}")
+        os.makedirs(user_data_dir, exist_ok=True)
+        browser = None
+
         try:
+            # Dynamic Config Refresh from Database for Live Real-Time Updates
+            full_db = get_full_db()
+            acc = full_db.get("accounts", {}).get(uid_str) or full_db.get("accounts", {}).get(uid) or acc
+
+            # Dynamic Group Link Scrape / Refresh
+            gc_links = acc.get("gc_links", [])
+            max_groups = int(acc.get("max_groups", 150))
+            if gc_links and len(gc_links) > max_groups:
+                gc_links = gc_links[:max_groups]
+
+            if not gc_links:
+                log_ig_terminal(uid, "⚠️ No group chats in card. Click '🔍 Auto-Scrape GC Links' or paste links into the card textarea, then click Save!", "WARN")
+                time.sleep(5)
+                continue
+
+            cycle_count += 1
+            delay = float(acc.get("delay", 2.0))
+            cycle_delay = int(acc.get("cycle_delay", 10))
+            use_long_format = bool(acc.get("use_long_format", True))
+            space_lines = int(acc.get("space_lines", 35))
+            blank_block = "\n".join(["⠀" for _ in range(space_lines)])
+            header_text = str(acc.get("header_text") or "👑 SPAM BY KING 👑").strip()
+            footer_text = str(acc.get("footer_text") or "👑 SCRIPT BY SERVER GOD CLAN 👑").strip()
+
+            opponent_raw = acc.get("opponent", "") or acc.get("target", "")
+            raw_targets = [t.strip() for t in re.split(r"[,;\n\r]+", opponent_raw) if t.strip()] if opponent_raw else []
+
+            raw_messages = acc.get("messages", [])
+            if isinstance(raw_messages, str):
+                messages = [m.strip() for m in raw_messages.replace("\r", "").split("\n") if m.strip()]
+            elif isinstance(raw_messages, list):
+                messages = [str(m).strip() for m in raw_messages if str(m).strip()]
+            else:
+                messages = []
+            if not messages:
+                messages = ["SERVER GOD CLAN ON TOP 🔥", "SYSTEM ONLINE 💥", "WAR ACTIVE ⚡"]
+
+            raw_renames = acc.get("renames", []) or acc.get("gc_name", [])
+            if isinstance(raw_renames, str):
+                nc_list = [r.strip() for r in raw_renames.replace("\r", "").split("\n") if r.strip()]
+            elif isinstance(raw_renames, list):
+                nc_list = [str(r).strip() for r in raw_renames if str(r).strip()]
+            else:
+                nc_list = []
+
+            log_ig_terminal(uid, f"🌐 [CYCLE #{cycle_count}] Launching fresh Chromium browser session for {len(gc_links)} group(s)...", "INFO")
+
             from playwright.sync_api import sync_playwright
             with sync_playwright() as p:
-                log_ig_terminal(uid, "🌐 Launching headless Chromium browser session...", "INFO")
                 browser = p.chromium.launch_persistent_context(
                     user_data_dir,
                     headless=True,
                     args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--disable-notifications"]
                 )
-
-                # Inject session & CSRF cookies
-                clean_sess = sessionid
-                if "sessionid=" in clean_sess:
-                    m = re.search(r'sessionid=([^;]+)', clean_sess)
-                    if m:
-                        clean_sess = m.group(1).strip()
-                if "%3A" in clean_sess or "%3a" in clean_sess:
-                    clean_sess = urllib.parse.unquote(clean_sess).strip()
-
-                clean_csrf = csrftoken
-                if not clean_csrf or clean_csrf == "missing":
-                    if "csrftoken=" in sessionid:
-                        m = re.search(r'csrftoken=([^;]+)', sessionid)
-                        if m:
-                            clean_csrf = m.group(1).strip()
 
                 cookie_list = [{
                     "name": "sessionid",
@@ -2684,208 +2796,176 @@ def multi_gc_playwright_worker(uid):
                 page = browser.new_page()
                 page.route("**/*", block_media)
 
-                log_ig_terminal(uid, "Navigating to Instagram Direct Inbox...", "INFO")
-                page.goto("https://www.instagram.com/direct/inbox/", wait_until="domcontentloaded", timeout=60000)
-                time.sleep(3)
-                dismiss_instagram_modals(page)
-
-                msg_idx = 0
-                nc_idx = 0
-                uid_str = str(uid)
-
-                while ig_running.get(uid, False) or ig_running.get(uid_str, False):
-                    # Dynamic Config Refresh from Database
-                    full_db = get_full_db()
-                    acc = full_db.get("accounts", {}).get(uid_str) or full_db.get("accounts", {}).get(uid) or acc
-
-                    # Dynamic Group Link Scrape / Refresh
-                    gc_links = acc.get("gc_links", [])
-                    max_groups = int(acc.get("max_groups", 5))
-                    
-                    if gc_links and len(gc_links) > max_groups:
-                        gc_links = gc_links[:max_groups]
-
-                    if not gc_links:
-                        log_ig_terminal(uid, "⚠️ No group chats in card. Click '🔍 Auto-Scrape GC Links' or paste links into the card textarea, then click Save!", "WARN")
-                        time.sleep(5)
-                        continue
-
-                    cycle_count += 1
-                    log_ig_terminal(uid, f"🔄 [CYCLE #{cycle_count}] Starting Multi-GC Loop across {len(gc_links)} group(s)...", "INFO")
-
-                    # Live configurable properties
-                    delay = float(acc.get("delay", 2.0))
-                    cycle_delay = int(acc.get("cycle_delay", 10))
-                    use_long_format = bool(acc.get("use_long_format", True))
-                    space_lines = int(acc.get("space_lines", 35))
-                    blank_block = "\n".join(["⠀" for _ in range(space_lines)])
-                    header_text = str(acc.get("header_text") or "👑 SPAM BY KING 👑").strip()
-                    footer_text = str(acc.get("footer_text") or "👑 SCRIPT BY SERVER GOD CLAN 👑").strip()
-
-                    opponent_raw = acc.get("opponent", "") or acc.get("target", "")
-                    raw_targets = [t.strip() for t in re.split(r"[,;\n\r]+", opponent_raw) if t.strip()] if opponent_raw else []
-
-                    raw_messages = acc.get("messages", [])
-                    if isinstance(raw_messages, str):
-                        messages = [m.strip() for m in raw_messages.replace("\r", "").split("\n") if m.strip()]
-                    elif isinstance(raw_messages, list):
-                        messages = [str(m).strip() for m in raw_messages if str(m).strip()]
-                    else:
-                        messages = []
-
-                    raw_renames = acc.get("renames", []) or acc.get("gc_name", [])
-                    if isinstance(raw_renames, str):
-                        nc_list = [r.strip() for r in raw_renames.replace("\r", "").split("\n") if r.strip()]
-                    elif isinstance(raw_renames, list):
-                        nc_list = [str(r).strip() for r in raw_renames if str(r).strip()]
-                    else:
-                        nc_list = []
-
-                    # Iterate each group chat link in the round
-                    for g_idx, gc_url in enumerate(gc_links, 1):
-                        if not ig_running.get(uid):
-                            break
-
-                        log_ig_terminal(uid, f"👉 [{g_idx}/{len(gc_links)}] Opening Group Chat: {gc_url}...", "INFO")
-                        try:
-                            page.goto(gc_url, wait_until="domcontentloaded", timeout=60000)
-                            time.sleep(2)
-                            dismiss_instagram_modals(page)
-                        except Exception as e_nav:
-                            log_ig_terminal(uid, f"⚠️ Navigation error for {gc_url}: {e_nav}", "WARN")
-                            continue
-
-                        msg_box = get_msg_box(page)
-
-                        # --- STEP 1 & 2: SEND 2 TEXT MESSAGES ---
-                        for t_step in range(1, 3):
-                            if not ig_running.get(uid):
-                                break
-
-                            # Refresh target & message
-                            current_target = raw_targets[msg_idx % len(raw_targets)] if raw_targets else ""
-                            core_msg = messages[msg_idx % len(messages)] if messages else "WAR ACTIVE ⚡"
-                            msg_idx += 1
-
-                            if use_long_format:
-                                if current_target:
-                                    if "{target}" in core_msg:
-                                        t_line = core_msg.replace("{target}", current_target)
-                                    else:
-                                        t_line = f"[{current_target}] {core_msg}"
-                                    target_label = current_target
-                                else:
-                                    t_line = core_msg.replace("{target}", "").strip()
-                                    target_label = "CUSTOM"
-
-                                payload = f"{header_text}\n{blank_block}\n{t_line}\n{blank_block}\n{footer_text}"
-                            else:
-                                payload = f"[{current_target}] {core_msg}" if current_target else core_msg
-                                target_label = current_target or "CUSTOM"
-
-                            try:
-                                if not msg_box or not msg_box.is_visible():
-                                    msg_box = get_msg_box(page)
-
-                                if msg_box and msg_box.is_visible():
-                                    try:
-                                        msg_box.click(timeout=3000, force=True)
-                                    except Exception:
-                                        try:
-                                            msg_box.evaluate("el => el.focus()")
-                                        except Exception:
-                                            pass
-                                    time.sleep(0.1)
-                                    page.keyboard.press("Control+a")
-                                    page.keyboard.press("Backspace")
-                                    time.sleep(0.1)
-                                    page.keyboard.insert_text(payload)
-                                    time.sleep(0.3)
-
-                                    sent = False
-                                    send_btn = page.locator('button:has-text("Send"), div[role="button"]:has-text("Send"), div[aria-label="Send"], svg[aria-label="Send"]').first
-                                    if send_btn.count() > 0 and send_btn.is_visible():
-                                        try:
-                                            send_btn.click(timeout=1500, force=True)
-                                            sent = True
-                                        except Exception:
-                                            pass
-                                    if not sent:
-                                        page.keyboard.press("Enter")
-
-                                    ig_stats[uid]["sent"] = ig_stats[uid].get("sent", 0) + 1
-                                    log_ig_terminal(uid, f"📨 [Text #{t_step}/2] Sent to GC #{g_idx} -> [{target_label}] (Delay: {delay}s)", "SUCCESS")
-                                else:
-                                    ig_stats[uid]["failed"] = ig_stats[uid].get("failed", 0) + 1
-                                    log_ig_terminal(uid, f"⚠️ Message box not found in GC #{g_idx}", "WARN")
-
-                                time.sleep(delay)
-                            except Exception as e_send:
-                                ig_stats[uid]["failed"] = ig_stats[uid].get("failed", 0) + 1
-                                log_ig_terminal(uid, f"❌ Send error in GC #{g_idx}: {e_send}", "ERROR")
-                                time.sleep(1)
-
-                        # --- STEP 3: PERFORM 1 NC RENAME ---
-                        if not ig_running.get(uid):
-                            break
-
-                        if nc_list:
-                            nc_raw = nc_list[nc_idx % len(nc_list)]
-                            nc_idx += 1
-                            current_target = raw_targets[nc_idx % len(raw_targets)] if raw_targets else ""
-                            if current_target:
-                                new_nc = nc_raw.replace("{target}", current_target) if "{target}" in nc_raw else f"[{current_target}] {nc_raw}"
-                            else:
-                                new_nc = nc_raw.replace("{target}", "").strip()
-
-                            try:
-                                gear = page.locator('svg[aria-label="Conversation information"]')
-                                if gear.count() > 0:
-                                    gear.first.click(timeout=5000)
-                                    time.sleep(1)
-                                    change_btn = page.locator('div[aria-label="Change group name"][role="button"], div[role="button"]:has-text("Change group name")').first
-                                    if change_btn.count() > 0:
-                                        change_btn.click(timeout=5000)
-                                        time.sleep(0.5)
-                                        group_input = page.locator('input[aria-label="Group name"][name="change-group-name"], input[placeholder="Group name"]').first
-                                        if group_input.count() > 0:
-                                            group_input.fill(new_nc)
-                                            time.sleep(0.5)
-                                            save_btn = page.locator('div[role="button"]:has-text("Save"), button:has-text("Save")').first
-                                            if save_btn.count() > 0 and save_btn.is_enabled():
-                                                save_btn.click(timeout=5000)
-                                                ig_stats[uid]["renamed"] = ig_stats[uid].get("renamed", 0) + 1
-                                                log_ig_terminal(uid, f"🏷️ [1 NC] Renamed GC #{g_idx} to '{new_nc}'", "SUCCESS")
-                                    gear.first.click(timeout=5000)
-                                    time.sleep(0.5)
-                            except Exception as e_nc:
-                                log_ig_terminal(uid, f"⚠️ NC rename notice in GC #{g_idx}: {e_nc}", "WARN")
-
-                        time.sleep(1)
-
-                    # --- ALL GCS FINISHED: CYCLE DELAY (10s wait) BEFORE NEXT CYCLE ---
-                    if not ig_running.get(uid):
+                # Iterate each group chat link in this cycle: 1 TEXT MESSAGE + 1 NC RENAME PER GC
+                for g_idx, gc_url in enumerate(gc_links, 1):
+                    if not ig_running.get(uid) and not ig_running.get(uid_str):
                         break
 
-                    log_ig_terminal(uid, f"✨ Cycle #{cycle_count} completed across all {len(gc_links)} groups! Sleeping {cycle_delay}s before starting next loop...", "WARN")
-                    for _ in range(cycle_delay):
-                        if not ig_running.get(uid):
-                            break
+                    log_ig_terminal(uid, f"👉 [{g_idx}/{len(gc_links)}] Opening Group Chat: {gc_url}...", "INFO")
+                    try:
+                        page.goto(gc_url, wait_until="domcontentloaded", timeout=45000)
+                        time.sleep(2)
+                        dismiss_instagram_modals(page)
+                    except Exception as e_nav:
+                        log_ig_terminal(uid, f"⚠️ Navigation notice for GC #{g_idx}: {e_nav}", "WARN")
                         time.sleep(1)
 
-                browser.close()
-                if os.path.exists(user_data_dir):
-                    shutil.rmtree(user_data_dir, ignore_errors=True)
+                    # --- STEP 1: SEND 1 TEXT MESSAGE ---
+                    if not ig_running.get(uid) and not ig_running.get(uid_str):
+                        break
+
+                    current_target = raw_targets[msg_idx % len(raw_targets)] if raw_targets else ""
+                    core_msg = messages[msg_idx % len(messages)]
+                    msg_idx += 1
+
+                    if use_long_format:
+                        if current_target:
+                            if "{target}" in core_msg:
+                                t_line = core_msg.replace("{target}", current_target)
+                            else:
+                                t_line = f"[{current_target}] {core_msg}"
+                            target_label = current_target
+                        else:
+                            t_line = core_msg.replace("{target}", "").strip()
+                            target_label = "CUSTOM"
+
+                        payload = f"{header_text}\n{blank_block}\n{t_line}\n{blank_block}\n{footer_text}"
+                    else:
+                        payload = f"[{current_target}] {core_msg}" if current_target else core_msg
+                        target_label = current_target or "CUSTOM"
+
+                    try:
+                        msg_box = get_msg_box(page)
+                        if msg_box and msg_box.is_visible():
+                            try:
+                                msg_box.click(timeout=3000, force=True)
+                            except Exception:
+                                try:
+                                    msg_box.evaluate("el => el.focus()")
+                                except Exception:
+                                    pass
+                            time.sleep(0.1)
+                            page.keyboard.press("Control+a")
+                            page.keyboard.press("Backspace")
+                            time.sleep(0.1)
+                            page.keyboard.insert_text(payload)
+                            time.sleep(0.3)
+
+                            sent = False
+                            send_btn = page.locator('button:has-text("Send"), div[role="button"]:has-text("Send"), div[aria-label="Send"], svg[aria-label="Send"]').first
+                            if send_btn.count() > 0 and send_btn.is_visible():
+                                try:
+                                    send_btn.click(timeout=1500, force=True)
+                                    sent = True
+                                except Exception:
+                                    pass
+                            if not sent:
+                                page.keyboard.press("Enter")
+
+                            if uid in ig_stats:
+                                ig_stats[uid]["sent"] = ig_stats[uid].get("sent", 0) + 1
+                            elif uid_str in ig_stats:
+                                ig_stats[uid_str]["sent"] = ig_stats[uid_str].get("sent", 0) + 1
+                            log_ig_terminal(uid, f"📨 [1 Text] Sent to GC #{g_idx} -> [{target_label}] (Delay: {delay}s)", "SUCCESS")
+                        else:
+                            if uid in ig_stats:
+                                ig_stats[uid]["failed"] = ig_stats[uid].get("failed", 0) + 1
+                            elif uid_str in ig_stats:
+                                ig_stats[uid_str]["failed"] = ig_stats[uid_str].get("failed", 0) + 1
+                            log_ig_terminal(uid, f"⚠️ Message box not found in GC #{g_idx}", "WARN")
+
+                        time.sleep(delay)
+                    except Exception as e_send:
+                        if uid in ig_stats:
+                            ig_stats[uid]["failed"] = ig_stats[uid].get("failed", 0) + 1
+                        elif uid_str in ig_stats:
+                            ig_stats[uid_str]["failed"] = ig_stats[uid_str].get("failed", 0) + 1
+                        log_ig_terminal(uid, f"❌ Send error in GC #{g_idx}: {e_send}", "ERROR")
+                        time.sleep(1)
+
+                    # --- STEP 2: PERFORM 1 NC RENAME ---
+                    if not ig_running.get(uid) and not ig_running.get(uid_str):
+                        break
+
+                    if nc_list:
+                        nc_raw = nc_list[nc_idx % len(nc_list)]
+                        nc_idx += 1
+                        current_target = raw_targets[nc_idx % len(raw_targets)] if raw_targets else ""
+                        if current_target:
+                            new_nc = nc_raw.replace("{target}", current_target) if "{target}" in nc_raw else f"[{current_target}] {nc_raw}"
+                        else:
+                            new_nc = nc_raw.replace("{target}", "").strip()
+
+                        try:
+                            gear = page.locator('svg[aria-label="Conversation information"]')
+                            if gear.count() > 0:
+                                gear.first.click(timeout=4000)
+                                time.sleep(1)
+                                change_btn = page.locator('div[aria-label="Change group name"][role="button"], div[role="button"]:has-text("Change group name")').first
+                                if change_btn.count() > 0:
+                                    change_btn.click(timeout=4000)
+                                    time.sleep(0.5)
+                                    group_input = page.locator('input[aria-label="Group name"][name="change-group-name"], input[placeholder="Group name"]').first
+                                    if group_input.count() > 0:
+                                        group_input.fill(new_nc)
+                                        time.sleep(0.5)
+                                        save_btn = page.locator('div[role="button"]:has-text("Save"), button:has-text("Save")').first
+                                        if save_btn.count() > 0 and save_btn.is_enabled():
+                                            save_btn.click(timeout=4000)
+                                            if uid in ig_stats:
+                                                ig_stats[uid]["renamed"] = ig_stats[uid].get("renamed", 0) + 1
+                                            elif uid_str in ig_stats:
+                                                ig_stats[uid_str]["renamed"] = ig_stats[uid_str].get("renamed", 0) + 1
+                                            log_ig_terminal(uid, f"🏷️ [1 NC] Renamed GC #{g_idx} to '{new_nc}'", "SUCCESS")
+                                gear.first.click(timeout=4000)
+                                time.sleep(0.5)
+                        except Exception as e_nc:
+                            log_ig_terminal(uid, f"⚠️ NC rename notice in GC #{g_idx}: {e_nc}", "WARN")
+
+                    time.sleep(1)
+
+                # Close browser immediately after completing round across all GCs
+                try:
+                    browser.close()
+                    browser = None
+                except Exception:
+                    pass
+
+            # --- ALL GCS FINISHED: CYCLE DELAY (10s wait) BEFORE NEXT CYCLE ---
+            if not ig_running.get(uid) and not ig_running.get(uid_str):
+                break
+
+            log_ig_terminal(uid, f"✨ Cycle #{cycle_count} completed across all {len(gc_links)} groups! Chrome closed to clear load. Waiting {cycle_delay}s before starting next loop...", "WARN")
+            for _ in range(cycle_delay):
+                if not ig_running.get(uid) and not ig_running.get(uid_str):
+                    break
+                time.sleep(1)
 
         except Exception as e_engine:
-            log_ig_terminal(uid, f"⚠️ Multi-GC Playwright notice: {e_engine}", "WARN")
+            log_ig_terminal(uid, f"⚠️ Multi-GC Playwright notice: {e_engine}. Auto-recovering in 3s...", "WARN")
             time.sleep(3)
+        finally:
+            if browser:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+            if os.path.exists(user_data_dir):
+                try:
+                    shutil.rmtree(user_data_dir, ignore_errors=True)
+                except Exception:
+                    pass
 
     ig_running[uid] = False
+    ig_running[uid_str] = False
     if uid in ig_live:
         ig_live[uid]["running"] = False
+    if uid_str in ig_live:
+        ig_live[uid_str]["running"] = False
     if uid in ig_stats:
         ig_stats[uid]["running"] = False
+    if uid_str in ig_stats:
+        ig_stats[uid_str]["running"] = False
     log_ig_terminal(uid, "⏹️ Multi-GC Playwright Engine stopped.", "INFO")
 
 @app.route("/add_account", methods=["POST"])
@@ -2919,7 +2999,7 @@ def add_account():
     footer_text = data.get("footer_text", "").strip() or "👑 SCRIPT BY SERVER GOD CLAN 👑"
     space_lines = int(data.get("space_lines", 35))
     use_long_format = bool(data.get("use_long_format", True))
-    max_groups = int(data.get("max_groups", 5))
+    max_groups = int(data.get("max_groups", 150))
     delay = float(data.get("delay", 2.0))
     cycle_delay = int(data.get("cycle_delay", 10))
 
@@ -2955,7 +3035,7 @@ def add_account():
     log_ig_terminal("AUTH", f"📥 Received Multi-GC Registration for Target(s) '{display_target}'...", "INFO")
 
     uid = next_ig_uid()
-    ig_running[uid] = False
+    current_user = get_current_user()
 
     acc_data = {
         "uid": uid,
@@ -2974,21 +3054,24 @@ def add_account():
         "delay": delay,
         "cycle_delay": cycle_delay,
         "gc_links": gc_links[:max_groups],
-        "owner": get_current_user(),
-        "admin_name": get_user_display_name(get_current_user()),
+        "owner": current_user,
+        "admin_name": get_user_display_name(current_user),
         "system_owner": "SERVER GOD CLAN KING",
         "createdAt": str(datetime.utcnow())
     }
     save_ig_account_db(uid, acc_data)
 
+    ig_running[uid] = False
     ig_stats[uid] = {
-        "user": get_current_user(),
+        "user": current_user,
         "account": uid,
         "sent": 0,
         "failed": 0,
         "renamed": 0,
         "rename_failed": 0,
         "running": False,
+        "uptime": 0,
+        "uptime_str": "00:00:00",
         "started": None
     }
     ig_live[uid] = {"running": False, "started": None}
@@ -3012,6 +3095,8 @@ def start_bot():
     if uid not in ig_stats:
         ig_stats[uid] = {"user": get_current_user(), "account": uid, "sent": 0, "failed": 0, "renamed": 0, "rename_failed": 0}
     ig_stats[uid]["running"] = True
+    ig_stats[uid]["uptime"] = 0
+    ig_stats[uid]["uptime_str"] = "00:00:00"
     ig_stats[uid]["started"] = start_time
 
     threading.Thread(target=multi_gc_playwright_worker, args=(uid,), daemon=True).start()
@@ -3049,9 +3134,19 @@ def edit_account():
     acc["footer_text"] = request.json.get("footer_text", acc.get("footer_text", "👑 SCRIPT BY SERVER GOD CLAN 👑")).strip()
     acc["space_lines"] = int(request.json.get("space_lines", acc.get("space_lines", 35)))
     acc["use_long_format"] = bool(request.json.get("use_long_format", acc.get("use_long_format", True)))
-    acc["max_groups"] = int(request.json.get("max_groups", acc.get("max_groups", 5)))
-    acc["delay"] = float(request.json.get("delay", acc.get("delay", 2.0)))
-    acc["cycle_delay"] = int(request.json.get("cycle_delay", acc.get("cycle_delay", 10)))
+    acc["max_groups"] = int(request.json.get("max_groups", acc.get("max_groups", 150)))
+    delay_val = request.json.get("delay")
+    if delay_val is not None:
+        try:
+            acc["delay"] = float(delay_val)
+        except Exception:
+            pass
+    cycle_delay_val = request.json.get("cycle_delay")
+    if cycle_delay_val is not None:
+        try:
+            acc["cycle_delay"] = int(cycle_delay_val)
+        except Exception:
+            pass
 
     raw_messages = request.json.get("messages", "")
     if isinstance(raw_messages, str):
@@ -3069,9 +3164,9 @@ def edit_account():
     raw_links = request.json.get("gc_links", "")
     if raw_links is not None:
         if isinstance(raw_links, str):
-            acc["gc_links"] = [l.strip() for l in raw_links.replace("\r", "").split("\n") if l.strip().startswith("http")][:acc["max_groups"]]
+            acc["gc_links"] = [l.strip() for l in raw_links.replace("\r", "").split("\n") if l.strip().startswith("http")][:acc.get("max_groups", 150)]
         elif isinstance(raw_links, list):
-            acc["gc_links"] = [str(l).strip() for l in raw_links if str(l).strip().startswith("http")][:acc["max_groups"]]
+            acc["gc_links"] = [str(l).strip() for l in raw_links if str(l).strip().startswith("http")][:acc.get("max_groups", 150)]
 
     save_ig_account_db(uid, acc)
     log_ig_terminal(uid, "Multi-GC Account Configuration updated successfully.", "INFO")
@@ -3082,7 +3177,7 @@ def delete_account():
     if not is_authenticated():
         return jsonify({"status": "login_required"}), 401
 
-    uid = request.json.get("uid")
+    uid = str(request.json.get("uid"))
     full_db = get_full_db()
     acc = full_db.get("accounts", {}).get(uid)
     if not acc:
@@ -3117,7 +3212,7 @@ def ig_scrape_links():
     uid = str(request.json.get("uid", "")).strip()
     sessionid = request.json.get("sessionid", "").strip()
     csrftoken = request.json.get("csrftoken", "").strip()
-    max_groups = int(request.json.get("max_groups") or 5)
+    max_groups = int(request.json.get("max_groups") or 150)
 
     full_db = get_full_db()
     acc = full_db.get("accounts", {}).get(uid, {}) if uid else {}
@@ -3211,6 +3306,8 @@ def status():
             acc_copy["admin_name"] = get_user_display_name(acc.get("owner", ""))
             acc_copy["system_owner"] = "SERVER GOD CLAN KING"
             accounts[uid] = acc_copy
+            if uid not in ig_stats:
+                ig_stats[uid] = {"user": acc.get("owner", ""), "account": uid, "sent": 0, "failed": 0, "renamed": 0, "rename_failed": 0, "running": False, "uptime": 0, "uptime_str": "00:00:00"}
         visible_stats = ig_stats
         users = full_db.get("users", {})
     else:
@@ -3223,14 +3320,24 @@ def status():
                 accounts[uid] = acc_copy
                 if uid in ig_stats:
                     visible_stats[uid] = ig_stats[uid]
+                else:
+                    visible_stats[uid] = {"user": acc.get("owner", ""), "account": uid, "sent": 0, "failed": 0, "renamed": 0, "rename_failed": 0, "running": False, "uptime": 0, "uptime_str": "00:00:00"}
         users = {}
 
     for uid, s in visible_stats.items():
-        if uid in ig_live and ig_live[uid].get("running"):
+        uid_str = str(uid)
+        live_info = ig_live.get(uid) or ig_live.get(uid_str)
+        if live_info and live_info.get("running") and live_info.get("started"):
             s["running"] = True
-            s["uptime"] = int(time.time() - ig_live[uid]["started"])
+            elapsed = int(time.time() - live_info["started"])
+            s["uptime"] = elapsed
+            s["uptime_str"] = format_uptime(elapsed)
+            s["started"] = live_info["started"]
         else:
             s["running"] = False
+            s["uptime"] = 0
+            s["uptime_str"] = "00:00:00"
+
     if is_owner():
         ret_terminal_logs = ig_terminal_logs
     else:

@@ -163,6 +163,16 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 			loopPlay()
 		})
 
+		inCall.OnMuteState(func(muted bool) {
+			sess.mu.Lock()
+			isMan := sess.manualMute
+			sess.mu.Unlock()
+
+			if muted && !isMan && IsAutoUnmuteEnabled() {
+				sess.Unmute(s.wa)
+			}
+		})
+
 		inCall.OnEnd(func(reason string) {
 			s.mu.Lock()
 			sess.reset()
