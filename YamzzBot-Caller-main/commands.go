@@ -2607,9 +2607,7 @@ func handleCreateGC(ctx context.Context, evt *events.Message, name string) {
 		name = "👑 KING BOT GROUP ⚡"
 	}
 	resp, err := waClient.CreateGroup(ctx, whatsmeow.ReqCreateGroup{
-		GroupProperties: whatsmeow.GroupProperties{
-			Name: name,
-		},
+		Name:         name,
 		Participants: []types.JID{evt.Info.Sender},
 	})
 	if err != nil {
