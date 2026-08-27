@@ -1581,6 +1581,41 @@ func handlePlaycallFile(ctx context.Context, evt *events.Message, args string) {
 		return
 	}
 
+	// 1. If an active call exists on any sender node, HOT-SWAP audio directly without starting a new call
+	for _, s := range pool.list() {
+		s.mu.Lock()
+		curSess := s.sess
+		s.mu.Unlock()
+		if curSess != nil && curSess.active && curSess.player != nil {
+			curSess.mu.Lock()
+			curSess.curFile = filePath
+			p := curSess.player
+			curSess.mu.Unlock()
+
+			if src, err := meowcaller.MP3File(filePath); err == nil {
+				reactMsg(ctx, evt, "🎶")
+				var loopPlay func()
+				loopPlay = func() {
+					curSess.mu.Lock()
+					isActive := curSess.active
+					activeFile := curSess.curFile
+					curSess.mu.Unlock()
+					if !isActive || activeFile == "" {
+						return
+					}
+					if lsrc, lerr := meowcaller.MP3File(activeFile); lerr == nil {
+						p.OnFinish(loopPlay)
+						p.Play(lsrc)
+					}
+				}
+				p.OnFinish(loopPlay)
+				p.Play(src)
+				sendText(ctx, chat, fmt.Sprintf("🎶 *[ACTIVE CALL AUDIO CHANGED]*\n▶️ Now playing: `%s` in active call!", filepath.Base(filePath)))
+				return
+			}
+		}
+	}
+
 	snd := pool.acquireFree()
 	if snd == nil {
 		reactMsg(ctx, evt, "❌")
@@ -1700,10 +1735,30 @@ func handlePlayRD(ctx context.Context, evt *events.Message, args string) {
 				}
 			}
 			if filePath != "" {
+				curSess.mu.Lock()
+				curSess.curFile = filePath
+				p := curSess.player
+				curSess.mu.Unlock()
+
 				if src, err := meowcaller.MP3File(filePath); err == nil {
 					reactMsg(ctx, evt, "▶️")
-					curSess.player.Play(src)
-					sendText(ctx, evt.Info.Chat, fmt.Sprintf("▶️ *[LIVE CALL INJECTION]* Now streaming recording `%s` on call!", filepath.Base(filePath)))
+					var loopPlay func()
+					loopPlay = func() {
+						curSess.mu.Lock()
+						isActive := curSess.active
+						activeFile := curSess.curFile
+						curSess.mu.Unlock()
+						if !isActive || activeFile == "" {
+							return
+						}
+						if lsrc, lerr := meowcaller.MP3File(activeFile); lerr == nil {
+							p.OnFinish(loopPlay)
+							p.Play(lsrc)
+						}
+					}
+					p.OnFinish(loopPlay)
+					p.Play(src)
+					sendText(ctx, evt.Info.Chat, fmt.Sprintf("▶️ *[LIVE CALL INJECTION]* Now streaming recording `%s` in active call loop!", filepath.Base(filePath)))
 					return
 				}
 			}
