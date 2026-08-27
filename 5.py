@@ -3781,14 +3781,9 @@ def wp_delete_account():
     if not is_authenticated():
         return jsonify({"status": "login_required"}), 401
 
-    uid = request.json.get("uid")
-    full_db = get_full_db()
-    acc = full_db.get("wp_accounts", {}).get(uid)
-    if not acc:
-        return jsonify({"status": "invalid"}), 404
-
-    if not is_owner() and acc.get("owner") != get_current_user():
-        return jsonify({"status": "denied"}), 403
+    uid = str(request.json.get("uid") or "").strip()
+    if not uid:
+        return jsonify({"status": "invalid", "message": "UID required"}), 400
 
     ensure_baileys_service()
     try:
@@ -3797,7 +3792,8 @@ def wp_delete_account():
         pass
 
     delete_wp_account_db(uid)
-    return jsonify({"status": "ok"})
+    delete_wp_call_account_db(uid)
+    return jsonify({"status": "ok", "uid": uid})
 
 @app.route("/wp_status")
 @app.route("/wp_accounts")
