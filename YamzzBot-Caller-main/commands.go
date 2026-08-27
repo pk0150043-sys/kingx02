@@ -13,6 +13,7 @@ import (
 	"time"
 
 	meowcaller "github.com/purpshell/meowcaller"
+	"github.com/purpshell/meowcaller/signaling"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -466,13 +467,13 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 		}
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🚪 *Call Waiting Room:* *%s*", args))
 
-	case "callmute", "mute", "mutecall":
+	case "callmute", "mutecall", "vcmute":
 		if !requireAdmin() {
 			return
 		}
 		handleMuteCall(ctx, evt)
 
-	case "callunmute", "unmute", "unmutecall":
+	case "callunmute", "unmutecall", "vcunmute":
 		if !requireAdmin() {
 			return
 		}
@@ -1118,7 +1119,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		sendText(ctx, evt.Info.Chat, b.String())
 
 	// ── Status Saver ──
-	case "saved", "save", "saverd":
+	case "saved", "save", "savestatus":
 		if !requireAdmin() {
 			return
 		}
