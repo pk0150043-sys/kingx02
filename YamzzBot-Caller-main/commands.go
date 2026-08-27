@@ -2326,26 +2326,34 @@ func getCallingEngineMenu(prefix string) string {
 ╭─ 📞 OUTBOUND REAL VOIP & GROUP CALLS
 │ 📞 {P}outcall <Number/@tag> [Song / 51.mp3]
 │    ▸ Dial target and live stream 51.mp3 or YouTube song
-│ 👥 {P}groupcall [Song Name]
+│ 🤖 {P}outcall <Number> bot=<session>
+│    ▸ Outbound call via secondary bot session
+│ 👥 {P}groupcall [Song Name / 51.mp3]
 │    ▸ Create native Group Voice Call and stream audio
 │ 🎥 {P}videocall <Number> [Song Name]
 │    ▸ 1-on-1 High-Definition Video Call
 │ 📹 {P}groupvideocall [Song Name]
 │    ▸ Group Video Call with live stream
+│ 🎶 {P}cyt / {P}cplay <Song Name / Link>
+│    ▸ Live search & stream YouTube music into call
 │ 🎶 {P}playytcall <Song Name / Link>
 │    ▸ Stream YouTube song into active live call
 │ 📹 {P}play2ytcall <Song Name / Link>
 │    ▸ Stream YouTube video into active live video call
 │ 🔊 {P}play1call / {P}playcall (51.mp3 Loop)
 │ 📺 {P}play2call (2.mp4 Video Loop)
-│ 🚪 {P}joincall [51.mp3/song]
-│    ▸ Join active voice chat and stream loop
+│ 🚪 {P}joincall [call_id / link] [51.mp3/song/vn]
+│    ▸ Join active ongoing voice chat and stream loop
+│ 👥 {P}autojoingc on/off
+│    ▸ Auto-detect and auto-join live group calls
 │ 🔄 {P}changesong <Song Name>
 │    ▸ Switch audio in ongoing call without leaving
 │ 🔄 {P}audiotovideo / {P}videotoaudio
 │ 👥 {P}addparticipant <Number>
 │ 📺 {P}screenshare on/off
 │    ▸ Enable/disable live screen sharing
+│ 📷 {P}camoff / {P}cameraoff
+│    ▸ Turn off camera & video feed (Audio only)
 │ ✋ {P}handraise / {P}callreaction <emoji>
 │    ▸ Dispatch live WebRTC reactions
 │ 🚪 {P}waitingroom on/off
@@ -2358,22 +2366,25 @@ func getCallingEngineMenu(prefix string) string {
 ╭─ 📲 INCOMING CALL SENTINEL
 │ 🔔 {P}noti <Chat_JID>
 │    ▸ Route incoming call alerts to specific group/chat
-│ 📞 {P}acceptcall [Song/Track]
-│    ▸ Answer incoming call with live audio stream
+│ 📞 {P}acceptcall [recording|yt|vn]
+│    ▸ Answer incoming call with live audio/speech stream
 │ 🛑 {P}rejectcall / {P}declinecall
 │    ▸ Instantly decline incoming call
 │ 🚫 {P}anticall on/off
 │    ▸ Auto-reject incoming calls sentinel
-│ 🔓 {P}autounmute
-│    ▸ Keep microphone stream continuously open
+│ 🔓 {P}autounmute on/off
+│    ▸ WhatsApp anti-mute bypass (Auto-unmute mic)
 │ 📊 {P}callstatus
 │    ▸ View active VoIP nodes and running calls
+│ 📜 {P}calls / {P}callhistory
+│    ▸ View recent incoming & outgoing calls log
 ╰──────────────────────────────────────────
 
 ╭─ 💾 CUSTOM RECORDINGS & VAULT
 │ 💾 {P}saverd <name> (Save voice note to vault)
 │ 📋 {P}listrd / {P}viewfiles / {P}files
 │ ▶️ {P}playrd <name> (Stream recording on call)
+│ ⏹️ {P}stoprd / {P}stopaudio (Stop recording & return to mic)
 │ 📁 {P}playcallfile <filename>
 │ 🗑️ {P}delrd <name> / {P}delfile <name>
 │ 🗣️ {P}cvn <Text> (Call Voice Speech Injector)
