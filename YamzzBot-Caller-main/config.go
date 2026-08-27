@@ -18,10 +18,15 @@ var (
 	OwnerNumber = "191525812211746"
 	OwnerJID    = "191525812211746@lid"
 
-	// Per-bot / per-sender Admin Sets: map[senderUID]map[adminNumber]bool
-	BotAdmins = map[string]map[string]bool{}
-	// Reverse lookup from bot number to UID
+	// Global and Per-bot / per-sender Admin Sets
+	SubAdmins   = map[string]bool{}
+	BotAdmins   = map[string]map[string]bool{}
 	NumberToUID = map[string]string{}
+
+	// Cooldown and Media Config
+	PlaycallCooldownSeconds = 0
+	TheresavAPIKey          = ""
+	TheresavResolution      = "720"
 )
 
 func init() {
@@ -39,6 +44,9 @@ func init() {
 	}
 	if e := os.Getenv("DEFAULT_EMOJI"); e != "" {
 		DefaultEmoji = e
+	}
+	if k := os.Getenv("THERESAV_APIKEY"); k != "" {
+		TheresavAPIKey = k
 	}
 }
 
