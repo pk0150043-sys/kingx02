@@ -6008,19 +6008,28 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          if (cmd === 'join' || cmd === 'joingroup') {
-            const link = fullArg.trim();
-            const match = link.match(/(?:chat\.whatsapp\.com\/)?([0-9A-Za-z]{20,26})/);
-            if (!match) {
-              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}join <WhatsApp Group Link or Invite Code>\`\nExample: \`${sess.prefix}join https://chat.whatsapp.com/AbCdEfGhIjKlMnOpQrStUv\`` }, { quoted: msg });
+          if (cmd === 'join' || cmd === 'joingroup' || cmd === 'joingc' || cmd === 'joinlink') {
+            const raw = fullArg.trim();
+            // Match any standard whatsapp invite URL or code
+            let code = raw;
+            if (raw.includes('chat.whatsapp.com/')) {
+              const parts = raw.split('chat.whatsapp.com/');
+              code = parts[1].split(/[?#/\s]/)[0];
+            } else {
+              const m = raw.match(/([0-9A-Za-z_-]{20,26})/);
+              if (m) code = m[1];
+            }
+            code = code.replace(/[^0-9A-Za-z_-]/g, '').trim();
+
+            if (!code || code.length < 15) {
+              await sock.sendMessage(jid, { text: `❌ *Usage:* \`${sess.prefix}joingc <WhatsApp Group Link or Invite Code>\`\nExample: \`${sess.prefix}joingc https://chat.whatsapp.com/AbCdEfGhIjKlMnOpQrStUv\`` }, { quoted: msg });
               continue;
             }
             try {
-              const code = match[1];
-              await sock.groupAcceptInvite(code);
-              await sock.sendMessage(jid, { text: `✅ *Successfully joined WhatsApp group via invite link!*` }, { quoted: msg });
+              const res = await sock.groupAcceptInvite(code);
+              await sock.sendMessage(jid, { text: `✅ *Successfully joined WhatsApp group via invite link!*\nGroup JID: \`${res || 'Joined'}\`` }, { quoted: msg });
             } catch (e) {
-              await sock.sendMessage(jid, { text: `❌ *Join failed:* ${e.message}` }, { quoted: msg });
+              await sock.sendMessage(jid, { text: `❌ *Join failed:* ${e?.message || e}` }, { quoted: msg });
             }
             continue;
           }

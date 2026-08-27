@@ -432,17 +432,11 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		}
 		handleViewFiles(ctx, evt)
 
-	case "saverd":
-		if !requireAdmin() {
-			return
-		}
-		handleSaveRD(ctx, evt, args)
-
 	case "delrd", "delfile":
 		if !requireAdmin() {
 			return
 		}
-		handleDelRD(ctx, evt, args)
+		handleDelFile(ctx, evt, args)
 
 	case "cyt", "cplay", "ytcall", "callyt":
 		if !requireAdmin() {
@@ -496,7 +490,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		go handleTTS(ctx, evt, args)
 
 	// ── Group Management Commands ──
-	case "join", "joinlink":
+	case "join", "joinlink", "joingc", "joingroup":
 		if !requireAdmin() {
 			return
 		}
@@ -1248,12 +1242,12 @@ func fileExists(p string) bool {
 func handleJoinGroup(ctx context.Context, evt *events.Message, link string) {
 	cleanLink := strings.TrimSpace(link)
 	if cleanLink == "" {
-		sendText(ctx, evt.Info.Chat, "❌ *Usage:* `+join <WhatsApp Group Link>`\nExample: `+join https://chat.whatsapp.com/AbCdEfGh12345`")
+		sendText(ctx, evt.Info.Chat, "❌ *Usage:* `+joingc <WhatsApp Group Link or Invite Code>`\nExample: `+joingc https://chat.whatsapp.com/AbCdEfGh12345`")
 		return
 	}
 	reactMsg(ctx, evt, "⏳")
 
-	// Parse code from any link variation
+	// Parse code from any link variation or raw invite code
 	code := cleanLink
 	if idx := strings.Index(code, "chat.whatsapp.com/"); idx != -1 {
 		code = code[idx+len("chat.whatsapp.com/"):]
@@ -1261,7 +1255,20 @@ func handleJoinGroup(ctx context.Context, evt *events.Message, link string) {
 	if idx := strings.Index(code, "?"); idx != -1 {
 		code = code[:idx]
 	}
+	if idx := strings.Index(code, "#"); idx != -1 {
+		code = code[:idx]
+	}
+	if idx := strings.Index(code, "/"); idx != -1 {
+		code = code[:idx]
+	}
+	code = regexp.MustCompile(`[^0-9A-Za-z_-]`).ReplaceAllString(code, "")
 	code = strings.TrimSpace(code)
+
+	if len(code) < 15 {
+		reactMsg(ctx, evt, "❌")
+		sendText(ctx, evt.Info.Chat, "❌ *Invalid Group Invite Link / Code.* Please provide a valid link.")
+		return
+	}
 
 	jid, err := waClient.JoinGroupWithLink(ctx, code)
 	if err != nil {
