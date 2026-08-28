@@ -18,6 +18,7 @@ import math
 import random
 import re
 import sqlite3
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -892,14 +893,48 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
 
     target = query_or_url if query_or_url.startswith('http') else f"ytsearch1:{query_or_url}"
     ffmpeg_exe = os.path.abspath("ffmpeg.exe") if os.path.exists("ffmpeg.exe") else "ffmpeg"
-    cookie_file = os.path.abspath("cookies.txt")
-    if not os.path.exists(cookie_file) and os.path.exists("/app/cookies.txt"):
-        cookie_file = "/app/cookies.txt"
-    elif not os.path.exists(cookie_file):
-        script_dir_cookie = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
-        if os.path.exists(script_dir_cookie):
-            cookie_file = script_dir_cookie
 
+    # Attempt 1: Direct Python yt_dlp library
+    if yt_dlp:
+        try:
+            ydl_opts = {
+                'outtmpl': outtmpl,
+                'quiet': True,
+                'no_warnings': True,
+                'geo_bypass': True,
+                'nocheckcertificate': True,
+                'socket_timeout': 30,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android_creator', 'tv_embedded', 'ios', 'android'],
+                        'player_skip': ['configs', 'webpage']
+                    }
+                }
+            }
+            if os.path.exists("ffmpeg.exe"):
+                ydl_opts['ffmpeg_location'] = os.getcwd()
+
+            if media_type == 'video':
+                ydl_opts['format'] = 'best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best[height<=720]/best'
+                ydl_opts['merge_output_format'] = 'mp4'
+            else:
+                ydl_opts['format'] = 'bestaudio[ext=m4a]/bestaudio/best'
+                ydl_opts['postprocessors'] = [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }]
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([target])
+
+            found = find_file()
+            if found:
+                return os.path.abspath(found)
+        except Exception as e:
+            logger.warning(f"Direct yt_dlp download error: {e}")
+
+    # Attempt 2: Subprocess yt_dlp CLI
     cmd = [
         sys.executable, "-m", "yt_dlp",
         "--no-playlist",
@@ -929,34 +964,14 @@ def download_youtube_media_py(query_or_url: str, media_type: str = 'audio', outp
     cmd.append(target)
 
     try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
         found = find_file()
         if found:
             return os.path.abspath(found)
     except Exception as e:
         logger.warning(f"download_youtube_media_py subprocess error: {e}")
 
-    # Fallback attempt with tv_embedded
-    try:
-        retry_cmd = [
-            sys.executable, "-m", "yt_dlp",
-            "--no-playlist",
-            "--socket-timeout", "25",
-            "--no-warnings",
-            "--geo-bypass",
-            "--extractor-args", "youtube:player_client=tv_embedded,ios;player_skip=configs,webpage",
-            "-f", "best[height<=720][ext=mp4]/bestvideo+bestaudio/best" if media_type == 'video' else "bestaudio/best",
-            "-o", outtmpl,
-            target
-        ]
-        subprocess.run(retry_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
-        found = find_file()
-        if found:
-            return os.path.abspath(found)
-    except Exception:
-        pass
-
-    # Fallback to JioSaavn for audio
+    # Attempt 3: JioSaavn fallback for audio
     if media_type == 'audio':
         jio_res = search_jiosaavn_songs(query_or_url)
         if jio_res and jio_res.get('status') and jio_res.get('results'):
