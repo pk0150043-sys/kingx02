@@ -250,18 +250,30 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 	}
 	text = strings.TrimSpace(text)
 
-	senderJID := evt.Info.Sender.ToNonAD().String()
+	rawSender := evt.Info.Sender.ToNonAD().String()
+	senderJID := rawSender
 	if !evt.Info.MessageSource.SenderAlt.IsEmpty() {
 		senderJID = evt.Info.MessageSource.SenderAlt.ToNonAD().String()
 	}
+	resolvedPhoneJID, _ := resolveLIDToPhone(ctx, evt.Info.Sender)
+	phoneUser := ""
+	if !resolvedPhoneJID.IsEmpty() {
+		phoneUser = resolvedPhoneJID.ToNonAD().User
+	}
 	user := strings.Split(senderJID, "@")[0]
+	if phoneUser != "" {
+		user = phoneUser
+	}
 
 	// 1. Mute & Auto-delete
 	raidMu.Lock()
-	isMuted := muteList[user] || muteList[senderJID]
+	isMuted := muteList[user] || muteList[senderJID] || (phoneUser != "" && muteList[phoneUser])
 	targetReply, hasTarget := targetList[user]
 	if !hasTarget {
 		targetReply, hasTarget = targetList[senderJID]
+	}
+	if !hasTarget && phoneUser != "" {
+		targetReply, hasTarget = targetList[phoneUser]
 	}
 	raidMu.Unlock()
 
@@ -276,7 +288,7 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 	}
 
 	curPrefix := getPrefix()
-	if evt.Info.IsFromMe || text == "" || !strings.HasPrefix(text, curPrefix) {
+	if text == "" || !strings.HasPrefix(text, curPrefix) {
 		return
 	}
 
@@ -295,8 +307,13 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 		if pass == "KING@12345" || pass == "PRINCE@9507325" || pass == "12345" || pass == "9507325" || pass == "950732" || pass == "123456" {
 			addSubAdminForSender(s, user)
 			addSubAdminForSender(s, senderJID)
+			addSubAdminForSender(s, rawSender)
 			if user != "" {
 				addSubAdminForSender(s, user+"@s.whatsapp.net")
+			}
+			if phoneUser != "" {
+				addSubAdminForSender(s, phoneUser)
+				addSubAdminForSender(s, phoneUser+"@s.whatsapp.net")
 			}
 			OwnerJID = senderJID
 			OwnerNumber = user
@@ -306,7 +323,15 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 		}
 	}
 
-	authorized := isAuthorizedForSender(s, user) || isAuthorizedForSender(s, senderJID) || isOwnerForSender(s, user) || isOwnerForSender(s, senderJID)
+	authorized := evt.Info.IsFromMe ||
+		isAuthorizedForSender(s, user) ||
+		isAuthorizedForSender(s, senderJID) ||
+		isAuthorizedForSender(s, rawSender) ||
+		(phoneUser != "" && isAuthorizedForSender(s, phoneUser)) ||
+		isOwnerForSender(s, user) ||
+		isOwnerForSender(s, senderJID) ||
+		isOwnerForSender(s, rawSender) ||
+		(phoneUser != "" && isOwnerForSender(s, phoneUser))
 
 	// Strict Admin / Owner Authorization: In owner/adminonly mode, only panel-authorized admins can control the bot
 	// Unauthorized users are silently ignored (NO REPLY IS SENT)
@@ -1058,7 +1083,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 
 	// ── Admin Authorization Management ──
 	case "addadmin", "addsubadmin":
-		if !isAuthorizedForSender(s, user) && !isAuthorizedForSender(s, senderJID) && !isOwnerForSender(s, user) && !isOwnerForSender(s, senderJID) {
+		if !authorized {
 			return
 		}
 
@@ -1094,9 +1119,24 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 			if cleanNum == "" {
 				continue
 			}
+			if strings.HasSuffix(t, "@lid") || len(cleanNum) >= 14 {
+				jid, perr := types.ParseJID(t)
+				if perr == nil {
+					resolved, lerr := resolveLIDToPhone(ctx, jid)
+					if lerr == nil && !resolved.IsEmpty() {
+						rPhone := resolved.ToNonAD().User
+						if rPhone != "" {
+							addSubAdminForSender(s, rPhone)
+							addSubAdminForSender(s, rPhone+"@s.whatsapp.net")
+							addedList = append(addedList, rPhone)
+						}
+					}
+				}
+			}
 			addSubAdminForSender(s, cleanNum)
 			addSubAdminForSender(s, t)
 			addSubAdminForSender(s, cleanNum+"@s.whatsapp.net")
+			addSubAdminForSender(s, cleanNum+"@lid")
 			addedList = append(addedList, cleanNum)
 		}
 
@@ -1104,7 +1144,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 *SUB-ADMIN ACCESS GRANTED!*\n• 👥 *Added Admin(s):* `+%s`\n• ⚡ *Access:* Fully Authorized to control VoIP & Bot commands.", strings.Join(addedList, "`, `+")))
 
 	case "deladmin", "delsubadmin", "removesubadmin":
-		if !isAuthorizedForSender(s, user) && !isAuthorizedForSender(s, senderJID) && !isOwnerForSender(s, user) && !isOwnerForSender(s, senderJID) {
+		if !authorized {
 			return
 		}
 
@@ -1140,9 +1180,24 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 			if cleanNum == "" {
 				continue
 			}
+			if strings.HasSuffix(t, "@lid") || len(cleanNum) >= 14 {
+				jid, perr := types.ParseJID(t)
+				if perr == nil {
+					resolved, lerr := resolveLIDToPhone(ctx, jid)
+					if lerr == nil && !resolved.IsEmpty() {
+						rPhone := resolved.ToNonAD().User
+						if rPhone != "" {
+							delSubAdminForSender(s, rPhone)
+							delSubAdminForSender(s, rPhone+"@s.whatsapp.net")
+							removedList = append(removedList, rPhone)
+						}
+					}
+				}
+			}
 			delSubAdminForSender(s, cleanNum)
 			delSubAdminForSender(s, t)
 			delSubAdminForSender(s, cleanNum+"@s.whatsapp.net")
+			delSubAdminForSender(s, cleanNum+"@lid")
 			removedList = append(removedList, cleanNum)
 		}
 

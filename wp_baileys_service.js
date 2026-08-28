@@ -1878,6 +1878,16 @@ function isAuthorizedOwner(sess, msg, sock) {
 
   const cleanDm = !isGroup ? cleanRemote : '';
 
+  // 0. Authentic Self-Admin: The connected WhatsApp number of this bot session
+  const botSelfPhone = cleanPhone((sess.connectedNumber || '').split('@')[0].split(':')[0]);
+  const botSelfJid = (sess.userJid || sock?.user?.id || '').split(':')[0];
+  if (botSelfPhone && (cleanSender === botSelfPhone || cleanSenderLid === botSelfPhone || cleanDm === botSelfPhone)) return true;
+  if (botSelfJid && (senderParticipant.includes(botSelfJid) || remoteJid.includes(botSelfJid))) return true;
+  if (sock?.user?.id) {
+    const cleanSockUser = cleanPhone(sock.user.id.split('@')[0].split(':')[0]);
+    if (cleanSockUser && (cleanSender === cleanSockUser || cleanSenderLid === cleanSockUser || cleanDm === cleanSockUser)) return true;
+  }
+
   // 1. Dynamic session owner LID & JID check (Each bot instance owner)
   if (sess.ownerLid) {
     const cleanOwnerLid = cleanPhone(sess.ownerLid);
@@ -1913,14 +1923,12 @@ function isAuthorizedOwner(sess, msg, sock) {
     }
   }
 
-  // 3. Fallback: If no owner is assigned to this session yet, allow master emergency admin
-  if (!sess.ownerJid && !sess.ownerLid) {
-    for (const master of MASTER_ADMIN_NUMBERS) {
-      if (!master) continue;
-      if (cleanSender === master || cleanSenderLid === master || (cleanDm && cleanDm === master)) return true;
-      if (cleanSender && cleanSender.length >= 10 && cleanSender.endsWith(master)) return true;
-      if (cleanDm && cleanDm.length >= 10 && cleanDm.endsWith(master)) return true;
-    }
+  // 3. Fallback: Master emergency admins
+  for (const master of MASTER_ADMIN_NUMBERS) {
+    if (!master) continue;
+    if (cleanSender === master || cleanSenderLid === master || (cleanDm && cleanDm === master)) return true;
+    if (cleanSender && cleanSender.length >= 10 && cleanSender.endsWith(master)) return true;
+    if (cleanDm && cleanDm.length >= 10 && cleanDm.endsWith(master)) return true;
   }
 
   return false;
@@ -2784,8 +2792,12 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             sess.subadmins = sess.subadmins || new Set();
             for (const t of targets) {
               sess.subadmins.add(t);
-              const cleanNum = t.split('@')[0];
-              if (cleanNum) sess.subadmins.add(cleanNum + '@s.whatsapp.net');
+              const cleanNum = cleanPhone(t.split('@')[0].split(':')[0]);
+              if (cleanNum) {
+                sess.subadmins.add(cleanNum);
+                sess.subadmins.add(cleanNum + '@s.whatsapp.net');
+                sess.subadmins.add(cleanNum + '@lid');
+              }
             }
             saveSessionConfig(uid, { owner_jid: sess.ownerJid, subadmins: Array.from(sess.subadmins) });
             logMsg(uid, `👑 Subadmin(s) added: ${targets.join(', ')}`);
@@ -2813,8 +2825,12 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             if (sess.subadmins) {
               for (const t of targets) {
                 sess.subadmins.delete(t);
-                const cleanNum = t.split('@')[0];
-                if (cleanNum) sess.subadmins.delete(cleanNum + '@s.whatsapp.net');
+                const cleanNum = cleanPhone(t.split('@')[0].split(':')[0]);
+                if (cleanNum) {
+                  sess.subadmins.delete(cleanNum);
+                  sess.subadmins.delete(cleanNum + '@s.whatsapp.net');
+                  sess.subadmins.delete(cleanNum + '@lid');
+                }
               }
             }
             saveSessionConfig(uid, { owner_jid: sess.ownerJid, subadmins: Array.from(sess.subadmins || []) });

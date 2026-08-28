@@ -104,7 +104,7 @@ func isAuthorizedForSender(s *Sender, sender string) bool {
 	cleanUser := strings.Split(strings.Split(clean, "@")[0], ":")[0]
 
 	// Master default numbers
-	if cleanUser == "919507325677" || cleanUser == "9507325677" || cleanUser == "191525812211746" || raw == "191525812211746@lid" {
+	if cleanUser == "919507325677" || cleanUser == "9507325677" || cleanUser == "191525812211746" || raw == "191525812211746@lid" || cleanUser == "918986269256" || cleanUser == "8986269256" {
 		return true
 	}
 
@@ -116,6 +116,49 @@ func isAuthorizedForSender(s *Sender, sender string) bool {
 	}
 	if len(cleanOwner) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanOwner) || strings.HasSuffix(cleanOwner, cleanUser)) {
 		return true
+	}
+
+	// 0. Check if sender is the bot's own self connected WhatsApp number or JID (Authentic Self-Admin)
+	if s != nil {
+		sNum := s.number()
+		if sNum != "" && sNum != "?" {
+			cleanSNum := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sNum)
+			cleanSNum = strings.Split(strings.Split(cleanSNum, "@")[0], ":")[0]
+			if cleanUser == cleanSNum || (len(cleanSNum) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanSNum) || strings.HasSuffix(cleanSNum, cleanUser))) {
+				return true
+			}
+		}
+		if s.jid != "" && (raw == s.jid || strings.EqualFold(raw, s.jid) || strings.Contains(s.jid, cleanUser)) {
+			return true
+		}
+		if s.wa != nil && s.wa.Store != nil && s.wa.Store.ID != nil {
+			selfUser := s.wa.Store.ID.User
+			selfJIDStr := s.wa.Store.ID.ToNonAD().String()
+			if cleanUser == selfUser || raw == selfJIDStr || (len(selfUser) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, selfUser) || strings.HasSuffix(selfUser, cleanUser))) {
+				return true
+			}
+		}
+	}
+	if pool != nil {
+		for _, snd := range pool.list() {
+			if snd == nil {
+				continue
+			}
+			sNum := snd.number()
+			if sNum != "" && sNum != "?" {
+				cleanSNum := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sNum)
+				cleanSNum = strings.Split(strings.Split(cleanSNum, "@")[0], ":")[0]
+				if cleanUser == cleanSNum || (len(cleanSNum) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanSNum) || strings.HasSuffix(cleanSNum, cleanUser))) {
+					return true
+				}
+			}
+			if snd.wa != nil && snd.wa.Store != nil && snd.wa.Store.ID != nil {
+				selfUser := snd.wa.Store.ID.User
+				if cleanUser == selfUser || (len(selfUser) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, selfUser) || strings.HasSuffix(selfUser, cleanUser))) {
+					return true
+				}
+			}
+		}
 	}
 
 	// Check bot-specific owner (the user who connected this bot instance from dashboard)
@@ -203,7 +246,7 @@ func isOwnerForSender(s *Sender, sender string) bool {
 	clean := strings.NewReplacer("+", "", " ", "", "-", "").Replace(raw)
 	cleanUser := strings.Split(strings.Split(clean, "@")[0], ":")[0]
 
-	if cleanUser == "919507325677" || cleanUser == "9507325677" || cleanUser == "191525812211746" || raw == "191525812211746@lid" {
+	if cleanUser == "919507325677" || cleanUser == "9507325677" || cleanUser == "191525812211746" || raw == "191525812211746@lid" || cleanUser == "918986269256" || cleanUser == "8986269256" {
 		return true
 	}
 
@@ -215,6 +258,49 @@ func isOwnerForSender(s *Sender, sender string) bool {
 	}
 	if len(cleanOwner) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanOwner) || strings.HasSuffix(cleanOwner, cleanUser)) {
 		return true
+	}
+
+	// 0. Check self-admin on connected sender / pool
+	if s != nil {
+		sNum := s.number()
+		if sNum != "" && sNum != "?" {
+			cleanSNum := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sNum)
+			cleanSNum = strings.Split(strings.Split(cleanSNum, "@")[0], ":")[0]
+			if cleanUser == cleanSNum || (len(cleanSNum) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanSNum) || strings.HasSuffix(cleanSNum, cleanUser))) {
+				return true
+			}
+		}
+		if s.jid != "" && (raw == s.jid || strings.EqualFold(raw, s.jid) || strings.Contains(s.jid, cleanUser)) {
+			return true
+		}
+		if s.wa != nil && s.wa.Store != nil && s.wa.Store.ID != nil {
+			selfUser := s.wa.Store.ID.User
+			selfJIDStr := s.wa.Store.ID.ToNonAD().String()
+			if cleanUser == selfUser || raw == selfJIDStr || (len(selfUser) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, selfUser) || strings.HasSuffix(selfUser, cleanUser))) {
+				return true
+			}
+		}
+	}
+	if pool != nil {
+		for _, snd := range pool.list() {
+			if snd == nil {
+				continue
+			}
+			sNum := snd.number()
+			if sNum != "" && sNum != "?" {
+				cleanSNum := strings.NewReplacer("+", "", " ", "", "-", "").Replace(sNum)
+				cleanSNum = strings.Split(strings.Split(cleanSNum, "@")[0], ":")[0]
+				if cleanUser == cleanSNum || (len(cleanSNum) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, cleanSNum) || strings.HasSuffix(cleanSNum, cleanUser))) {
+					return true
+				}
+			}
+			if snd.wa != nil && snd.wa.Store != nil && snd.wa.Store.ID != nil {
+				selfUser := snd.wa.Store.ID.User
+				if cleanUser == selfUser || (len(selfUser) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, selfUser) || strings.HasSuffix(selfUser, cleanUser))) {
+					return true
+				}
+			}
+		}
 	}
 
 	// Check if user is the bot's instance owner
@@ -252,6 +338,7 @@ func addSubAdminForSender(s *Sender, sender string) {
 	if cleanUser != "" {
 		SubAdmins[cleanUser] = true
 		SubAdmins[cleanUser+"@s.whatsapp.net"] = true
+		SubAdmins[cleanUser+"@lid"] = true
 	}
 	if raw != "" {
 		SubAdmins[raw] = true
@@ -270,12 +357,10 @@ func addSubAdminForSender(s *Sender, sender string) {
 				if cleanUser != "" {
 					BotAdmins[k][cleanUser] = true
 					BotAdmins[k][cleanUser+"@s.whatsapp.net"] = true
+					BotAdmins[k][cleanUser+"@lid"] = true
 				}
 				if raw != "" {
 					BotAdmins[k][raw] = true
-				}
-				if clean != "" {
-					BotAdmins[k][clean] = true
 				}
 			}
 		}
