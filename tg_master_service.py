@@ -57,7 +57,7 @@ from telethon.tl.functions.channels import (
     InviteToChannelRequest,
     JoinChannelRequest,
 )
-from telethon.tl.functions.messages import CreateChatRequest, ImportChatInviteRequest
+from telethon.tl.functions.messages import CreateChatRequest, ImportChatInviteRequest, GetDialogFiltersRequest
 from telethon.tl.functions.phone import (
     EditGroupCallParticipantRequest,
     LeaveGroupCallRequest,
@@ -1163,6 +1163,142 @@ async def safe_run_telethon_client(client: TelegramClient, uid: str, name: str =
             add_log(f"⚠️ Userbot '{display_name}' network drop ({e}). Auto-reconnecting in 4s...")
             await asyncio.sleep(4)
 
+folder_broadcast_state: Dict[str, Dict] = {}
+
+async def get_chats_for_folder(client: TelegramClient, folder_filter) -> List:
+    """Returns all group/channel dialogs matching the given Telegram folder/dialog filter."""
+    try:
+        dialogs = await client.get_dialogs()
+    except Exception as e:
+        logger.error(f"Error fetching dialogs: {e}")
+        return []
+
+    if folder_filter == "ALL_GROUPS":
+        return [d for d in dialogs if (d.is_group or (d.is_channel and not getattr(d.entity, "broadcast", False)))]
+
+    specific_peer_ids = set()
+    for peer in getattr(folder_filter, "include_peers", []) + getattr(folder_filter, "pinned_peers", []):
+        try:
+            pid = telethon.utils.get_peer_id(peer)
+            specific_peer_ids.add(pid)
+            if hasattr(peer, "channel_id"): specific_peer_ids.add(peer.channel_id)
+            if hasattr(peer, "chat_id"): specific_peer_ids.add(peer.chat_id)
+            if hasattr(peer, "user_id"): specific_peer_ids.add(peer.user_id)
+        except Exception:
+            pass
+
+    exclude_peer_ids = set()
+    for peer in getattr(folder_filter, "exclude_peers", []):
+        try:
+            pid = telethon.utils.get_peer_id(peer)
+            exclude_peer_ids.add(pid)
+            if hasattr(peer, "channel_id"): exclude_peer_ids.add(peer.channel_id)
+            if hasattr(peer, "chat_id"): exclude_peer_ids.add(peer.chat_id)
+            if hasattr(peer, "user_id"): exclude_peer_ids.add(peer.user_id)
+        except Exception:
+            pass
+
+    has_groups_flag = getattr(folder_filter, "groups", False)
+    has_broadcasts_flag = getattr(folder_filter, "broadcasts", False)
+
+    matched = []
+    for d in dialogs:
+        d_id = d.id
+        raw_id = getattr(d.entity, "id", None)
+
+        if d_id in exclude_peer_ids or (raw_id and raw_id in exclude_peer_ids):
+            continue
+
+        if d_id in specific_peer_ids or (raw_id and raw_id in specific_peer_ids):
+            matched.append(d)
+            continue
+
+        if has_groups_flag and (d.is_group or (d.is_channel and not getattr(d.entity, "broadcast", False))):
+            matched.append(d)
+        elif has_broadcasts_flag and d.is_channel and getattr(d.entity, "broadcast", False):
+            matched.append(d)
+
+    return matched
+
+async def run_folder_broadcast(client: TelegramClient, phone_key: str, state: dict, status_chat_id: int):
+    chats = state.get("selected_chats", [])
+    msgs = state.get("messages", [])
+    delay = state.get("delay", 2.0)
+    title = state.get("selected_title", "Folder")
+    total = len(chats)
+    success = 0
+    failed = 0
+
+    try:
+        await client.send_message(
+            status_chat_id,
+            f"🚀 <b>FOLDER BROADCAST STARTED</b> ⚡\n\n"
+            f"📁 <b>Target Folder:</b> <code>{title}</code>\n"
+            f"👥 <b>Total Groups/Chats:</b> <code>{total}</code>\n"
+            f"⏱️ <b>Delay Between Chats:</b> <code>{delay}s</code>\n"
+            f"📨 <b>Messages Queued:</b> <code>{len(msgs)}</code>\n\n"
+            f"<i>Broadcasting 1-by-1 to all targets in folder...</i>\n"
+            f"<i>Send <code>+stopfolder</code> anytime to halt.</i>",
+            parse_mode="html"
+        )
+    except Exception:
+        pass
+
+    start_time = time.time()
+    for i, target_dialog in enumerate(chats):
+        if not state.get("active"):
+            break
+
+        chat_entity = target_dialog.entity
+        chat_name = getattr(chat_entity, "title", str(target_dialog.id))
+
+        try:
+            for m in msgs:
+                if not state.get("active"):
+                    break
+                await client.send_message(chat_entity, m)
+                if len(msgs) > 1:
+                    await asyncio.sleep(0.4)
+            success += 1
+        except FloodWaitError as fwe:
+            add_log(f"⚠️ FloodWait ({fwe.seconds}s) during folder broadcast. Waiting...")
+            await asyncio.sleep(fwe.seconds + 1)
+            try:
+                for m in msgs:
+                    if not state.get("active"):
+                        break
+                    await client.send_message(chat_entity, m)
+                success += 1
+            except Exception as e:
+                failed += 1
+                add_log(f"❌ Failed to send to {chat_name}: {e}")
+        except Exception as e:
+            failed += 1
+            add_log(f"❌ Failed to send to {chat_name}: {e}")
+
+        if delay > 0 and i < total - 1 and state.get("active"):
+            await asyncio.sleep(delay)
+
+    elapsed = round(time.time() - start_time, 1)
+    state["active"] = False
+    state["step"] = "IDLE"
+
+    summary = (
+        f"╔══════════════════════════════════════╗\n"
+        f"║  📁 <b>FOLDER BROADCAST FINISHED</b> ⚡  ║\n"
+        f"╚══════════════════════════════════════╝\n\n"
+        f"📁 <b>Target Folder:</b> <code>{title}</code>\n"
+        f"👥 <b>Total Groups:</b> <code>{total}</code>\n"
+        f"✅ <b>Successfully Sent:</b> <code>{success}</code>\n"
+        f"❌ <b>Failed / Skipped:</b> <code>{failed}</code>\n"
+        f"⏱️ <b>Time Elapsed:</b> <code>{elapsed}s</code>\n\n"
+        f"⚡ <i>Server God Clan Master Engine</i>"
+    )
+    try:
+        await client.send_message(status_chat_id, summary, parse_mode="html")
+    except Exception:
+        pass
+
 def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val: str, me_id: int):
     @client.on(events.NewMessage)
     async def global_message_listener(event):
@@ -1177,6 +1313,70 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
                 await event.delete()
                 return
             except Exception: pass
+
+        # Check active Folder Broadcast interactive wizard
+        if phone_key in folder_broadcast_state:
+            st = folder_broadcast_state[phone_key]
+            if st.get("chat_id") == event.chat_id and await is_ub_admin(event, me_id, admin_id_val, phone_key):
+                raw_text = (event.text or "").strip()
+                if raw_text.lower() in [f"{PREFIX}stopfolder", "stopfolder", f"{PREFIX}cancelfolder", "cancelfolder", f"{PREFIX}killfolder", "killfolder"]:
+                    st["active"] = False
+                    st["step"] = "IDLE"
+                    if st.get("task"):
+                        try: st["task"].cancel()
+                        except Exception: pass
+                    folder_broadcast_state.pop(phone_key, None)
+                    await event.reply("🛑 <b>Folder Broadcast Stopped & Cancelled!</b>", parse_mode="html")
+                    return
+
+                step = st.get("step")
+                if step == "WAITING_FOLDER_NUM":
+                    if raw_text.isdigit():
+                        idx = int(raw_text)
+                        if idx in st.get("folders_map", {}):
+                            chosen = st["folders_map"][idx]
+                            chosen_chats = st["chats_map"][idx]
+                            if not chosen_chats:
+                                await event.reply(f"⚠️ Folder '<b>{chosen['title']}</b>' has 0 reachable groups/chats! Please pick another number or type <code>+stopfolder</code>.", parse_mode="html")
+                                return
+                            st["selected_chats"] = chosen_chats
+                            st["selected_title"] = chosen["title"]
+                            st["step"] = "WAITING_MESSAGES"
+                            await event.reply(
+                                f"✅ <b>Folder Selected:</b> <code>{chosen['title']}</code> (Found <b>{len(chosen_chats)}</b> Groups/Chats)\n\n"
+                                f"👉 <b>Enter the message(s) to send to all groups in this folder:</b>\n"
+                                f"<i>(You can enter multiple lines or send multiple messages.)</i>\n"
+                                f"<i>Send <code>+stopfolder</code> to cancel.</i>",
+                                parse_mode="html"
+                            )
+                            return
+
+                elif step == "WAITING_MESSAGES":
+                    if not raw_text.startswith(PREFIX) and not raw_text.startswith(BOT_PREFIX):
+                        lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
+                        st["messages"] = lines if lines else [raw_text]
+                        st["step"] = "WAITING_DELAY"
+                        await event.reply(
+                            f"✅ <b>Message(s) configured!</b> (<code>{len(st['messages'])}</code> message(s) queued per group)\n\n"
+                            f"👉 <b>Enter delay (in seconds) between each group:</b> (e.g. <code>2</code> or <code>1.5</code> or <code>5</code>)\n"
+                            f"<i>Send <code>+stopfolder</code> to cancel.</i>",
+                            parse_mode="html"
+                        )
+                        return
+
+                elif step == "WAITING_DELAY":
+                    if not raw_text.startswith(PREFIX) and not raw_text.startswith(BOT_PREFIX):
+                        try:
+                            d_val = float(raw_text)
+                            if d_val < 0.01: d_val = 0.01
+                            st["delay"] = d_val
+                            st["step"] = "BROADCASTING"
+                            st["active"] = True
+                            st["task"] = asyncio.create_task(run_folder_broadcast(client, phone_key, st, event.chat_id))
+                            return
+                        except ValueError:
+                            await event.reply("⚠️ Invalid delay number! Please enter seconds (e.g. <code>2</code> or <code>1.5</code>):", parse_mode="html")
+                            return
 
         if event.text and not event.text.startswith(PREFIX) and not event.text.startswith(BOT_PREFIX):
             trig = event.text.strip().lower()
@@ -1311,6 +1511,13 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 │ ⏱️ <code>{PREFIX}swipedelay &lt;0.01-20&gt;</code>
 │ 🛑 <code>{PREFIX}stopswipe</code>
 │ 🚨 <code>{PREFIX}stopall</code>
+╰──────────────────────
+
+╭─ 📁 <b>𝑭𝑶𝑳𝑫𝑬𝑹 𝑩𝑹𝑶𝑨𝑫𝑪𝑨𝑺𝑻 & 𝑮𝑪 𝑴𝑨𝑻𝑹𝑰𝑿</b>
+│ 📁 <code>{PREFIX}ffolder</code>
+│    ▸ <i>Fetch all user folders/chatlists & start interactive 1-by-1 GC broadcast</i>
+│ 🛑 <code>{PREFIX}stopfolder</code>
+│    ▸ <i>Cancel / Stop active folder broadcast</i>
 ╰──────────────────────
 
 ╭─ 🛡️ <b>𝑴𝑶𝑫𝑬𝑹𝑨𝑻𝑰𝑶𝑵</b>
@@ -2395,6 +2602,115 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         tasks["fucktarget"] = False
         await event.reply("🛑 <b>Target Attack Loop Stopped.</b>", parse_mode="html")
 
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(ffolder|fetchfolder|folders|folder|ffolders)(?:\s+(.+))?$'))
+    async def ub_ffolder_cmd(event):
+        if hasattr(event, 'date') and event.date and event.date.timestamp() < (START_TIME - 15): return
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        if not should_process_tg_command(event.chat_id, event.id, "ffolder"): return
+
+        args = (event.pattern_match.group(2) or "").strip()
+        msg_load = await event.reply("🔍 <b>Fetching all Telegram Folders & Joined Chatlists...</b>", parse_mode="html")
+
+        try:
+            res = await client(GetDialogFiltersRequest())
+            raw_filters = getattr(res, "filters", res) if hasattr(res, "filters") else (res if isinstance(res, list) else [])
+        except Exception as e:
+            raw_filters = []
+            logger.warning(f"GetDialogFiltersRequest: {e}")
+
+        folders_list = []
+        for f in raw_filters:
+            f_id = getattr(f, "id", None)
+            if f_id is None: continue
+            raw_title = getattr(f, "title", f"Folder #{f_id}")
+            title_text = getattr(raw_title, "text", str(raw_title)) if raw_title else f"Folder #{f_id}"
+            folders_list.append({"id": f_id, "title": title_text, "filter_obj": f})
+
+        folders_list.append({"id": "ALL_GROUPS", "title": "All Joined Groups (Global Matrix)", "filter_obj": "ALL_GROUPS"})
+
+        folders_map = {}
+        chats_map = {}
+
+        msg_lines = [
+            "╔══════════════════════════════════════╗",
+            "║  📁 <b>TELEGRAM FOLDERS / CHATLISTS</b> ⚡ ║",
+            "╚══════════════════════════════════════╝",
+            ""
+        ]
+
+        for idx, f_info in enumerate(folders_list, start=1):
+            chats = await get_chats_for_folder(client, f_info["filter_obj"])
+            folders_map[idx] = f_info
+            chats_map[idx] = chats
+            msg_lines.append(f"<b>{idx}️⃣ [{idx}] Folder:</b> <code>{f_info['title']}</code>  (<code>{len(chats)}</code> Chats)")
+
+        msg_lines.extend([
+            "",
+            "👉 <b>Enter target folder number to select:</b> (e.g. <code>1</code>)",
+            f"<i>Send <code>{PREFIX}stopfolder</code> to cancel anytime.</i>"
+        ])
+
+        if args and "|" in args:
+            parts = [p.strip() for p in args.split("|")]
+            if len(parts) >= 3 and parts[0].isdigit():
+                f_idx = int(parts[0])
+                if f_idx in folders_map:
+                    try:
+                        d_val = max(0.01, float(parts[1]))
+                    except ValueError:
+                        d_val = 2.0
+                    m_text = parts[2]
+                    msgs = [l.strip() for l in m_text.split("\n") if l.strip()] or [m_text]
+                    c_chats = chats_map[f_idx]
+                    if not c_chats:
+                        return await msg_load.edit("⚠️ Selected folder has 0 reachable groups/chats!", parse_mode="html")
+                    state = {
+                        "step": "BROADCASTING",
+                        "chat_id": event.chat_id,
+                        "selected_chats": c_chats,
+                        "selected_title": folders_map[f_idx]["title"],
+                        "messages": msgs,
+                        "delay": d_val,
+                        "active": True
+                    }
+                    folder_broadcast_state[phone_key] = state
+                    state["task"] = asyncio.create_task(run_folder_broadcast(client, phone_key, state, event.chat_id))
+                    await msg_load.delete()
+                    return
+
+        folder_broadcast_state[phone_key] = {
+            "step": "WAITING_FOLDER_NUM",
+            "chat_id": event.chat_id,
+            "folders_map": folders_map,
+            "chats_map": chats_map,
+            "selected_chats": None,
+            "selected_title": None,
+            "messages": [],
+            "delay": 2.0,
+            "active": False,
+            "task": None
+        }
+
+        try:
+            await msg_load.edit("\n".join(msg_lines), parse_mode="html")
+        except Exception:
+            await event.reply("\n".join(msg_lines), parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(stopfolder|cancelfolder|killfolder)$'))
+    async def ub_stopfolder_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        st = folder_broadcast_state.get(phone_key)
+        if st:
+            st["active"] = False
+            st["step"] = "IDLE"
+            if st.get("task"):
+                try: st["task"].cancel()
+                except Exception: pass
+            folder_broadcast_state.pop(phone_key, None)
+            await event.reply("🛑 <b>Folder Broadcast Stopped & Cancelled!</b>", parse_mode="html")
+        else:
+            await event.reply("ℹ️ No active folder broadcast running.", parse_mode="html")
+
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(stop|stopall|killall|dynamicstop|halt|shutdown)$'))
     async def ub_stop_all_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
@@ -2404,12 +2720,18 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         vc_loop_unmute_active[event.chat_id] = False
         if event.chat_id in jio_playlist_state:
             jio_playlist_state[event.chat_id]["active"] = False
+        if phone_key in folder_broadcast_state:
+            folder_broadcast_state[phone_key]["active"] = False
+            if folder_broadcast_state[phone_key].get("task"):
+                try: folder_broadcast_state[phone_key]["task"].cancel()
+                except Exception: pass
+            folder_broadcast_state.pop(phone_key, None)
         try:
             cp = await get_call_py_for_client(event.client)
             if cp:
                 await safe_leave_call(cp, event.chat_id)
         except Exception: pass
-        await event.reply("🚨 <b>FORCE MASTER STOP: All active userbot spam, target loops, and VC streams halted!</b>", parse_mode="html")
+        await event.reply("🚨 <b>FORCE MASTER STOP: All active userbot spam, target loops, folder broadcasts, and VC streams halted!</b>", parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(roast|hate|insult)(?:\s+(.+))?$'))
     async def ub_roast_cmd(event):

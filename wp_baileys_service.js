@@ -1749,7 +1749,7 @@ function getCallingEngineMenu(prefix = '+') {
 │ 🎥 ${prefix}videocall <Number> [Song/Track]
 │ 🎶 ${prefix}playytcall <Song Name or YouTube Link>
 │ 📹 ${prefix}play2ytcall <Song Name or YouTube Link>
-│ 🔊 ${prefix}play1call / ${prefix}playcall
+│ 🔊 ${prefix}playcall [Song Name / 51.mp3] (or ${prefix}play1call)
 │ 📺 ${prefix}play2call
 │ 🚪 ${prefix}joincall [51.mp3/song]
 │ 🔄 ${prefix}audiotovideo / ${prefix}videotoaudio
@@ -1807,8 +1807,8 @@ function getSongDashboardMenu(prefix = '+') {
 │    ▸ Stream YouTube Audio into Live Call in real-time
 │ 📹 \`${prefix}play2ytcall <Song/Link>\`
 │    ▸ Stream YouTube Video & Audio into Live Video Call
-│ 🔊 \`${prefix}play1call\` (or \`${prefix}playcall\`)
-│    ▸ Stream 51.mp3 high-bass loop directly into Call
+│ 🔊 \`${prefix}playcall [Song Name / 51.mp3]\` (or \`${prefix}play1call\`)
+│    ▸ Stream JioSaavn / YouTube track or 51.mp3 continuous loop into Call
 │ 📺 \`${prefix}play2call\`
 │    ▸ Stream 2.mp4 video loop directly into Video Call
 
@@ -3511,8 +3511,57 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          // +play1call / +playcall (Live streams 51.mp3 directly inside active VoIP call)
+          // +play1call / +playcall (Live streams JioSaavn/YouTube song or 51.mp3 in loop inside active VoIP call)
           if (cmd === 'play1call' || cmd === 'playcall') {
+            const query = (fullArg || '').trim();
+            if (query && query !== '51.mp3') {
+              await sock.sendMessage(jid, { text: `🔍 *Fetching audio for \`${query}\` to stream live on call...*` }, { quoted: msg });
+              (async () => {
+                try {
+                  const tempSongPath = path.join(__dirname, `temp_call_${Date.now()}.mp3`);
+                  let actualFile = null;
+                  let songTitle = query;
+
+                  // Priority 1: JioSaavn
+                  const jio = await searchJioSaavn(query);
+                  if (jio?.audioUrl) {
+                    const buf = await downloadBuffer(jio.audioUrl);
+                    fs.writeFileSync(tempSongPath, buf);
+                    actualFile = tempSongPath;
+                    songTitle = `${jio.title} - ${jio.artist}`;
+                  }
+
+                  // Priority 2: YouTube
+                  if (!actualFile) {
+                    const dlRes = await downloadYouTubeMedia(query, 'audio', tempSongPath);
+                    if (dlRes.success && dlRes.filePath && fs.existsSync(dlRes.filePath)) {
+                      actualFile = dlRes.filePath;
+                      songTitle = dlRes.title || query;
+                    }
+                  }
+
+                  if (!actualFile || !fs.existsSync(actualFile)) {
+                    return sock.sendMessage(jid, { text: `❌ Failed to fetch audio for \`${query}\`!` }, { quoted: msg });
+                  }
+
+                  if (sess.voipManager && sess.voipManager.activeCall) {
+                    sess.voipManager.switchAudio(actualFile);
+                    await sock.sendMessage(jid, {
+                      text: `╔══〔 🎵 *SONG STREAMING ON ACTIVE CALL* 〕══╗\n┃ 🎶 Track: *${songTitle}*\n┃ 📡 Output: *Live WebRTC Opus Stream*\n┃ ⚡ Status: *STREAMING LIVE IN CONTINUOUS LOOP* 🟢\n╚══════════════════════════════════════════╝\n_Audio is streaming in continuous loop inside VoIP call._`
+                    }, { quoted: msg });
+                  } else {
+                    await sock.sendMessage(jid, {
+                      text: `✅ *Track Downloaded & Ready:* \`${songTitle}\`\n⚠️ *No active VoIP call running right now.*\nUse \`${sess.prefix}outcall <number> ${query}\` or \`${sess.prefix}call <number>\` to dial target and stream this track on the call!`
+                    }, { quoted: msg });
+                  }
+                } catch (err) {
+                  logMsg(uid, `playcall error: ${err.message}`);
+                  await sock.sendMessage(jid, { text: `❌ Call Audio Error: ${err.message}` }, { quoted: msg });
+                }
+              })();
+              continue;
+            }
+
             if (!fs.existsSync(AUDIO_51_PATH)) {
               await sock.sendMessage(jid, { text: `❌ 51.mp3 audio file directory me nahi mili!` }, { quoted: msg });
               continue;

@@ -2375,6 +2375,20 @@ func resolveLIDToPhone(ctx context.Context, jid types.JID) (types.JID, error) {
 
 // ── Target Resolution & Dynamic Client ──
 
+func isLikelyPhoneNumber(s string) bool {
+	s = strings.TrimSpace(strings.TrimPrefix(s, "+"))
+	s = strings.NewReplacer(" ", "", "-", "", "(", "", ")", "").Replace(s)
+	if len(s) < 7 || len(s) > 16 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func resolveTarget(ctx context.Context, evt *events.Message, args string) (target, title string, err error) {
 	ctxInfo := evt.Message.GetExtendedTextMessage().GetContextInfo()
 	quoted := ctxInfo.GetParticipant()
@@ -2402,20 +2416,36 @@ func resolveTarget(ctx context.Context, evt *events.Message, args string) (targe
 	if len(parts) >= 2 {
 		number := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(parts[0]), "+"))
 		number = strings.NewReplacer(" ", "", "-", "").Replace(number)
-		title = strings.TrimSpace(parts[1])
-		if title == "" {
-			title = "51.mp3"
+		if isLikelyPhoneNumber(number) {
+			title = strings.TrimSpace(parts[1])
+			if title == "" {
+				title = "51.mp3"
+			}
+			return number, title, nil
 		}
-		return number, title, nil
 	}
 	fields := strings.Fields(args)
 	if len(fields) >= 1 {
-		number := strings.TrimSpace(strings.TrimPrefix(fields[0], "+"))
-		title := "51.mp3"
-		if len(fields) > 1 {
-			title = strings.Join(fields[1:], " ")
+		if isLikelyPhoneNumber(fields[0]) {
+			number := strings.TrimSpace(strings.TrimPrefix(fields[0], "+"))
+			number = strings.NewReplacer(" ", "", "-", "").Replace(number)
+			title := "51.mp3"
+			if len(fields) > 1 {
+				title = strings.Join(fields[1:], " ")
+			}
+			return number, title, nil
 		}
-		return number, title, nil
+		cleanTitle := strings.TrimSpace(args)
+		if cleanTitle == "" {
+			cleanTitle = "51.mp3"
+		}
+		if evt.Info.IsGroup {
+			return "", cleanTitle, nil
+		}
+		return evt.Info.Chat.String(), cleanTitle, nil
+	}
+	if evt.Info.IsGroup {
+		return "", "51.mp3", nil
 	}
 	return "", "", fmt.Errorf("format: %splaycall <PhoneNumber / @tag> [Song Name / 51.mp3]", getPrefix())
 }
@@ -2713,7 +2743,8 @@ func getCallingEngineMenu(prefix string) string {
 │    ▸ Stream YouTube song into active live call
 │ 📹 {P}play2ytcall <Song Name / Link>
 │    ▸ Stream YouTube video into active live video call
-│ 🔊 {P}play1call / {P}playcall (51.mp3 Loop)
+│ 🔊 {P}playcall [Song Name / 51.mp3] (or {P}play1call)
+│    ▸ Stream JioSaavn / YouTube track or 51.mp3 in continuous loop on call
 │ 📺 {P}play2call (2.mp4 Video Loop)
 │ 🚪 {P}joincall [call_id / link] [51.mp3/song/vn]
 │    ▸ Join active ongoing voice chat and stream loop
@@ -2800,8 +2831,8 @@ func getSongDashboardMenu(prefix string) string {
 │    ▸ Stream YouTube Audio into Live Call in real-time
 │ 📹 {P}play2ytcall <Song/Link>
 │    ▸ Stream YouTube Video & Audio into Live Video Call
-│ 🔊 {P}play1call (or {P}playcall)
-│    ▸ Stream 51.mp3 high-bass loop directly into Call
+│ 🔊 {P}playcall [Song Name / 51.mp3] (or {P}play1call)
+│    ▸ Stream JioSaavn / YouTube track or 51.mp3 continuous loop in Call
 │ 📺 {P}play2call
 │    ▸ Stream 2.mp4 video loop directly into Video Call
 
