@@ -1694,14 +1694,12 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
       🚀 <b>SPEED</b>   : <code>0.01s+</code>
 
 ╭─ 📞 <b>𝑶𝑼𝑻𝑩𝑶𝑼𝑵𝑫 𝑽𝑶𝑰𝑷 & 𝑽𝑪 𝑺𝑻𝑹𝑬𝑨𝑴𝑺</b>
-│ 🎶 <code>{PREFIX}playytcall &lt;Song Name or YouTube Link&gt;</code>
-│    ▸ <i>Live Stream YouTube audio in Voice Chat / Call</i>
-│ 📹 <code>{PREFIX}play2ytcall &lt;Song Name or YouTube Link&gt;</code>
-│    ▸ <i>Live Stream YouTube video screen-share in Group VC</i>
+│ 📹 <code>{PREFIX}play5video &lt;Song Name or YouTube Link&gt;</code> / <code>{PREFIX}play5call</code>
+│    ▸ <i>Live Stream YouTube HD video screen-share in Group Call/VC</i>
+│ 🎶 <code>{PREFIX}play3jiocall &lt;Song Name&gt;</code> / <code>{PREFIX}playjiocall</code>
+│    ▸ <i>Live Stream JioSaavn/YouTube 320kbps audio in Voice Chat / Call</i>
 │ 🔊 <code>{PREFIX}play1call</code> / <code>{PREFIX}playcall</code>
 │    ▸ <i>Stream 51.mp3 in continuous loop in VC/DM</i>
-│ 🎶 <code>{PREFIX}playjiocall &lt;Song Name&gt;</code>
-│    ▸ <i>Search JioSaavn & stream live in Call</i>
 │ 📺 <code>{PREFIX}play2call</code>
 │    ▸ <i>Stream 52.mp4 screen share video (720p HD)</i>
 │ 📻 <code>{PREFIX}play4jiocallchangeall &lt;genre&gt;</code>
@@ -1709,7 +1707,7 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
 │ 🔓 <code>{PREFIX}autounmute</code> / <code>{PREFIX}loopunmute</code>
 │    ▸ <i>Auto unmute sentinel (never stay muted)</i>
 │ ⏹️ <code>{PREFIX}stopcallplay</code>
-│    ▸ <i>Pause / Stop active voice stream</i>
+│    ▸ <i>Pause / Stop active voice/video stream</i>
 │ 🔌 <code>{PREFIX}cutcall</code> / <code>{PREFIX}leavecall</code>
 │    ▸ <i>Leave voice chat / call immediately</i>
 ╰──────────────────────
@@ -1730,28 +1728,26 @@ def setup_userbot_handlers(client: TelegramClient, phone_key: str, admin_id_val:
       ⚡ <b>PREFIX</b>  :  <code>{PREFIX}</code>
       🎧 <b>ENGINES</b> : YouTube • JioSaavn • Spotify • PyTgCalls
 
-╭─ 🌟 <b>𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑷𝑳𝑨𝒀𝑩𝑨𝑪𝑲 𝑺𝑼𝑰𝑻𝑬</b>
+╭─ 🌟 <b>𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑷𝑳𝑨𝒀𝑩𝑨𝑪𝑲 𝑺𝑼𝑰𝑻𝑬 (𝑪𝑯𝑨𝑻)</b>
 │ 🎵 <code>{PREFIX}song &lt;Name or YouTube Link&gt;</code>
 │    ▸ <i>Search track details card & interactive options</i>
-│ 🔊 <code>{PREFIX}play1 [Song Name]</code>
-│    ▸ <i>Send full Audio in chat</i>
-│ 🎥 <code>{PREFIX}play2 [Song Name]</code>
-│    ▸ <i>Send full HD Video in chat</i>
+│ 🔊 <code>{PREFIX}audio &lt;Song Name&gt;</code> / <code>{PREFIX}play1</code>
+│    ▸ <i>Send full 320kbps Audio in chat</i>
+│ 🎥 <code>{PREFIX}video &lt;Song Name&gt;</code> / <code>{PREFIX}play2</code>
+│    ▸ <i>Send full 720p HD Video in chat</i>
 │ ✂️ <code>{PREFIX}playsec &lt;Seconds&gt; [Song Name]</code>
 │    ▸ <i>Send trimmed video clip (e.g. {PREFIX}playsec 30)</i>
-│ 🔗 <code>{PREFIX}play5video &lt;YouTube Link&gt;</code>
-│    ▸ <i>Download & send video directly from YouTube link</i>
+│ 🔗 <code>{PREFIX}ytlink &lt;YouTube Link&gt;</code>
+│    ▸ <i>Download & send video directly from YouTube link to chat</i>
 ╰──────────────────────
 
-╭─ 📞 <b>𝒀𝑶𝑼𝑻𝑼𝑩𝑬 𝑽𝑶𝑰𝑷 𝑺𝑻𝑹𝑬𝑨𝑴𝑬𝑹</b>
-│ 🎶 <code>{PREFIX}playytcall &lt;Song Name or Link&gt;</code>
-│    ▸ <i>Stream song live inside VC / Voice Call</i>
-│ 📹 <code>{PREFIX}play2ytcall &lt;Song Name or Link&gt;</code>
-│    ▸ <i>Stream video / screen-share inside VC</i>
+╭─ 📞 <b>𝑽𝑶𝑰𝑷 & 𝑽𝑪 𝑳𝑰𝑽𝑬 𝑺𝑻𝑹𝑬𝑨𝑴𝑬𝑹 (𝑪𝑨𝑳𝑳)</b>
+│ 📹 <code>{PREFIX}play5video &lt;Song Name or Link&gt;</code> / <code>{PREFIX}play5call</code>
+│    ▸ <i>Stream HD video screen-share inside VC / Call</i>
+│ 🎶 <code>{PREFIX}play3jiocall &lt;Song Name&gt;</code> / <code>{PREFIX}playjiocall</code>
+│    ▸ <i>Stream JioSaavn 320kbps audio loop inside VC</i>
 │ 🔊 <code>{PREFIX}play1call</code>
 │    ▸ <i>Play 51.mp3 continuous loop on call</i>
-│ 🎶 <code>{PREFIX}playjiocall &lt;Song Name&gt;</code>
-│    ▸ <i>JioSaavn call stream loop</i>
 ╰──────────────────────
 
 ╭──────────────────────────────╮
@@ -2039,7 +2035,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         except Exception as e:
             await msg.edit(f"❌ Error: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play5call|play5ytcall|play2ytcall|playvideocall|playvcall|videocall|play5vcall|ytvideocall)(?:\s+(.+))?$'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play5video|play5call|play5ytcall|play2ytcall|playvideocall|playvcall|videocall|play5vcall|ytvideocall|play5)(?:\s+(.+))?$'))
     async def ub_play5call_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2)
@@ -2317,12 +2313,12 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         except Exception as e:
             await msg.edit(f"❌ Clip error: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play5video|ytlink)(?:\s+(.+))?$'))
-    async def ub_play5video_cmd(event):
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(ytlink|ytlinkvideo|downlinkvideo)(?:\s+(.+))?$'))
+    async def ub_ytlink_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         yt_url = event.pattern_match.group(2)
         if not yt_url or not yt_url.startswith("http"):
-            return await event.reply(f"⚠️ Usage: <code>{PREFIX}play5video &lt;YouTube Link&gt;</code>", parse_mode="html")
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}ytlink &lt;YouTube Link&gt;</code>", parse_mode="html")
 
         msg = await event.reply(f"📥 <b>Downloading Video from Link...</b>", parse_mode="html")
         temp_vid = f"yt_link_{event.chat_id}_{int(time.time())}.mp4"
