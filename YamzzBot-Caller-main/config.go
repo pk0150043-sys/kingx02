@@ -128,9 +128,6 @@ func isAuthorizedForSender(s *Sender, sender string) bool {
 				return true
 			}
 		}
-		if s.jid != "" && (raw == s.jid || strings.EqualFold(raw, s.jid) || strings.Contains(s.jid, cleanUser)) {
-			return true
-		}
 		if s.wa != nil && s.wa.Store != nil && s.wa.Store.ID != nil {
 			selfUser := s.wa.Store.ID.User
 			selfJIDStr := s.wa.Store.ID.ToNonAD().String()
@@ -154,7 +151,8 @@ func isAuthorizedForSender(s *Sender, sender string) bool {
 			}
 			if snd.wa != nil && snd.wa.Store != nil && snd.wa.Store.ID != nil {
 				selfUser := snd.wa.Store.ID.User
-				if cleanUser == selfUser || (len(selfUser) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, selfUser) || strings.HasSuffix(selfUser, cleanUser))) {
+				selfJIDStr := snd.wa.Store.ID.ToNonAD().String()
+				if cleanUser == selfUser || raw == selfJIDStr || (len(selfUser) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, selfUser) || strings.HasSuffix(selfUser, cleanUser))) {
 					return true
 				}
 			}
@@ -270,9 +268,6 @@ func isOwnerForSender(s *Sender, sender string) bool {
 				return true
 			}
 		}
-		if s.jid != "" && (raw == s.jid || strings.EqualFold(raw, s.jid) || strings.Contains(s.jid, cleanUser)) {
-			return true
-		}
 		if s.wa != nil && s.wa.Store != nil && s.wa.Store.ID != nil {
 			selfUser := s.wa.Store.ID.User
 			selfJIDStr := s.wa.Store.ID.ToNonAD().String()
@@ -296,7 +291,8 @@ func isOwnerForSender(s *Sender, sender string) bool {
 			}
 			if snd.wa != nil && snd.wa.Store != nil && snd.wa.Store.ID != nil {
 				selfUser := snd.wa.Store.ID.User
-				if cleanUser == selfUser || (len(selfUser) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, selfUser) || strings.HasSuffix(selfUser, cleanUser))) {
+				selfJIDStr := snd.wa.Store.ID.ToNonAD().String()
+				if cleanUser == selfUser || raw == selfJIDStr || (len(selfUser) >= 10 && len(cleanUser) >= 10 && (strings.HasSuffix(cleanUser, selfUser) || strings.HasSuffix(selfUser, cleanUser))) {
 					return true
 				}
 			}
