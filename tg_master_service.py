@@ -697,6 +697,86 @@ def get_file_duration(file_path: str) -> float:
     except Exception: pass
     return 210.0
 
+def search_jiosaavn_songs(query: str) -> Dict:
+    cleaned = (query or "").strip()
+    if not cleaned:
+        return {"status": False, "results": []}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Referer": "https://www.jiosaavn.com/"
+    }
+    jio_endpoints = [
+        f"https://saavn.me/search/songs?query={requests.utils.quote(cleaned)}&page=1&limit=10",
+        f"https://saavn-api-alpha.vercel.app/api/search/songs?query={requests.utils.quote(cleaned)}",
+        f"https://jiosavan-api2.vercel.app/api/search/songs?query={requests.utils.quote(cleaned)}&limit=10",
+        f"https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&p=1&n=10&q={requests.utils.quote(cleaned)}"
+    ]
+    results_list = []
+    for search_url in jio_endpoints:
+        try:
+            res = requests.get(search_url, headers=headers, timeout=6)
+            if res.status_code == 200:
+                data = res.json()
+                raw_items = []
+                if isinstance(data, dict):
+                    raw_items = data.get("data", {}).get("results", []) or data.get("data", []) or data.get("results", [])
+                elif isinstance(data, list):
+                    raw_items = data
+
+                if isinstance(raw_items, list) and raw_items:
+                    for s in raw_items:
+                        title = s.get("name", s.get("song", s.get("title", cleaned))).replace("&quot;", '"').replace("&#039;", "'").replace("&amp;", "&")
+                        artists_field = s.get("artists", {})
+                        artist = "JioSaavn Artist"
+                        if isinstance(artists_field, dict):
+                            primary = artists_field.get("primary", [])
+                            if primary and isinstance(primary, list) and isinstance(primary[0], dict):
+                                artist = primary[0].get("name", "JioSaavn Artist")
+                        elif isinstance(s.get("singers"), str) and s.get("singers"):
+                            artist = s.get("singers")
+                        elif isinstance(s.get("artist"), str) and s.get("artist"):
+                            artist = s.get("artist")
+
+                        album = s.get("album", {})
+                        album_name = album.get("name", "Single") if isinstance(album, dict) else (str(album) if album else "Single")
+
+                        audio_url = extract_jiosaavn_audio_link(s)
+                        if not audio_url:
+                            raw_prev = s.get("media_preview_url") or s.get("vlink")
+                            if raw_prev:
+                                q_urls = get_all_jiosaavn_quality_urls(raw_prev)
+                                audio_url = q_urls[0] if q_urls else raw_prev
+
+                        dur = s.get("duration", "210")
+                        dur_sec = int(dur) if str(dur).isdigit() else 210
+                        dur_str = f"{dur_sec//60}:{dur_sec%60:02d}"
+
+                        img = ""
+                        imgs = s.get("image") or s.get("images")
+                        if isinstance(imgs, list) and imgs:
+                            last_img = imgs[-1]
+                            img = last_img.get("url") if isinstance(last_img, dict) else str(last_img)
+                        elif isinstance(imgs, str):
+                            img = imgs
+
+                        results_list.append({
+                            "id": s.get("id", ""),
+                            "title": title,
+                            "artist": artist,
+                            "album": album_name,
+                            "duration": dur_str,
+                            "duration_sec": dur_sec,
+                            "media_url": audio_url,
+                            "image": img
+                        })
+                    if results_list:
+                        return {"status": True, "results": results_list}
+        except Exception:
+            pass
+
+    return {"status": False, "results": []}
+
 def search_youtube_py(query: str) -> Optional[Dict]:
     query = (query or '').strip()
     if not query: return None
@@ -1051,7 +1131,7 @@ def get_audio_file(video=False):
 def get_safe_video_quality():
     if not HAS_PYTGCALLS: return None
     try:
-        for attr in ['HD_720P', 'HD', '720p', 'SD_480P', 'SD']:
+        for attr in ['HD_720p', 'SD_480p', 'SD_360p', 'FHD_1080p', 'HD_720P', 'HD', '720p', 'SD_480P', 'SD']:
             if hasattr(VideoQuality, attr):
                 return getattr(VideoQuality, attr)
     except Exception: pass
@@ -1820,16 +1900,41 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                     await asyncio.sleep(5)
 
         asyncio.create_task(play1call_loop())
-        await msg.edit(f"🔊 <b>51.mp3 Full Audio Stream Active in Call!</b>\n⏱ Track Duration: <code>{int(dur)}s</code> (Continuous Loop)\n_Call will NOT disconnect until you send <code>{PREFIX}cutcall</code> or leave._", parse_mode="html")
+        await msg.edit(f"🔊 <b>51.mp3 Full Audio Stream Active in Call!</b>\n⏱ Track Duration: <code>{int(dur)}s</code> (Continuous Loop 🔁)\n_Call will NOT disconnect until you send <code>{PREFIX}cutcall</code> or leave._", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?play2call$'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play2call|playvcall)$'))
     async def ub_play2call_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
-        msg = await event.reply("📺 <b>Connecting to Call & Injecting 52.mp4 Screen Share Video...</b>", parse_mode="html")
-        success, resp_text = await join_vc_and_play(event.chat_id, event, video=True)
-        await msg.edit(resp_text, parse_mode="html")
+        chat_id = event.chat_id
+        msg = await event.reply("📺 <b>Connecting to Call & Injecting 52.mp4 Screen Share Video (Continuous Loop)...</b>", parse_mode="html")
+        
+        jio_playlist_state[chat_id] = {
+            "active": True,
+            "mode": "play2call"
+        }
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(playytcall|playjiocall|play3jio|ytcall)(?:\s+(.+))?$'))
+        media_file = get_audio_file(video=True)
+        dur = get_file_duration(media_file) if media_file and os.path.exists(media_file) else 210
+
+        success, resp_text = await join_vc_and_play(chat_id, event, video=True)
+        if not success:
+            return await msg.edit(resp_text, parse_mode="html")
+
+        async def play2call_loop():
+            while jio_playlist_state.get(chat_id, {}).get("active") and jio_playlist_state.get(chat_id, {}).get("mode") == "play2call":
+                try:
+                    await asyncio.sleep(dur + 2)
+                    if not jio_playlist_state.get(chat_id, {}).get("active") or jio_playlist_state.get(chat_id, {}).get("mode") != "play2call":
+                        break
+                    await join_vc_and_play(chat_id, event, video=True)
+                except Exception as e:
+                    logger.error(f"play2call loop error: {e}")
+                    await asyncio.sleep(5)
+
+        asyncio.create_task(play2call_loop())
+        await msg.edit(f"📺 <b>52.mp4 Screen Share Video & Audio Live in Call!</b>\n⏱ Track Duration: <code>{int(dur)}s</code> (Continuous Loop 🔁)\n_Call will NOT disconnect until you send <code>{PREFIX}cutcall</code> or leave._", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play3jiocall|playjiocall|play3jio|play3call|playytcall|ytcall|callsong|jiocall)(?:\s+(.+))?$'))
     async def ub_playytcall_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2)
@@ -1837,18 +1942,45 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             last = tg_last_searched_tracks.get(event.chat_id)
             query = last.get('url') or last.get('title') if last else None
         if not query:
-            return await event.reply(f"⚠️ Usage: <code>{PREFIX}playytcall &lt;Song Name or YouTube Link&gt;</code>", parse_mode="html")
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}play3jiocall &lt;Song Name or YouTube Link&gt;</code>", parse_mode="html")
 
         chat_id = event.chat_id
-        msg = await event.reply(f"🔍 <b>Fetching YouTube audio for <code>{query}</code> to stream on Call...</b>", parse_mode="html")
+        msg = await event.reply(f"🔍 <b>Searching & preparing Audio Stream for <code>{query}</code> on Call...</b>", parse_mode="html")
 
         me = await event.client.get_me()
-        temp_filename = f"yt_call_{chat_id}_{me.id}_{int(time.time())}.mp3"
+        temp_filename = f"call_audio_{chat_id}_{me.id}_{int(time.time())}.mp3"
 
         try:
-            actual_file = await asyncio.to_thread(download_youtube_media_py, query, 'audio', temp_filename)
+            actual_file = None
+            song_title = query
+            song_artist = "JioSaavn / YouTube"
+
+            try:
+                jio_res = await asyncio.to_thread(search_jiosaavn_songs, query)
+                if jio_res and jio_res.get("status") and jio_res.get("results"):
+                    first = jio_res["results"][0]
+                    song_title = first.get("title", query)
+                    song_artist = first.get("artist", "JioSaavn Artist")
+                    m_url = first.get("media_url")
+                    if m_url:
+                        res = await asyncio.to_thread(requests.get, m_url, timeout=15)
+                        if res.status_code == 200 and len(res.content) > 50000:
+                            with open(temp_filename, "wb") as f:
+                                f.write(res.content)
+                            actual_file = temp_filename
+            except Exception:
+                pass
+
             if not actual_file or not os.path.exists(actual_file):
-                return await msg.edit("❌ Song not found on YouTube or download failed.")
+                track = await asyncio.to_thread(search_youtube_py, query)
+                if track:
+                    tg_last_searched_tracks[chat_id] = track
+                    song_title = track.get("title", query)
+                    song_artist = track.get("author", "YouTube")
+                actual_file = await asyncio.to_thread(download_youtube_media_py, query, 'audio', temp_filename)
+
+            if not actual_file or not os.path.exists(actual_file):
+                return await msg.edit(f"❌ Song not found or audio download failed for <code>{query}</code>.")
 
             duration = get_file_duration(actual_file) or 210
 
@@ -1858,13 +1990,28 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                 "file": actual_file
             }
 
-            await msg.edit(f"🔊 <b>Now Streaming on Call:</b> <code>{query}</code>\n⏱ Duration: <code>{int(duration)}s</code> (Continuous Loop)", parse_mode="html")
+            success, resp = await join_vc_and_play(chat_id, event, video=False, custom_file=actual_file)
+            if not success:
+                if os.path.exists(actual_file):
+                    try: os.remove(actual_file)
+                    except Exception: pass
+                return await msg.edit(resp, parse_mode="html")
+
+            await msg.edit(
+                f"🔊 <b>Now Streaming on Call:</b> <code>{song_title}</code>\n"
+                f"👤 <b>Artist:</b> <code>{song_artist}</code>\n"
+                f"⏱ <b>Duration:</b> <code>{int(duration)}s</code> (Continuous Loop 🔁)\n"
+                f"⚡ <i>Use <code>{PREFIX}stopcallplay</code> to stop or <code>{PREFIX}cutcall</code> to leave.</i>",
+                parse_mode="html"
+            )
 
             async def ytcall_loop():
                 while jio_playlist_state.get(chat_id, {}).get("active") and jio_playlist_state.get(chat_id, {}).get("mode") == "playytcall":
                     try:
-                        await join_vc_and_play(chat_id, event, video=False, custom_file=actual_file)
                         await asyncio.sleep(duration + 2)
+                        if not jio_playlist_state.get(chat_id, {}).get("active") or jio_playlist_state.get(chat_id, {}).get("mode") != "playytcall":
+                            break
+                        await join_vc_and_play(chat_id, event, video=False, custom_file=actual_file)
                     except Exception as e:
                         logger.error(f"ytcall loop error: {e}")
                         await asyncio.sleep(5)
@@ -1877,29 +2024,75 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         except Exception as e:
             await msg.edit(f"❌ Error: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play2ytcall|ytvideocall)(?:\s+(.+))?$'))
-    async def ub_play2ytcall_cmd(event):
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play5call|play5ytcall|play2ytcall|playvideocall|playvcall|videocall|play5vcall|ytvideocall)(?:\s+(.+))?$'))
+    async def ub_play5call_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2)
         if not query:
             last = tg_last_searched_tracks.get(event.chat_id)
             query = last.get('url') or last.get('title') if last else None
         if not query:
-            return await event.reply(f"⚠️ Usage: <code>{PREFIX}play2ytcall &lt;Song Name or YouTube Link&gt;</code>", parse_mode="html")
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}play5call &lt;Song Name or YouTube Link&gt;</code>", parse_mode="html")
 
         chat_id = event.chat_id
-        msg = await event.reply(f"🎥 <b>Preparing YouTube Video for Video Call: <code>{query}</code>...</b>", parse_mode="html")
+        msg = await event.reply(f"🎥 <b>Searching YouTube Video & preparing Live Screen Share for <code>{query}</code>...</b>", parse_mode="html")
 
         me = await event.client.get_me()
         temp_vfile = f"yt_vcall_{chat_id}_{me.id}_{int(time.time())}.mp4"
 
         try:
+            track = await asyncio.to_thread(search_youtube_py, query)
+            if track:
+                tg_last_searched_tracks[chat_id] = track
+                display_title = track.get("title", query)
+                display_artist = track.get("author", "YouTube")
+            else:
+                display_title = query
+                display_artist = "YouTube"
+
             actual_file = await asyncio.to_thread(download_youtube_media_py, query, 'video', temp_vfile)
             if not actual_file or not os.path.exists(actual_file):
-                return await msg.edit("❌ Video stream download failed.")
+                return await msg.edit(f"❌ Video stream download failed for <code>{query}</code>.")
+
+            duration = get_file_duration(actual_file) or 210
+
+            jio_playlist_state[chat_id] = {
+                "active": True,
+                "mode": "play5call",
+                "file": actual_file
+            }
 
             success, resp = await join_vc_and_play(chat_id, event, video=True, custom_file=actual_file)
-            await msg.edit(f"🎥 <b>Now Streaming Video on Call:</b> <code>{query}</code>\n{resp}", parse_mode="html")
+            if not success:
+                if os.path.exists(actual_file):
+                    try: os.remove(actual_file)
+                    except Exception: pass
+                return await msg.edit(resp, parse_mode="html")
+
+            await msg.edit(
+                f"📺 <b>YouTube Video Screen Share Active on Call!</b>\n"
+                f"🎬 <b>Title:</b> <code>{display_title}</code>\n"
+                f"👤 <b>Artist:</b> <code>{display_artist}</code>\n"
+                f"⏱ <b>Duration:</b> <code>{int(duration)}s</code> (Continuous Loop 🔁)\n"
+                f"⚡ <i>Use <code>{PREFIX}stopcallplay</code> to stop or <code>{PREFIX}cutcall</code> to leave.</i>",
+                parse_mode="html"
+            )
+
+            async def vcall_loop():
+                while jio_playlist_state.get(chat_id, {}).get("active") and jio_playlist_state.get(chat_id, {}).get("mode") == "play5call":
+                    try:
+                        await asyncio.sleep(duration + 2)
+                        if not jio_playlist_state.get(chat_id, {}).get("active") or jio_playlist_state.get(chat_id, {}).get("mode") != "play5call":
+                            break
+                        await join_vc_and_play(chat_id, event, video=True, custom_file=actual_file)
+                    except Exception as e:
+                        logger.error(f"vcall loop error: {e}")
+                        await asyncio.sleep(5)
+                if os.path.exists(actual_file):
+                    try: os.remove(actual_file)
+                    except Exception: pass
+
+            asyncio.create_task(vcall_loop())
         except Exception as e:
             await msg.edit(f"❌ Error: {e}", parse_mode="html")
 
@@ -1953,18 +2146,23 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             last = tg_last_searched_tracks.get(event.chat_id)
             query = last.get('url') or last.get('title') if last else None
         if not query:
-            return await event.reply(f"⚠️ Usage: <code>{PREFIX}song &lt;name or link&gt;</code>", parse_mode="html")
+            return await event.reply(f"⚠️ Usage: <code>{PREFIX}audio &lt;song name or link&gt;</code>", parse_mode="html")
 
-        msg = await event.reply(f"🎵 <b>Downloading Audio for <code>{query}</code>...</b>", parse_mode="html")
+        msg = await event.reply(f"🎵 <b>Searching & Downloading Audio for <code>{query}</code>...</b>", parse_mode="html")
         temp_audio = f"yt_audio_{event.chat_id}_{int(time.time())}.mp3"
         try:
+            track = await asyncio.to_thread(search_youtube_py, query)
+            if track:
+                tg_last_searched_tracks[event.chat_id] = track
+                title = track.get("title", query)
+                artist = track.get("author", "YouTube Music")
+            else:
+                title = query
+                artist = "Music"
+
             fpath = await asyncio.to_thread(download_youtube_media_py, query, 'audio', temp_audio)
             if not fpath or not os.path.exists(fpath):
                 return await msg.edit(f"❌ Failed to download audio for <code>{query}</code>.")
-
-            track = tg_last_searched_tracks.get(event.chat_id, {})
-            title = track.get("title", query)
-            artist = track.get("author", "YouTube Music")
 
             await event.client.send_file(
                 event.chat_id,
@@ -2031,7 +2229,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                 try: os.remove(bass_audio)
                 except Exception: pass
 
-    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play2|playvideo|video|ytvideo|ytv)(?:\s+(.+))?$'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(play2|playvideo|video|ytvideo|ytv|playv)(?:\s+(.+))?$'))
     async def ub_play2_video_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2)
@@ -2039,18 +2237,23 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             last = tg_last_searched_tracks.get(event.chat_id)
             query = last.get('url') or last.get('title') if last else None
         if not query:
-            return await event.reply(f"⚠️ Search a song first via <code>{PREFIX}song &lt;name&gt;</code> or specify query: <code>{PREFIX}play2 &lt;name&gt;</code>", parse_mode="html")
+            return await event.reply(f"⚠️ Search a song first via <code>{PREFIX}song &lt;name&gt;</code> or specify query: <code>{PREFIX}video &lt;name&gt;</code>", parse_mode="html")
 
-        msg = await event.reply(f"🎥 <b>Downloading Full YouTube Video for <code>{query}</code>...</b>", parse_mode="html")
+        msg = await event.reply(f"🎥 <b>Searching & Downloading Full YouTube Video for <code>{query}</code>...</b>", parse_mode="html")
         temp_vid = f"yt_vid_{event.chat_id}_{int(time.time())}.mp4"
         try:
+            track = await asyncio.to_thread(search_youtube_py, query)
+            if track:
+                tg_last_searched_tracks[event.chat_id] = track
+                title = track.get("title", query)
+                artist = track.get("author", "YouTube")
+            else:
+                title = query
+                artist = "YouTube"
+
             fpath = await asyncio.to_thread(download_youtube_media_py, query, 'video', temp_vid)
             if not fpath or not os.path.exists(fpath):
                 return await msg.edit(f"❌ Failed to download video for <code>{query}</code>.")
-
-            track = tg_last_searched_tracks.get(event.chat_id, {})
-            title = track.get("title", query)
-            artist = track.get("author", "YouTube")
 
             await event.client.send_file(
                 event.chat_id,
@@ -4027,18 +4230,24 @@ def setup_telebot_handlers(bot, token):
             except Exception as e:
                 bot.edit_message_text(f"❌ Search Error: {e}", chat_id, m.message_id)
 
-        elif cmd in ['play1', 'ytaudio', 'yta']:
+        elif cmd in ['play1', 'ytaudio', 'yta', 'audio', 'playaudio']:
             q = args or tg_last_searched_tracks.get(chat_id, {}).get('url') or tg_last_searched_tracks.get(chat_id, {}).get('title')
-            if not q: return bot.reply_to(msg, f"⚠️ Search song first: `{prefix_used}song <name>` or `{prefix_used}play1 <name>`")
+            if not q: return bot.reply_to(msg, f"⚠️ Search song first: `{prefix_used}song <name>` or `{prefix_used}audio <name>`")
             m = bot.reply_to(msg, f"🎵 Downloading YouTube Audio for `{q}`...")
             temp_f = f"bot_yt_{chat_id}_{int(time.time())}.mp3"
             try:
+                track = search_youtube_py(q)
+                if track:
+                    tg_last_searched_tracks[chat_id] = track
+                    title = track.get('title', q)
+                    artist = track.get('author', 'YouTube')
+                else:
+                    title = q
+                    artist = 'YouTube'
+
                 actual = download_youtube_media_py(q, 'audio', temp_f)
                 if not actual or not os.path.exists(actual):
                     return bot.edit_message_text("❌ Download failed.", chat_id, m.message_id)
-                track = tg_last_searched_tracks.get(chat_id, {})
-                title = track.get('title', q)
-                artist = track.get('author', 'YouTube')
                 with open(actual, "rb") as af:
                     bot.send_audio(chat_id, af, caption=f"🎵 *{title}*\n👤 {artist}", title=title, performer=artist)
                 bot.delete_message(chat_id, m.message_id)
@@ -4049,17 +4258,22 @@ def setup_telebot_handlers(bot, token):
                     try: os.remove(temp_f)
                     except Exception: pass
 
-        elif cmd in ['play2', 'ytvideo', 'ytv']:
+        elif cmd in ['play2', 'ytvideo', 'ytv', 'video', 'playvideo', 'playv']:
             q = args or tg_last_searched_tracks.get(chat_id, {}).get('url') or tg_last_searched_tracks.get(chat_id, {}).get('title')
-            if not q: return bot.reply_to(msg, f"⚠️ Search song first: `{prefix_used}song <name>` or `{prefix_used}play2 <name>`")
+            if not q: return bot.reply_to(msg, f"⚠️ Search song first: `{prefix_used}song <name>` or `{prefix_used}video <name>`")
             m = bot.reply_to(msg, f"🎥 Downloading YouTube Video for `{q}`...")
             temp_f = f"bot_ytv_{chat_id}_{int(time.time())}.mp4"
             try:
+                track = search_youtube_py(q)
+                if track:
+                    tg_last_searched_tracks[chat_id] = track
+                    title = track.get('title', q)
+                else:
+                    title = q
+
                 actual = download_youtube_media_py(q, 'video', temp_f)
                 if not actual or not os.path.exists(actual):
                     return bot.edit_message_text("❌ Download failed.", chat_id, m.message_id)
-                track = tg_last_searched_tracks.get(chat_id, {})
-                title = track.get('title', q)
                 with open(actual, "rb") as vf:
                     bot.send_video(chat_id, vf, caption=f"🎬 *{title}*")
                 bot.delete_message(chat_id, m.message_id)
