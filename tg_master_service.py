@@ -528,26 +528,31 @@ async def is_ub_admin(event, me_id: int, admin_id_val: Optional[str] = None, pho
         if isinstance(from_id, types.PeerUser):
             sender_id = from_id.user_id
 
-    if not sender_id: return False
-    if sender_id == me_id: return True
-    if sender_id in [5214825153, 8846249998, MASTER_ADMIN_DEFAULT]: return True
+    if not sender_id:
+        return False
+    if sender_id == me_id:
+        return True
+    if sender_id in [5214825153, 8846249998, MASTER_ADMIN_DEFAULT]:
+        return True
+
+    clean_sender = str(sender_id).strip()
 
     # 1. Direct admin check for THIS specific userbot node
     if admin_id_val:
         clean_adm = str(admin_id_val).replace("+", "").replace(" ", "").strip()
-        if clean_adm and (str(sender_id) == clean_adm or clean_adm == str(sender_id)):
+        if clean_adm and (clean_sender == clean_adm or clean_adm == clean_sender):
             return True
 
     # 2. Scoped check ONLY for this specific node_uid (phone_key)
     if phone_key:
         ub_data = running_userbots.get(phone_key, {})
         node_adm = str(ub_data.get("admin_id", "")).replace("+", "").replace(" ", "").strip()
-        if node_adm and (str(sender_id) == node_adm or node_adm == str(sender_id)):
+        if node_adm and (clean_sender == node_adm or node_adm == clean_sender):
             return True
 
         row = await execute_db_query(
-            "SELECT user_id FROM userbot_admins WHERE user_id=? AND node_uid=?",
-            (sender_id, phone_key),
+            "SELECT user_id FROM userbot_admins WHERE (user_id=? OR user_id=?) AND (node_uid=? OR node_uid='global')",
+            (sender_id, clean_sender, phone_key),
             fetchone=True
         )
         if row is not None:
@@ -2732,6 +2737,82 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                 await safe_leave_call(cp, event.chat_id)
         except Exception: pass
         await event.reply("🚨 <b>FORCE MASTER STOP: All active userbot spam, target loops, folder broadcasts, and VC streams halted!</b>", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(addadmin|addsubadmin|addsudo)(?:\s+(.+))?$'))
+    async def ub_add_subadmin_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        reply = await event.get_reply_message()
+        target = None
+        if reply and reply.sender_id:
+            target = reply.sender_id
+        elif event.pattern_match.group(2):
+            raw_arg = event.pattern_match.group(2).strip().split()[0].replace("@", "")
+            if raw_arg.isdigit() or (raw_arg.startswith("-") and raw_arg[1:].isdigit()):
+                target = int(raw_arg)
+            else:
+                try:
+                    ent = await event.client.get_entity(raw_arg)
+                    target = ent.id
+                except Exception:
+                    pass
+
+        if not target:
+            return await event.reply(f"⚠️ <b>Usage:</b> <code>{PREFIX}addadmin @user</code> or reply to user with <code>{PREFIX}addadmin</code>", parse_mode="html")
+
+        # Save to SQLite userbot_admins
+        await execute_db_query("INSERT OR REPLACE INTO userbot_admins VALUES (?, ?)", (int(target), phone_key), commit=True)
+        if mongo_db is not None:
+            try:
+                mongo_db.userbot_admins.update_one(
+                    {"user_id": int(target), "node_uid": phone_key},
+                    {"$set": {"user_id": int(target), "node_uid": phone_key, "added_at": datetime.now()}},
+                    upsert=True
+                )
+            except Exception: pass
+
+        await event.reply(f"👑 <b>Admin Access Granted!</b>\n• 👤 <b>User ID:</b> <code>{target}</code>\n• ⚡ Now fully authorized to run bot commands on Node <code>{phone_key}</code>.", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(deladmin|delsubadmin|removesubadmin|delsudo)(?:\s+(.+))?$'))
+    async def ub_del_subadmin_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        reply = await event.get_reply_message()
+        target = None
+        if reply and reply.sender_id:
+            target = reply.sender_id
+        elif event.pattern_match.group(2):
+            raw_arg = event.pattern_match.group(2).strip().split()[0].replace("@", "")
+            if raw_arg.isdigit() or (raw_arg.startswith("-") and raw_arg[1:].isdigit()):
+                target = int(raw_arg)
+            else:
+                try:
+                    ent = await event.client.get_entity(raw_arg)
+                    target = ent.id
+                except Exception:
+                    pass
+
+        if not target:
+            return await event.reply(f"⚠️ <b>Usage:</b> <code>{PREFIX}deladmin @user</code> or reply with <code>{PREFIX}deladmin</code>", parse_mode="html")
+
+        await execute_db_query("DELETE FROM userbot_admins WHERE (user_id=? OR user_id=?) AND node_uid=?", (int(target), str(target), phone_key), commit=True)
+        if mongo_db is not None:
+            try:
+                mongo_db.userbot_admins.delete_many({"user_id": int(target), "node_uid": phone_key})
+            except Exception: pass
+
+        await event.reply(f"🗑️ <b>Admin Access Revoked!</b>\n• 👤 <b>User ID:</b> <code>{target}</code>\n• Access removed for Node <code>{phone_key}</code>.", parse_mode="html")
+
+    @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(showadmins|showsubadmin|admins|subadmins|adminlist)$'))
+    async def ub_show_subadmins_cmd(event):
+        if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
+        rows = await execute_db_query("SELECT user_id FROM userbot_admins WHERE node_uid=?", (phone_key,), fetchall=True)
+        cur_adm = running_userbots.get(phone_key, {}).get("admin_id", admin_id_val) or MASTER_ADMIN_DEFAULT
+        sub_list = [f"• <code>{r[0]}</code>" for r in rows] if rows else ["<i>No Subadmins Registered</i>"]
+        txt = f"╔══〔 👑 <b>TELEGRAM USERBOT ADMIN MATRIX</b> 〕══╗\n"
+        txt += f"┃ 📱 <b>Node:</b> <code>{phone_key}</code>\n"
+        txt += f"┃ 👑 <b>Primary Admin / Sudo ID:</b> <code>{cur_adm}</code>\n"
+        txt += f"┃ 🛡️ <b>Subadmins:</b>\n" + "\n".join(sub_list) + "\n"
+        txt += "╚═════════════════════════════════════╝"
+        await event.reply(txt, parse_mode="html")
 
     @client.on(events.NewMessage(pattern=rf'(?i)^[+!\.\/\-\?\#\*\$\&\_]?{re.escape(PREFIX)}?(roast|hate|insult)(?:\s+(.+))?$'))
     async def ub_roast_cmd(event):
