@@ -560,8 +560,16 @@ async def is_ub_admin(event, me_id: int, admin_id_val: Optional[str] = None, pho
 
     return False
 
-async def is_bot_admin(user_id: int) -> bool:
+async def is_bot_admin(user_id: int, token: Optional[str] = None) -> bool:
     if user_id in [5214825153, 8846249998, MASTER_ADMIN_DEFAULT]: return True
+    if token:
+        row = await execute_db_query("SELECT owner FROM managed_bots WHERE bot_id=?", (token,), fetchone=True)
+        if row and row[0] and (str(user_id) == str(row[0]) or str(user_id) == str(row[0]).replace("+", "").strip()):
+            return True
+        res = await execute_db_query("SELECT user_id FROM bot_admins WHERE user_id=? AND (node_uid=? OR node_uid='global' OR node_uid IS NULL)", (user_id, token), fetchone=True)
+        if res is not None:
+            return True
+        return False
     res = await execute_db_query("SELECT user_id FROM bot_admins WHERE user_id=?", (user_id,), fetchone=True)
     return res is not None
 
@@ -580,8 +588,16 @@ def sync_execute_db_query(query: str, params: tuple = (), fetchone=False, fetcha
                 conn.commit()
             return res
 
-def is_bot_admin_sync(user_id: int) -> bool:
+def is_bot_admin_sync(user_id: int, token: Optional[str] = None) -> bool:
     if user_id in [5214825153, 8846249998, MASTER_ADMIN_DEFAULT]: return True
+    if token:
+        row = sync_execute_db_query("SELECT owner FROM managed_bots WHERE bot_id=?", (token,), fetchone=True)
+        if row and row[0] and (str(user_id) == str(row[0]) or str(user_id) == str(row[0]).replace("+", "").strip()):
+            return True
+        res = sync_execute_db_query("SELECT user_id FROM bot_admins WHERE user_id=? AND (node_uid=? OR node_uid='global' OR node_uid IS NULL)", (user_id, token), fetchone=True)
+        if res is not None:
+            return True
+        return False
     res = sync_execute_db_query("SELECT user_id FROM bot_admins WHERE user_id=?", (user_id,), fetchone=True)
     return res is not None
 
@@ -3907,7 +3923,7 @@ def setup_telebot_handlers(bot, token):
             bot.edit_message_text(f"🤖 **[ Server God AI ]**\n\n{ans}", chat_id, m.message_id)
 
         elif cmd == 'addadmin':
-            if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
+            if not is_bot_admin_sync(user_id, token): return bot.reply_to(msg, "❌ Admin only.")
             if args.isdigit():
                 sync_execute_db_query("INSERT OR REPLACE INTO bot_admins VALUES (?, ?)", (int(args), datetime.now().strftime("%Y-%m-%d")), commit=True)
                 bot.reply_to(msg, f"✅ Admin `{args}` Added")
@@ -3917,7 +3933,7 @@ def setup_telebot_handlers(bot, token):
                 bot.reply_to(msg, f"✅ Admin `{r_id}` Added")
 
         elif cmd == 'removeadmin':
-            if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
+            if not is_bot_admin_sync(user_id, token): return bot.reply_to(msg, "❌ Admin only.")
             if args.isdigit():
                 sync_execute_db_query("DELETE FROM bot_admins WHERE user_id=?", (int(args),), commit=True)
                 bot.reply_to(msg, f"❌ Admin `{args}` Removed")
@@ -3927,13 +3943,13 @@ def setup_telebot_handlers(bot, token):
                 bot.reply_to(msg, f"❌ Admin `{r_id}` Removed")
 
         elif cmd == 'showadmins':
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             rows = sync_execute_db_query("SELECT user_id FROM bot_admins", fetchall=True)
             admins_list = [str(r[0]) for r in rows] if rows else ["5214825153"]
             bot.send_message(chat_id, "\n".join(admins_list))
 
         elif cmd == 'addbot':
-            if not is_bot_admin_sync(user_id): return bot.reply_to(msg, "❌ Admin only.")
+            if not is_bot_admin_sync(user_id, token): return bot.reply_to(msg, "❌ Admin only.")
             if not args: return bot.reply_to(msg, "⚠️ Usage: !addbot <token>")
             new_token = args.strip()
             if new_token in running_bots: return bot.reply_to(msg, "⚠️ Bot running already.")
@@ -3942,32 +3958,32 @@ def setup_telebot_handlers(bot, token):
             bot.reply_to(msg, "✅ Bot added and activated!")
 
         elif cmd == 'reply':
-            if not is_bot_admin_sync(user_id) or not args: return
+            if not is_bot_admin_sync(user_id, token) or not args: return
             ensure_group(token, chat_id).update({"autoReplyAll": True, "autoReplyMessage": args})
             bot.send_message(chat_id, "💬 Auto Reply ON")
 
         elif cmd in ['stopreply', 'replystop']:
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             ensure_group(token, chat_id)["autoReplyAll"] = False
             bot.send_message(chat_id, "🛑 Auto Reply OFF")
 
         elif cmd == 'setswipe':
-            if not is_bot_admin_sync(user_id) or not args: return
+            if not is_bot_admin_sync(user_id, token) or not args: return
             ensure_group(token, chat_id)["swipeList"] = args.split("|")
             bot.send_message(chat_id, "🎲 Swipe Set")
 
         elif cmd in ['clearswipe', 'stopswipe', 'swipestop']:
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             ensure_group(token, chat_id)["swipeList"] = []
             bot.send_message(chat_id, "🧹 Swipe Cleared")
 
         elif cmd == 'setreact':
-            if not is_bot_admin_sync(user_id) or not args: return
+            if not is_bot_admin_sync(user_id, token) or not args: return
             ensure_group(token, chat_id)["reactions"] = list(args.replace(" ", ""))
             bot.send_message(chat_id, "😎 Reaction Set")
 
         elif cmd in ['clearreact', 'stopreact']:
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             ensure_group(token, chat_id)["reactions"] = []
             bot.send_message(chat_id, "🧹 Reaction Cleared")
 
@@ -4095,7 +4111,7 @@ def setup_telebot_handlers(bot, token):
                     except Exception: pass
 
         elif cmd == 'startnc':
-            if not is_bot_admin_sync(user_id) or not args: return
+            if not is_bot_admin_sync(user_id, token) or not args: return
             st = ensure_group(token, chat_id)
             st.update({"ncNames": args.split("|"), "ncEmojiIndex": 0, "ncIndex": 0})
             if not st["ncInterval"]:
@@ -4104,7 +4120,7 @@ def setup_telebot_handlers(bot, token):
             bot.send_message(chat_id, "♻️ NC Started with emojis and names.")
 
         elif cmd in ['stopnc', 'ncstop']:
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             st = ensure_group(token, chat_id)
             if not st.get("ncInterval"):
                 return bot.send_message(chat_id, "⚠️ No NC (Name Cycling) running.")
@@ -4115,7 +4131,7 @@ def setup_telebot_handlers(bot, token):
             bot.send_message(chat_id, "🛑 NC (Name Cycling) Stopped")
 
         elif cmd in ['ncdelay', 'setspeednc']:
-            if not is_bot_admin_sync(user_id) or not args: return
+            if not is_bot_admin_sync(user_id, token) or not args: return
             try:
                 val = int(args.strip())
                 ensure_group(token, chat_id)["ncDelay"] = val
@@ -4123,7 +4139,7 @@ def setup_telebot_handlers(bot, token):
             except Exception: pass
 
         elif cmd == 'startspam':
-            if not is_bot_admin_sync(user_id) or not args: return
+            if not is_bot_admin_sync(user_id, token) or not args: return
             st = ensure_group(token, chat_id)
             st["spamMessage"] = args
             if not st["spamInterval"]:
@@ -4132,12 +4148,12 @@ def setup_telebot_handlers(bot, token):
             bot.send_message(chat_id, f"📢 Spam Started: \"{args}\"")
 
         elif cmd in ['stopspam', 'spamstop', 'killspam']:
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             ensure_group(token, chat_id)["spamInterval"] = False
             bot.send_message(chat_id, "🛑 Spam Stopped")
 
         elif cmd in ['spamdelay', 'delay', 'speed']:
-            if not is_bot_admin_sync(user_id) or not args: return
+            if not is_bot_admin_sync(user_id, token) or not args: return
             try:
                 val = int(args.strip())
                 ensure_group(token, chat_id)["spamDelay"] = val
@@ -4145,7 +4161,7 @@ def setup_telebot_handlers(bot, token):
             except Exception: pass
 
         elif cmd in ['changegroupphoto', 'changegroupphoto1', 'setgroupphoto']:
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             if msg.reply_to_message and msg.reply_to_message.photo:
                 try:
                     file_info = bot.get_file(msg.reply_to_message.photo[-1].file_id)
@@ -4168,7 +4184,7 @@ def setup_telebot_handlers(bot, token):
                 bot.send_message(chat_id, "📸 Group Photo Change Loop Started")
 
         elif cmd in ['stopphotochange', 'stopphoto']:
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             st = ensure_group(token, chat_id)
             if not st.get("photoLoopInterval"):
                 return bot.send_message(chat_id, "⚠️ No Photo Loop Running.")
@@ -4176,23 +4192,23 @@ def setup_telebot_handlers(bot, token):
             bot.send_message(chat_id, "🛑 Group Photo Change Loop Stopped")
 
         elif cmd == 'changegrouphotodelay':
-            if not is_bot_admin_sync(user_id) or not args.isdigit():
+            if not is_bot_admin_sync(user_id, token) or not args.isdigit():
                 return bot.send_message(chat_id, "❌ Invalid delay. Please provide a positive number.")
             val = int(args)
             ensure_group(token, chat_id)["photoDelay"] = val * 1000
             bot.send_message(chat_id, f"⏱ Photo change delay set to {val} seconds.")
 
         elif cmd == 'fetchallgc':
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             g_count = len(botGroupStates.get(token, {}))
             bot.send_message(chat_id, f"🌐 Total Cached Group Chats: {g_count}")
 
         elif cmd == 'targetallgc':
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             bot.send_message(chat_id, "🎯 Targeted all accessible group chats!")
 
         elif cmd == 'gcspam':
-            if not is_bot_admin_sync(user_id) or not args: return
+            if not is_bot_admin_sync(user_id, token) or not args: return
             for g_id in list(botGroupStates.get(token, {}).keys()):
                 st = ensure_group(token, g_id)
                 st["spamMessage"] = args
@@ -4202,13 +4218,13 @@ def setup_telebot_handlers(bot, token):
             bot.send_message(chat_id, f"📢 Mass Spam started across all groups: \"{args}\"")
 
         elif cmd == 'gcstopspam':
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             for g_id in list(botGroupStates.get(token, {}).keys()):
                 ensure_group(token, g_id)["spamInterval"] = False
             bot.send_message(chat_id, "🛑 Mass Spam stopped across all groups.")
 
         elif cmd == 'gcnc':
-            if not is_bot_admin_sync(user_id) or not args: return
+            if not is_bot_admin_sync(user_id, token) or not args: return
             for g_id in list(botGroupStates.get(token, {}).keys()):
                 st = ensure_group(token, g_id)
                 st.update({"ncNames": args.split("|"), "ncEmojiIndex": 0, "ncIndex": 0})
@@ -4218,14 +4234,14 @@ def setup_telebot_handlers(bot, token):
             bot.send_message(chat_id, "♻️ Group Name Cycling started across all groups.")
 
         elif cmd == 'gcstopnc':
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             for g_id in list(botGroupStates.get(token, {}).keys()):
                 ensure_group(token, g_id)["ncInterval"] = False
             bot.send_message(chat_id, "🛑 Mass NC stopped across all groups.")
 
         # MASTER STOP ALL COMMAND
         elif cmd in ['stop', 'stopall', 'killall', 'kill', 'shutdown']:
-            if not is_bot_admin_sync(user_id): return
+            if not is_bot_admin_sync(user_id, token): return
             st = ensure_group(token, chat_id)
             st["spamInterval"] = False
             st["ncInterval"] = False
