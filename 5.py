@@ -2267,13 +2267,14 @@ def dismiss_instagram_modals(p_page):
 def get_msg_box(p_page):
     dismiss_instagram_modals(p_page)
 
-    # If on general inbox without open thread, click top conversation
+    # If on general inbox without open thread, click top conversation or active thread
     if "/direct/t/" not in p_page.url:
         try:
             threads = p_page.locator('a[href*="/direct/t/"], div[role="listitem"]')
             if threads.count() > 0 and threads.first.is_visible():
                 threads.first.click(timeout=3000, force=True)
                 time.sleep(2)
+                dismiss_instagram_modals(p_page)
         except Exception:
             pass
 
@@ -3702,11 +3703,35 @@ def ig_private_api_worker(uid):
                             break
 
                         log_ig_priv_terminal(uid, f"➡️ Entering GC #{t_idx}/{len(gc_urls)}...", "INFO")
-                        page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
-                        time.sleep(2.5)
-                        dismiss_instagram_modals(page)
+                        
+                        # Navigate with auto-retry if page/thread doesn't load immediately
+                        try:
+                            page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+                            time.sleep(2.5)
+                            dismiss_instagram_modals(page)
+                            
+                            if "/direct/t/" not in page.url:
+                                dismiss_instagram_modals(page)
+                                time.sleep(1)
+                                page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+                                time.sleep(2.5)
+                                dismiss_instagram_modals(page)
+                        except Exception as e_nav:
+                            log_ig_priv_terminal(uid, f"⚠️ Navigation retry for GC #{t_idx}: {e_nav}", "WARN")
+                            try:
+                                page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+                                time.sleep(3)
+                                dismiss_instagram_modals(page)
+                            except Exception:
+                                pass
 
                         msg_box = get_msg_box(page)
+                        if not msg_box:
+                            # Re-verify and retry finding msg_box after clearing modals
+                            time.sleep(2)
+                            dismiss_instagram_modals(page)
+                            msg_box = get_msg_box(page)
+
                         raw_txt = messages[msg_cycle_idx % len(messages)]
                         msg_cycle_idx += 1
                         current_emoji = IG_PRIVATE_EMOJI_LIST[emoji_idx % len(IG_PRIVATE_EMOJI_LIST)]
@@ -3723,13 +3748,22 @@ def ig_private_api_worker(uid):
                         else:
                             final_msg = core_msg
 
+                        # --- STEP 1: SEND 1 TEXT MESSAGE ---
                         try:
                             if msg_box and msg_box.is_visible():
-                                msg_box.click(timeout=3000, force=True)
+                                try:
+                                    msg_box.click(timeout=3000, force=True)
+                                except Exception:
+                                    try:
+                                        msg_box.evaluate("el => el.focus()")
+                                    except Exception:
+                                        pass
+                                time.sleep(0.1)
                                 page.keyboard.press("Control+A")
                                 page.keyboard.press("Backspace")
+                                time.sleep(0.1)
                                 page.keyboard.insert_text(final_msg)
-                                time.sleep(0.2)
+                                time.sleep(0.3)
                                 
                                 sent = False
                                 send_btn = page.locator('button:has-text("Send"), div[role="button"]:has-text("Send"), div[aria-label="Send"], svg[aria-label="Send"]').first
@@ -3758,7 +3792,10 @@ def ig_private_api_worker(uid):
 
                         time.sleep(delay)
 
-                        # 1 NC rename with Modal Click + Save Button
+                        # --- STEP 2: 1 NC RENAME PER GC ---
+                        if not ig_priv_running.get(uid) and not ig_priv_running.get(uid_str):
+                            break
+
                         nc_template = nc_list[emoji_idx % len(nc_list)]
                         current_emoji = IG_PRIVATE_EMOJI_LIST[emoji_idx % len(IG_PRIVATE_EMOJI_LIST)]
                         emoji_idx += 1
@@ -3774,7 +3811,7 @@ def ig_private_api_worker(uid):
                                 info_btn.click(timeout=3000, force=True)
                                 time.sleep(1)
 
-                            change_btn = page.locator('div[aria-label="Change group name"][role="button"], div[role="button"]:has-text("Change group name")').first
+                            change_btn = page.locator('div[aria-label="Change group name"][role="button"], div[role="button"]:has-text("Change group name"), button:has-text("Change group name")').first
                             if change_btn.count() > 0 and change_btn.is_visible():
                                 change_btn.click(timeout=3000, force=True)
                                 time.sleep(0.5)
@@ -3799,8 +3836,12 @@ def ig_private_api_worker(uid):
                                 elif uid_str in ig_priv_stats:
                                     ig_priv_stats[uid_str]["renamed"] = ig_priv_stats[uid_str].get("renamed", 0) + 1
                                 log_ig_priv_terminal(uid, f"🏷️ [1 NC] Renamed GC #{t_idx} to '{new_title}'", "SUCCESS")
+                            
+                            # Close info panel if still open
+                            if info_btn.count() > 0 and info_btn.is_visible():
+                                info_btn.click(timeout=2000, force=True)
                         except Exception as e_nc:
-                            pass
+                            log_ig_priv_terminal(uid, f"⚠️ NC rename notice in GC #{t_idx}: {e_nc}", "WARN")
 
                         time.sleep(delay)
 
