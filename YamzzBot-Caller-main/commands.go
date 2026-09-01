@@ -64,9 +64,24 @@ var (
 	autoRejectEnabled = false
 	autoRejectMu      sync.RWMutex
 
+	callNotiEnabled = true
+	callNotiMu      sync.RWMutex
+
 	lastIncomingCallMu sync.RWMutex
 	lastIncomingCall   *meowcaller.Call
 )
+
+func IsCallNotiEnabled() bool {
+	callNotiMu.RLock()
+	defer callNotiMu.RUnlock()
+	return callNotiEnabled
+}
+
+func SetCallNoti(enabled bool) {
+	callNotiMu.Lock()
+	defer callNotiMu.Unlock()
+	callNotiEnabled = enabled
+}
 
 func IsAutoUnmuteEnabled() bool {
 	autoUnmuteMu.RLock()
@@ -618,6 +633,12 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 			return
 		}
 		handleToggleAutoUnmute(ctx, evt, args)
+
+	case "noti", "callnoti", "groupnoti", "noticall", "callnotification":
+		if !requireAdmin() {
+			return
+		}
+		handleToggleCallNoti(ctx, evt, args)
 
 	case "autojoincall", "autojoingc", "autojoin", "autocalljoin":
 		if !requireAdmin() {
@@ -2361,6 +2382,25 @@ func handleToggleAutoJoinGC(ctx context.Context, evt *events.Message, args strin
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("╔══〔 📞 *AUTO-JOIN CALL SENTINEL* 〕══╗\n┃ Chat: *%s*\n┃ Status: *ENABLED (AUTO JOIN ACTIVE IN THIS CHAT ONLY) 🟢*\n┃ Action: *Will auto-join calls in this chat*\n┃ Command: `%sautojoincall off` to disable\n╚═════════════════════════════════════╝", evt.Info.Chat.User, getPrefix()))
 	} else {
 		sendText(ctx, evt.Info.Chat, fmt.Sprintf("╔══〔 📞 *AUTO-JOIN CALL SENTINEL* 〕══╗\n┃ Chat: *%s*\n┃ Status: *DISABLED (NO AUTO JOIN) 🔴*\n┃ Command: `%sautojoincall on` to enable\n╚═════════════════════════════════════╝", evt.Info.Chat.User, getPrefix()))
+	}
+}
+
+func handleToggleCallNoti(ctx context.Context, evt *events.Message, args string) {
+	sub := strings.ToLower(strings.TrimSpace(args))
+	if sub == "on" || sub == "enable" || sub == "1" || sub == "true" {
+		SetCallNoti(true)
+	} else if sub == "off" || sub == "disable" || sub == "0" || sub == "false" {
+		SetCallNoti(false)
+	} else {
+		SetCallNoti(!IsCallNotiEnabled())
+	}
+
+	isNowOn := IsCallNotiEnabled()
+	reactMsg(ctx, evt, "🔔")
+	if isNowOn {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("╔══〔 🔔 *CALL NOTIFICATION SYSTEM* 〕══╗\n┃ Status: *ENABLED (LIVE INCOMING CALL ALERTS ON) 🟢*\n┃ Action: *Incoming calls will alert in this chat with accept/reject buttons*\n┃ Command: `%snoti off` to disable\n╚════════════════════════════════════════╝", getPrefix()))
+	} else {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("╔══〔 🔔 *CALL NOTIFICATION SYSTEM* 〕══╗\n┃ Status: *DISABLED (SILENT MODE) 🔴*\n┃ Command: `%snoti on` to enable\n╚════════════════════════════════════════╝", getPrefix()))
 	}
 }
 

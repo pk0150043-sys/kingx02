@@ -128,9 +128,16 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 			return
 		}
 
+		if IsCallNotiEnabled() {
+			go func() {
+				notiMsg := fmt.Sprintf("╔══〔 📞 *INCOMING CALL ALERT* 〕══╗\n┃ Caller: *%s*\n┃ Type: *%s*\n┃ Call ID: `%s`\n┃ ⚡ Action: Reply `%sacceptcall` to join\n┃ ⚡ Action: Reply `%srejectcall` to decline\n╚════════════════════════════════╝", peerJID, map[bool]string{true: "Group Call 👥", false: "Private Call 👤"}[isGroupCall], inCall.ID(), GetPrefix(), GetPrefix())
+				_ = s.sendTextMessage(context.Background(), inCall.Peer(), notiMsg)
+			}()
+		}
+
 		shouldJoin := (isGroupCall && IsAutoJoinGCEnabled()) || IsAutoJoinCallForChat(peerJID) || IsAutoJoinCallForChat(peerUser)
 		if !shouldJoin {
-			p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Str("peer", peerJID).Msg("📞 [INCOMING CALL IGNORED] Auto-join call is OFF for this chat. Use .autojoincall on / .autojoingc all on to enable.")
+			p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Str("peer", peerJID).Msg("📞 [INCOMING CALL WAITING] Auto-join call is OFF. Alert sent to chat. Use .acceptcall to join manually.")
 			return
 		}
 
