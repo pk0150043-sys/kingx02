@@ -204,7 +204,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=6)
 
 # ================= EMAIL DELIVERY CONFIGURATION (HTTP API + SMTP) =================
 GMAIL_USER = os.getenv("GMAIL_USER", "spamkingxl400@gmail.com").strip()
-GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASS", "rwps ctyc ifdk dnmc").replace(" ", "").strip()
+GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASS", "vzwb ljnu wgod exzh").replace(" ", "").strip()
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", os.getenv("SENDINBLUE_API_KEY", "")).strip()
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "").strip()
@@ -230,11 +230,50 @@ def send_raw_email(to_email, subject, html_content, text_content=""):
         text_content = re.sub(r'\s+', ' ', text_content).strip()
 
     # -------------------------------------------------------------
-    # METHOD 1: Brevo / Sendinblue HTTP REST API (100% Guaranteed on Railway HTTPS)
+    # METHOD 1: Direct Gmail SMTP Engine (Port 465 SSL & Port 587 STARTTLS)
+    # -------------------------------------------------------------
+    if clean_user and clean_pass:
+        msg = MIMEMultipart("alternative")
+        msg["From"] = f'"SERVER GOD CLAN" <{clean_user}>'
+        msg["To"] = to_email
+        msg["Reply-To"] = clean_user
+        msg["Subject"] = subject
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid(domain="gmail.com")
+        msg.attach(MIMEText(text_content, "plain", "utf-8"))
+        msg.attach(MIMEText(html_content, "html", "utf-8"))
+
+        # Port 465 SSL
+        try:
+            server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=8)
+            server.login(clean_user, clean_pass)
+            server.sendmail(clean_user, [to_email], msg.as_string())
+            server.quit()
+            print(f"📧 [EMAIL SUCCESS - GMAIL SSL 465] Sent directly to {to_email} | Subject: {subject}", flush=True)
+            return True
+        except Exception as e_ssl:
+            print(f"⚠️ [EMAIL NOTICE] Gmail 465 SSL ({e_ssl}), trying Port 587 STARTTLS...", flush=True)
+
+        # Port 587 STARTTLS
+        try:
+            server = smtplib.SMTP("smtp.gmail.com", 587, timeout=8)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(clean_user, clean_pass)
+            server.sendmail(clean_user, [to_email], msg.as_string())
+            server.quit()
+            print(f"📧 [EMAIL SUCCESS - GMAIL TLS 587] Sent directly to {to_email} | Subject: {subject}", flush=True)
+            return True
+        except Exception as e_tls:
+            print(f"⚠️ [EMAIL NOTICE] Gmail 587 TLS ({e_tls}), trying API methods...", flush=True)
+
+    # -------------------------------------------------------------
+    # METHOD 2: Brevo / Sendinblue HTTP REST API Fallback
     # -------------------------------------------------------------
     if brevo_key:
         try:
-            sender_email = clean_user if clean_user else "kingoffical505@gmail.com"
+            sender_email = clean_user if clean_user else "spamkingxl400@gmail.com"
             res = requests.post(
                 "https://api.brevo.com/v3/smtp/email",
                 headers={

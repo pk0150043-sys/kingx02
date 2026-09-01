@@ -529,7 +529,10 @@
 
     <!-- TABS -->
     <div class="tab-bar">
-      <button class="tab-btn active" onclick="switchOwnerTab('users')">
+      <button class="tab-btn active" onclick="switchOwnerTab('pending_requests')">
+        ⏳ Pending Approval Requests <span id="pendingBadge" style="background:#ef4444;color:#ffffff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px;display:none;">0</span>
+      </button>
+      <button class="tab-btn" onclick="switchOwnerTab('users')">
         👥 Users &amp; Access Control
       </button>
       <button class="tab-btn" onclick="switchOwnerTab('owner_security')">
@@ -549,8 +552,21 @@
       </button>
     </div>
 
+    <!-- TAB 0: PENDING APPROVAL REQUESTS (OWNER APPROVAL HUB) -->
+    <div id="tab-pending_requests" class="tab-content active">
+      <div class="box">
+        <div class="box-title">
+          <span>⏳ New User Registration Approval Requests</span>
+          <span style="font-size:13px;color:var(--gold);" id="pendingCountText">0 Requests Pending</span>
+        </div>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">When new users register, they cannot login until you approve them here. Click <strong>Approve</strong> to give full platform access or <strong>Reject</strong> to block registration.</p>
+        
+        <div id="pendingRequestsList">Loading pending approval requests...</div>
+      </div>
+    </div>
+
     <!-- TAB 1: USERS & ACCESS CONTROL -->
-    <div id="tab-users" class="tab-content active">
+    <div id="tab-users" class="tab-content">
       <div class="box">
         <h2 class="box-title">➕ Add New User to MongoDB Atlas</h2>
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;">
@@ -770,7 +786,8 @@
         document.getElementById("multiGcCountText").textContent = `${igCount} Multi-GC Bots`;
         document.getElementById("singleGcCountText").textContent = `${gcCount} Single-GC Bots`;
 
-        // 2. Render Users List
+        // 2. Render Pending Requests & Users List
+        renderPendingRequests(globalUsers);
         renderUsersList(globalUsers);
 
         // 3. Render Multi-GC Fleet
@@ -793,19 +810,119 @@
       }
     }
 
+    function renderPendingRequests(users) {
+      let pendingList = [];
+      Object.entries(users).forEach(([uname, u]) => {
+        const email = u.email || uname;
+        if (u.status === "pending_approval" || u.status === "pending" || (!u.status && u.role !== "owner")) {
+          pendingList.push({ ...u, email: email, uname: uname });
+        }
+      });
+
+      const count = pendingList.length;
+      document.getElementById("pendingCountText").textContent = `${count} Registration Request${count === 1 ? '' : 's'} Pending`;
+      const badge = document.getElementById("pendingBadge");
+      if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = "inline-block";
+      } else {
+        badge.style.display = "none";
+      }
+
+      if (count === 0) {
+        document.getElementById("pendingRequestsList").innerHTML = `
+          <div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);padding:20px;border-radius:12px;text-align:center;">
+            <span style="font-size:24px;">✅</span>
+            <p style="color:#22c55e;font-weight:700;margin-top:6px;">All user registrations are approved!</p>
+            <p style="font-size:13px;color:#a1a1aa;margin-top:4px;">When new users sign up on the platform, their requests will appear here instantly for your review.</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = "";
+      pendingList.forEach(u => {
+        const email = u.email || u.uname;
+        html += `
+          <div class="user-card" style="border-left:4px solid var(--gold);background:rgba(250,204,21,0.06);margin-bottom:12px;" id="pending-card-${btoa(email).replace(/=/g, '')}">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <strong style="font-size:17px;color:#ffffff;">${u.name || u.uname}</strong>
+                <span class="badge-status" style="background:rgba(250,204,21,0.2);color:var(--gold);border:1px solid rgba(250,204,21,0.4);">
+                  ⏳ PENDING OWNER APPROVAL
+                </span>
+              </div>
+              <div style="font-size:13px;color:#cbd5e1;margin-top:8px;line-height:1.7;">
+                📧 Email: <strong style="color:var(--gold);">${u.email || 'N/A'}</strong> | 📱 Phone: <strong>${u.phone || 'N/A'}</strong>
+                <br>
+                🕒 Registered On: <span style="color:#94a3b8;">${u.createdAt || u.registered_at || 'Recently'}</span> | 🔑 Pass: <code style="color:var(--gold);">${u.password || '••••'}</code>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <button class="btn-small" style="background:#22c55e;color:#000000;font-weight:800;padding:10px 18px;" onclick="ownerApproveUser('${email}')">
+                ✅ APPROVE USER
+              </button>
+              <button class="btn-small btn-red" style="padding:10px 18px;" onclick="ownerRejectUser('${email}')">
+                ❌ REJECT
+              </button>
+            </div>
+          </div>
+        `;
+      });
+      document.getElementById("pendingRequestsList").innerHTML = html;
+    }
+
+    async function ownerApproveUser(email) {
+      if (!confirm(`Are you sure you want to APPROVE user '${email}'? They will be granted full login access immediately.`)) return;
+      try {
+        const res = await fetch("/api/owner/users/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        alert(data.message || "User approved successfully!");
+        loadOwnerData();
+      } catch (e) {
+        alert("Approval failed: " + e);
+      }
+    }
+
+    async function ownerRejectUser(email) {
+      if (!confirm(`Are you sure you want to REJECT user '${email}'? They will be blocked from logging in.`)) return;
+      try {
+        const res = await fetch("/api/owner/users/reject", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        alert(data.message || "User rejected!");
+        loadOwnerData();
+      } catch (e) {
+        alert("Reject failed: " + e);
+      }
+    }
+
     function renderUsersList(users) {
       let html = "";
       Object.entries(users).forEach(([uname, u]) => {
         const email = u.email || uname;
-        const isBlocked = u.status === "blocked" || u.status === "deactivated";
+        const isBlocked = u.status === "blocked" || u.status === "deactivated" || u.status === "rejected";
+        const isPending = u.status === "pending_approval" || u.status === "pending";
+        let statusBadge = `<span class="badge-status badge-active">ACTIVE</span>`;
+        if (isPending) {
+          statusBadge = `<span class="badge-status" style="background:rgba(250,204,21,0.2);color:var(--gold);border:1px solid rgba(250,204,21,0.4);">PENDING APPROVAL</span>`;
+        } else if (isBlocked) {
+          statusBadge = `<span class="badge-status badge-blocked">${(u.status || 'BLOCKED').toUpperCase()}</span>`;
+        }
+
         html += `
           <div class="user-card" id="user-card-${btoa(email).replace(/=/g, '')}">
             <div>
               <div style="display:flex;align-items:center;gap:10px;">
                 <strong style="font-size:16px;color:#ffffff;">${u.name || uname}</strong>
-                <span class="badge-status ${isBlocked ? 'badge-blocked' : 'badge-active'}">
-                  ${isBlocked ? 'BLOCKED' : 'ACTIVE'}
-                </span>
+                ${statusBadge}
                 <span style="font-size:11px;padding:3px 8px;border-radius:6px;background:rgba(250,204,21,0.15);color:var(--gold);font-weight:700;">${(u.role || 'USER').toUpperCase()}</span>
               </div>
               <div style="font-size:13px;color:#a1a1aa;margin-top:6px;line-height:1.6;">
@@ -813,6 +930,7 @@
               </div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              ${isPending ? `<button class="btn-small" style="background:#22c55e;color:#000000;font-weight:800;" onclick="ownerApproveUser('${email}')">✅ Approve</button>` : ''}
               <button class="btn-small btn-blue" onclick="openEditUserModal('${email}')">
                 ✏️ Edit Details
               </button>
