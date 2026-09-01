@@ -1119,10 +1119,12 @@ def next_ig_private_uid():
 def parse_instagram_cookie_input(raw_input, extra_csrf=""):
     cookies_dict = {}
     clean_sess = ""
-    clean_csrf = ""
+    clean_csrf = (extra_csrf or "").strip()
     user_id = ""
 
     if not raw_input:
+        if clean_csrf:
+            cookies_dict["csrftoken"] = clean_csrf
         return cookies_dict, clean_sess, clean_csrf, user_id
 
     text = str(raw_input).strip()
@@ -1163,7 +1165,6 @@ def parse_instagram_cookie_input(raw_input, extra_csrf=""):
 
     # 3. Standard Cookie Header / Semicolon / Comma / Newline Key-Value format
     if not cookies_dict or "sessionid" not in cookies_dict:
-        # Split by ; or newlines
         for part in re.split(r'[;\r\n]+', text):
             part = part.strip()
             if "=" in part:
@@ -1173,26 +1174,37 @@ def parse_instagram_cookie_input(raw_input, extra_csrf=""):
                 if k and v:
                     cookies_dict[k] = v
 
-    # 4. Fallback if single raw token pasted
+    # 4. Fallback if single raw token pasted (pure session ID)
     if not cookies_dict.get("sessionid"):
-        if "%3A" in text or "%3a" in text or re.match(r'^[0-9]+%3A', text):
-            clean_sess = text
-            cookies_dict["sessionid"] = clean_sess
+        clean_sess = text
+        cookies_dict["sessionid"] = clean_sess
 
     clean_sess = cookies_dict.get("sessionid", clean_sess).strip()
+    if clean_sess.lower().startswith("sessionid="):
+        clean_sess = clean_sess[10:].strip()
     if "%3A" in clean_sess or "%3a" in clean_sess:
         clean_sess = urllib.parse.unquote(clean_sess).strip()
     cookies_dict["sessionid"] = clean_sess
 
-    clean_csrf = cookies_dict.get("csrftoken", extra_csrf or "").strip()
-    if clean_csrf:
-        cookies_dict["csrftoken"] = clean_csrf
+    if not clean_csrf:
+        clean_csrf = cookies_dict.get("csrftoken", "").strip()
+    if not clean_csrf:
+        clean_csrf = secrets.token_hex(16)
+    cookies_dict["csrftoken"] = clean_csrf
 
     user_id = str(cookies_dict.get("ds_user_id") or "").strip()
-    if not user_id and (":" in clean_sess or "%3A" in clean_sess):
-        user_id = clean_sess.split("%3A")[0].split(":")[0]
-    if user_id:
-        cookies_dict["ds_user_id"] = user_id
+    if not user_id and clean_sess:
+        m = re.match(r'^([0-9]+)', clean_sess)
+        if m:
+            user_id = m.group(1)
+            cookies_dict["ds_user_id"] = user_id
+
+    if "ig_did" not in cookies_dict:
+        cookies_dict["ig_did"] = str(uuid.uuid4()).upper()
+    if "mid" not in cookies_dict:
+        cookies_dict["mid"] = secrets.token_urlsafe(20)[:24]
+    if "datr" not in cookies_dict:
+        cookies_dict["datr"] = secrets.token_urlsafe(20)[:24]
 
     return cookies_dict, clean_sess, clean_csrf, user_id
 
@@ -3132,9 +3144,22 @@ def multi_gc_playwright_worker(uid):
                 gc_links = gc_links[:max_groups]
 
             if not gc_links:
-                log_ig_terminal(uid, "⚠️ No group chats in card. Click '🔍 Auto-Scrape GC Links' or paste links into the card textarea, then click Save!", "WARN")
-                time.sleep(5)
-                continue
+                log_ig_terminal(uid, "🔍 No group chats in card. Auto-scraping Instagram Inbox now...", "INFO")
+                try:
+                    scraped = scrape_instagram_groups(sessionid, csrftoken, max_groups=max_groups, log_fn=lambda m, l: log_ig_terminal(uid, m, l))
+                    if scraped:
+                        gc_links = scraped[:max_groups]
+                        acc["gc_links"] = gc_links
+                        save_ig_account_db(uid, acc)
+                        log_ig_terminal(uid, f"✅ Auto-scraped and saved {len(gc_links)} group chat links!", "SUCCESS")
+                    else:
+                        log_ig_terminal(uid, "⚠️ 0 group chats found in any folder. Paste links manually or retry in 10s...", "WARN")
+                        time.sleep(10)
+                        continue
+                except Exception as e_sc:
+                    log_ig_terminal(uid, f"⚠️ Scrape notice: {e_sc}. Retrying in 10s...", "WARN")
+                    time.sleep(10)
+                    continue
 
             cycle_count += 1
             delay = float(acc.get("delay", 2.0))
@@ -4325,6 +4350,16 @@ def add_account():
 
     uid = next_ig_uid()
     current_user = get_current_user()
+
+    if not gc_links:
+        log_ig_terminal("AUTH", f"🔍 Auto-scraping initial group chat links for Bot #{uid}...", "INFO")
+        try:
+            scraped = scrape_instagram_groups(sessionid, csrftoken, max_groups=max_groups, log_fn=lambda m, l: log_ig_terminal(uid, m, l))
+            if scraped:
+                gc_links = scraped[:max_groups]
+                log_ig_terminal(uid, f"✅ Auto-scraped {len(gc_links)} group chat links on registration!", "SUCCESS")
+        except Exception as e_sc:
+            log_ig_terminal(uid, f"⚠️ Auto-scrape notice: {e_sc}", "WARN")
 
     acc_data = {
         "uid": uid,

@@ -427,8 +427,25 @@
         Automated Direct Inbox GC Link Scraper ➔ Opens each group ➔ Dispatches <strong>2 King-Spaced Text Strikes</strong> + Executes <strong>1 NC Title Rename</strong> ➔ Loops continuously with <strong>10s Cycle Delay</strong>!
       </p>
 
-      <label>🔑 Instagram Session ID / Netscape Cookie File (Paste full text or sessionid)</label>
-      <textarea id="session" style="height:70px;" placeholder="Paste sessionid, Raw Cookie Header, or Full Netscape/cURL Cookies.txt file here..."></textarea>
+      <div style="display:flex;gap:10px;">
+        <div style="flex:1;">
+          <label>🔑 Instagram Session ID / Netscape Cookie (Paste sessionid or full cookies)</label>
+          <textarea id="session" style="height:65px;" placeholder="Paste sessionid, Raw Cookie Header, or Full Netscape/cURL Cookies.txt file here..."></textarea>
+        </div>
+        <div style="flex:1;">
+          <label>🛡️ CSRF Token (Optional / Auto-extracted from cookie)</label>
+          <input id="csrftoken" placeholder="Paste csrftoken (e.g. Abc123xyz...) or leave blank if in sessionid">
+          <p style="font-size:11px;color:#a1a1aa;margin-top:4px;">💡 Used for instant group chat inbox link scraping.</p>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;margin-bottom:2px;">
+        <label style="margin:0;">🔗 Target Group Chat Links (<span id="addFormLinksCount">0</span> loaded)</label>
+        <button type="button" id="btnFetchAddLinks" onclick="fetchGroupLinksForAddForm()" style="background:linear-gradient(135deg,#0284c7,#a855f7);border:none;color:#fff;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">
+          🔍 Auto-Fetch GC Links
+        </button>
+      </div>
+      <textarea id="gc_links" style="height:65px;" placeholder="Paste group links (1 per line) or click '🔍 Auto-Fetch GC Links' above (Auto-scraped on Deploy if empty)..." oninput="updateAddFormLinksCount()"></textarea>
 
       <label>🎯 Opponent / Target Names (Haters - e.g. HATER 1, HATER 2)</label>
       <input id="opponent" placeholder="Enter target names (e.g. hater 1, hater 2)...">
@@ -576,10 +593,66 @@
       consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
+    function updateAddFormLinksCount() {
+      const gcLinksEl = document.getElementById("gc_links");
+      if (!gcLinksEl) return;
+      const txt = gcLinksEl.value.trim();
+      const count = txt ? txt.split("\n").filter(l => l.trim().startsWith("http")).length : 0;
+      const countEl = document.getElementById("addFormLinksCount");
+      if (countEl) countEl.textContent = count;
+    }
+
+    async function fetchGroupLinksForAddForm() {
+      const sessionid = document.getElementById("session").value.trim();
+      const csrftoken = (document.getElementById("csrftoken") ? document.getElementById("csrftoken").value.trim() : "");
+      const max_groups = parseInt(document.getElementById("max_groups").value.trim() || "150");
+      const btn = document.getElementById("btnFetchAddLinks");
+
+      if (!sessionid) {
+        alert("Please enter your Session ID or Cookie first!");
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "⏳ Scraping GC Links...";
+      }
+      appendTerminalLog("AUTH", `🔍 Auto-scraping up to ${max_groups} group chat links from Instagram Inbox...`, "INFO");
+
+      try {
+        const res = await fetch("/scrape_links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionid, csrftoken, max_groups })
+        });
+        const d = await res.json();
+        if (d.status === "ok") {
+          const links = (d.links || []).slice(0, max_groups);
+          appendTerminalLog("AUTH", `✅ Successfully fetched ${links.length} Group Chat links!`, "SUCCESS");
+          const linksBox = document.getElementById("gc_links");
+          if (linksBox) {
+            linksBox.value = links.join("\n");
+            updateAddFormLinksCount();
+          }
+        } else {
+          appendTerminalLog("AUTH", `❌ Scrape Notice: ${d.message || "No links returned"}`, "ERROR");
+          alert("Notice: " + (d.message || "Failed to fetch links"));
+        }
+      } catch (err) {
+        appendTerminalLog("AUTH", `❌ Scrape error: ${err.message}`, "ERROR");
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "🔍 Auto-Fetch GC Links";
+        }
+      }
+    }
+
     async function addMultiGCAccount() {
       const btn = document.getElementById("btnAddAccount");
       const sessionid = document.getElementById("session").value.trim();
-      const csrftoken = document.getElementById("csrftoken").value.trim();
+      const csrftoken = (document.getElementById("csrftoken") ? document.getElementById("csrftoken").value.trim() : "");
+      const gc_links = (document.getElementById("gc_links") ? document.getElementById("gc_links").value.trim() : "");
       const opponent = document.getElementById("opponent").value.trim();
       const header_text = document.getElementById("header_text").value.trim() || "👑 SPAM BY KING 👑";
       const footer_text = document.getElementById("footer_text").value.trim() || "👑 SCRIPT BY SERVER GOD CLAN 👑";
@@ -599,6 +672,7 @@
       const payload = {
         sessionid: sessionid,
         csrftoken: csrftoken,
+        gc_links: gc_links,
         opponent: opponent,
         header_text: header_text,
         footer_text: footer_text,
@@ -625,7 +699,11 @@
         if (data.status === "ok") {
           appendTerminalLog("AUTH", `✅ Multi-GC Bot #${data.uid} registered successfully!`, "SUCCESS");
           document.getElementById("session").value = "";
-          document.getElementById("csrftoken").value = "";
+          if (document.getElementById("csrftoken")) document.getElementById("csrftoken").value = "";
+          if (document.getElementById("gc_links")) {
+            document.getElementById("gc_links").value = "";
+            updateAddFormLinksCount();
+          }
           loadStatus(true);
         } else {
           appendTerminalLog("AUTH", `❌ Registration Failed: ${data.message || "Invalid configuration"}`, "ERROR");
