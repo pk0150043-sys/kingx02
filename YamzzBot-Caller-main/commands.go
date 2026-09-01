@@ -582,12 +582,7 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 			_ = lastCall.Answer()
 		}
 		reactMsg(ctx, evt, "📞")
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf(`╔══〔 📞 *INCOMING CALL ACCEPTED* 〕══╗
-┃ 🎯 Action: *Accept & Stream Connected*
-┃ 📡 Output: *Live WebRTC Audio Stream*
-┃ ⚡ Status: *ANSWERED & CONNECTED* 🟢
-╚═════════════════════════════════════╝
-_Use `%sendcall` or `%scutcall` to hang up._`, curPrefix, curPrefix))
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("╔══〔 📞 *INCOMING CALL ACCEPTED* 〕══╗\n┃ 🎯 Action: *Accept & Stream Connected*\n┃ 📡 Output: *Live WebRTC Audio Stream*\n┃ ⚡ Status: *ANSWERED & CONNECTED* 🟢\n╚═════════════════════════════════════╝\n_Use `%sendcall` or `%scutcall` to hang up._", curPrefix, curPrefix))
 
 	case "rejectcall", "declinecall":
 		if !requireAdmin() {
