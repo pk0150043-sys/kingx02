@@ -1,244 +1,34 @@
 {
   "users": {
+    "p92349017@gmail.com": {
+      "name": "Bhavy keng",
+      "email": "p92349017@gmail.com",
+      "phone": "+919316773324",
+      "password": "bhavy@12",
+      "role": "user",
+      "status": "rejected",
+      "lastOtpVerifiedAt": "2026-09-01 14:33:40.659740",
+      "createdAt": "2026-09-01 14:33:40.659767"
+    },
+    "sariswanner@gmail.com": {
+      "name": "Bhavy keng",
+      "email": "sariswanner@gmail.com",
+      "phone": "+919316773324",
+      "password": "bhavy@12",
+      "role": "user",
+      "status": "active",
+      "lastOtpVerifiedAt": "2026-09-01 14:40:20.507280",
+      "createdAt": "2026-09-01 14:40:20.507292"
+    },
     "ebuuowns@gmail.com": {
-      "name": "EBUU GOD",
+      "name": "EBUU KENG",
       "email": "ebuuowns@gmail.com",
       "phone": "+917654880558",
       "password": "EBUU@123",
       "role": "user",
       "status": "active",
-      "lastOtpVerifiedAt": "2026-08-31 07:52:30.499585",
-      "createdAt": "2026-08-23 18:44:09.333180"
-    },
-    "theycallmemonstergod@gmail.com": {
-      "name": "MONSTER",
-      "email": "theycallmemonstergod@gmail.com",
-      "phone": "+84 92 546 54 62",
-      "password": "MONSTER@12",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-28 13:05:16.762427",
-      "createdAt": "2026-08-22 10:43:03.945169"
-    },
-    "ayushsaxena0982@gmail.com": {
-      "name": "Scar",
-      "email": "ayushsaxena0982@gmail.com",
-      "phone": "+91 7838132226",
-      "password": "SCAR/@123",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-31 16:57:43.409829",
-      "createdAt": "2026-08-26 11:32:28.182672"
-    },
-    "snappygod25@gmail.com": {
-      "name": "Ben",
-      "email": "snappygod25@gmail.com",
-      "phone": "8877137231",
-      "password": "ANISHHU1",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-26 15:27:24.790889",
-      "createdAt": "2026-08-26 15:27:24.790904"
-    },
-    "jericajohnson500@gmail.com": {
-      "name": "OP",
-      "email": "jericajohnson500@gmail.com",
-      "phone": "9876548765",
-      "password": "OPHU123",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-27 01:40:55.711911",
-      "createdAt": "2026-08-27 01:40:55.711923"
-    },
-    "abadan.mina650@gmail.com": {
-      "name": "\u3006 \u13da\u029c\u1d00\u1d05\u1d0f\uaa9d",
-      "email": "abadan.mina650@gmail.com",
-      "phone": "+91 8059326586",
-      "password": "fytxsdw1_bot",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-27 02:07:33.008533",
-      "createdAt": "2026-08-27 02:07:33.008543"
-    },
-    "sariswanner@gmail.com": {
-      "name": "Bhavy",
-      "email": "sariswanner@gmail.com",
-      "phone": "+919316773324",
-      "password": "bhavy@122",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-27 03:13:50.016991",
-      "createdAt": "2026-08-27 03:13:50.017006"
-    },
-    "hereayush83@gmail.com": {
-      "name": "DEVIL",
-      "email": "hereayush83@gmail.com",
-      "phone": "7388842279",
-      "password": "DEVIL@1218",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-31 02:12:38.756774",
-      "createdAt": "2026-08-27 15:14:36.864373"
-    },
-    "heredevil145@gmail.com": {
-      "name": "DEVIL Here",
-      "email": "heredevil145@gmail.com",
-      "phone": "7388842279",
-      "password": "DEVIL@1218",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-31 10:53:25.016104",
-      "createdAt": "2026-08-28 06:43:44.790467"
-    },
-    "lastrishabshows@gmail.com": {
-      "name": "Rishi",
-      "email": "lastrishabshows@gmail.com",
-      "phone": "+919181248814",
-      "password": "Rishi@12",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-28 08:49:48.439900",
-      "createdAt": "2026-08-28 08:49:48.439910"
-    },
-    "p92349017@gmail.com": {
-      "name": "Keng",
-      "email": "p92349017@gmail.com",
-      "phone": "+919316773324",
-      "password": "bhavy@122",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-30 07:26:02.246629",
-      "createdAt": "2026-08-28 13:16:14.175196"
-    },
-    "e4gl3.xgod@gmail.com": {
-      "name": "Eagle",
-      "email": "e4gl3.xgod@gmail.com",
-      "phone": "+917827770357",
-      "password": "EagleHu123",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-31 15:35:33.616807",
-      "createdAt": "2026-08-28 16:56:26.230320"
-    },
-    "jhaa50351@gmail.com": {
-      "name": "Yash",
-      "email": "jhaa50351@gmail.com",
-      "phone": "6203459796",
-      "password": "Yash@121",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-26 05:27:31.575500",
-      "createdAt": "2026-08-26 05:27:31.575517"
-    },
-    "ayushopx1@gmail.com": {
-      "name": "ayushopx",
-      "email": "ayushopx1@gmail.com",
-      "phone": "7388842279",
-      "password": "DEVIL@1218",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-09-01 03:32:06.051268",
-      "createdAt": "2026-08-30 03:22:06.708909"
-    },
-    "krishuenters102@gmail.com": {
-      "name": "Krishu",
-      "email": "krishuenters102@gmail.com",
-      "phone": "9552493818",
-      "password": "Krish@5919",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-31 12:08:58.903389",
-      "createdAt": "2026-08-30 06:00:14.469128"
-    },
-    "samuxop1@gmail.com": {
-      "name": "KINGU",
-      "email": "samuxop1@gmail.com",
-      "phone": "918837801368",
-      "password": "AKASH0011",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-31 00:12:01.408551",
-      "createdAt": "2026-08-30 15:42:21.648006"
-    },
-    "missxop1@gmail.com": {
-      "name": "AKX",
-      "email": "missxop1@gmail.com",
-      "phone": "918837801368",
-      "password": "AKASH0011",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-31 01:30:57.133242",
-      "createdAt": "2026-08-31 01:30:57.133251"
-    },
-    "ketandhimanx@gmail.com": {
-      "name": "Ak",
-      "email": "ketandhimanx@gmail.com",
-      "phone": "8837801368",
-      "password": "AKASH0011",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-08-31 15:44:40.737542",
-      "createdAt": "2026-08-31 15:44:40.737550"
-    },
-    "vijaymalya705@gmail.com": {
-      "name": "Scar",
-      "email": "vijaymalya705@gmail.com",
-      "phone": "8847895100",
-      "password": "Victor1057@",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-09-01 01:53:41.939435",
-      "createdAt": "2026-08-31 16:54:10.370760"
-    },
-    "beart7712@gmail.com": {
-      "name": "Ayan",
-      "email": "beart7712@gmail.com",
-      "phone": "8446530817",
-      "password": "1234",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-09-01 02:02:05.205668",
-      "createdAt": "2026-09-01 02:02:05.205678"
-    },
-    "princeopxl@gmail.com": {
-      "name": "Robert Rodriguez",
-      "email": "princeopxl@gmail.com",
-      "phone": "8847895100",
-      "password": "123456",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-09-01 02:57:23.197338",
-      "createdAt": "2026-09-01 02:57:23.197350"
-    },
-    "isapioli66@gmail.com": {
-      "name": "Riyu Sharma",
-      "email": "isapioli66@gmail.com",
-      "phone": "+919044414814",
-      "password": "kaif1313",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-09-01 07:31:45.214079",
-      "createdAt": "2026-09-01 07:31:45.214089"
-    },
-    "pwned1788254184@gmail.com": {
-      "name": "{{config.SECRET_KEY}}",
-      "email": "pwned1788254184@gmail.com",
-      "phone": "9876543210",
-      "password": "Hacked123!@#",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-09-01 09:16:25.737491",
-      "createdAt": "2026-09-01 09:16:25.737503"
-    },
-    "victim1788254270@gmail.com": {
-      "name": "victim",
-      "email": "victim1788254270@gmail.com",
-      "phone": "1111111111",
-      "password": "hacked123",
-      "role": "user",
-      "status": "active",
-      "lastOtpVerifiedAt": "2026-09-01 09:18:14.852244",
-      "createdAt": "2026-09-01 09:17:51.189296"
+      "lastOtpVerifiedAt": "2026-09-01 15:07:01.983907",
+      "createdAt": "2026-09-01 15:07:01.983930"
     }
   },
   "members": [
@@ -246,154 +36,92 @@
     "PRINCE",
     "RIYA"
   ],
-  "accounts": {},
-  "gc_accounts": {
-    "gc_1": {
-      "uid": "gc_1",
-      "name": "gc_1",
-      "username": "gc_1",
-      "delay": 10,
-      "targets": [],
-      "groups": 0,
-      "remove": "",
-      "owner": "princeopxl@gmail.com",
-      "sessionid": "33713732569:SoFjpzTFrxJwpe:14:AYh5BB8SAyMEh6XEdU6NiT65L2_cyznED9QTQl34dg",
+  "accounts": {
+    "1": {
+      "uid": "1",
+      "name": "Multi-GC Bot #1 (ASUR#REYAN)",
+      "username": "ASUR#REYAN",
+      "messages": [
+        "COVER KR SLOW SPAMMERS #MADHARCHOD-----/😂                                                  TAILOR WALE KE LARCE SPEED BADHA"
+      ],
+      "renames": [
+        "MADHARCHOD"
+      ],
+      "delay": 2,
+      "cycle_delay": 10,
+      "owner": "ebuuowns@gmail.com",
+      "sessionid": "34919022135:hVweCp97XUBLDS:18:AYjlB-5g-H63JvQfaW4oW3eFWTc402hOQX0xXKKfSTI",
       "settings": {},
-      "createdAt": "2026-09-01 09:53:31.355755"
-    },
-    "gc_2": {
-      "uid": "gc_2",
-      "name": "gc_2",
-      "username": "gc_2",
-      "delay": 1,
-      "targets": [],
-      "groups": 0,
-      "remove": "",
-      "owner": "pwned1788254184@gmail.com",
-      "sessionid": "test",
-      "settings": {},
-      "createdAt": "2026-09-01 09:53:31.355755"
-    },
-    "gc_3": {
-      "uid": "gc_3",
-      "name": "gc_3",
-      "username": "gc_3",
-      "delay": 1,
-      "targets": [],
-      "groups": 0,
-      "remove": "",
-      "owner": "pwned1788254184@gmail.com",
-      "sessionid": "test",
-      "settings": {},
-      "createdAt": "2026-09-01 09:53:31.355755"
-    },
-    "gc_4": {
-      "uid": "gc_4",
-      "name": "gc_4",
-      "username": "gc_4",
-      "delay": 1,
-      "targets": [],
-      "groups": 0,
-      "remove": "",
-      "owner": "pwned1788254184@gmail.com",
-      "sessionid": "test",
-      "settings": {},
-      "createdAt": "2026-09-01 09:53:31.355755"
+      "createdAt": "2026-09-01 17:43:51.195939"
     }
   },
+  "gc_accounts": {},
   "tg_accounts": {},
   "wp_accounts": {
-    "wp_isapioli66_Riyu": {
-      "uid": "wp_isapioli66_Riyu",
-      "name": "Riyu",
-      "owner_jid": "23276801364",
+    "wp_KINGX01": {
+      "uid": "wp_KINGX01",
+      "name": "KINGX01",
+      "owner_jid": "919507325677",
       "target_numbers": [],
       "prefix": "+",
       "delay": 5,
-      "owner": "isapioli66@gmail.com",
-      "createdAt": "2026-09-01 09:06:16.964903"
+      "owner": "OWNER",
+      "createdAt": "2026-09-01 14:05:20.739928",
+      "updatedAt": "2026-09-01T19:36:03.833Z"
     },
-    "wp_isapioli66_bot2": {
-      "uid": "wp_isapioli66_bot2",
-      "name": "bot2",
-      "owner_jid": "9044414814",
-      "target_numbers": [],
+    "wp_KINGX": {
+      "uid": "wp_KINGX",
+      "name": "KINGX",
+      "owner_jid": "191525812211746@lid",
+      "owner": "OWNER",
+      "admin_name": "SERVER GOD CLAN EMPEROR",
+      "system_owner": "SERVER GOD CLAN KING",
       "prefix": "+",
       "delay": 5,
-      "owner": "isapioli66@gmail.com",
-      "createdAt": "2026-09-01 08:27:58.520064"
-    },
-    "wp_pwned1788254_hacked_bot": {
-      "uid": "wp_pwned1788254_hacked_bot",
-      "name": "hacked_bot",
-      "owner_jid": "919709490160@s.whatsapp.net",
       "target_numbers": [],
-      "prefix": "+",
-      "delay": 5,
-      "owner": "pwned1788254184@gmail.com",
-      "createdAt": "2026-09-01 09:42:48.270796"
-    },
-    "wp_pwned1788254_id": {
-      "uid": "wp_pwned1788254_id",
-      "name": "`id`",
-      "owner_jid": "test",
-      "target_numbers": [],
-      "prefix": "+",
-      "delay": 5,
-      "owner": "pwned1788254184@gmail.com",
-      "createdAt": "2026-09-01 09:44:37.113061"
-    },
-    "wp_pwned1788254_test_id": {
-      "uid": "wp_pwned1788254_test_id",
-      "name": "test;_id",
-      "owner_jid": "test",
-      "target_numbers": [],
-      "prefix": "+",
-      "delay": 5,
-      "owner": "pwned1788254184@gmail.com",
-      "createdAt": "2026-09-01 09:44:37.645273"
-    },
-    "wp_pwned1788254_test__id": {
-      "uid": "wp_pwned1788254_test__id",
-      "name": "test_&&_id",
-      "owner_jid": "test",
-      "target_numbers": [],
-      "prefix": "+",
-      "delay": 5,
-      "owner": "pwned1788254184@gmail.com",
-      "createdAt": "2026-09-01 09:44:38.738753"
-    },
-    "wp_pwned1788254_testid": {
-      "uid": "wp_pwned1788254_testid",
-      "name": "test\nid",
-      "owner_jid": "test",
-      "target_numbers": [],
-      "prefix": "+",
-      "delay": 5,
-      "owner": "pwned1788254184@gmail.com",
-      "createdAt": "2026-09-01 09:44:39.268556"
+      "createdAt": "2026-08-25 19:19:02.750628",
+      "updatedAt": "2026-09-01T19:37:16.031Z"
     }
   },
   "wp_call_accounts": {
-    "wp_call_ayushopx1_DEVIL": {
-      "uid": "wp_call_ayushopx1_DEVIL",
-      "name": "DEVIL",
-      "owner_jid": "+998331006412",
+    "wp_call_Kingx": {
+      "uid": "wp_call_Kingx",
+      "name": "Kingx",
+      "owner_jid": "919507325677",
       "target_numbers": [],
       "prefix": "+",
       "delay": 5,
-      "owner": "ayushopx1@gmail.com",
-      "createdAt": "2026-09-01 03:36:24.893345"
+      "owner": "OWNER",
+      "createdAt": "2026-09-01 14:24:35.144684"
     },
-    "wp_call_pwned1788254_callbot": {
-      "uid": "wp_call_pwned1788254_callbot",
-      "name": "callbot",
-      "owner_jid": "919709490160@s.whatsapp.net",
+    "wp_call_kingx02": {
+      "uid": "wp_call_kingx02",
+      "name": "kingx02",
+      "owner_jid": "919507325677",
       "target_numbers": [],
       "prefix": "+",
       "delay": 5,
-      "owner": "pwned1788254184@gmail.com",
-      "createdAt": "2026-09-01 09:42:49.152285"
+      "owner": "OWNER",
+      "createdAt": "2026-09-01 15:43:14.381675"
+    }
+  },
+  "ig_private_accounts": {
+    "ig_priv_1": {
+      "uid": "ig_priv_1",
+      "sessionid": "# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file! Do not edit.\n\n.instagram.com\tTRUE\t/\tTRUE\t1807154167\tdatr\t-KOnaXy-hxt3zWNyMtxa9M8a\n.instagram.com\tTRUE\t/\tTRUE\t1804130167\tig_did\tF6F275ED-F9FB-4A90-8314-E2E49427D134\n.instagram.com\tTRUE\t/\tTRUE\t1807154764\tps_l\t1\n.instagram.com\tTRUE\t/\tTRUE\t1807154764\tps_n\t1\n.instagram.com\tTRUE\t/\tTRUE\t1804176485\tig_nrcb\t1\n.instagram.com\tTRUE\t/\tTRUE\t1807353578\tmid\taaqu7QALAAHg6l1Mla-yFfHmcfxs\n.instagram.com\tTRUE\t/\tTRUE\t1788894217\twd\t1707x811\n.instagram.com\tTRUE\t/\tTRUE\t1788894217\tdpr\t1.125\n.instagram.com\tTRUE\t/\tTRUE\t1822849421\tcsrftoken\tcvaGQlqX6txsxmJYeAUbzhfAwGhqFlT3\n.instagram.com\tTRUE\t/\tTRUE\t1796065421\tds_user_id\t28612253940\n.instagram.com\tTRUE\t/\tTRUE\t1819821908\tsessionid\t28612253940:dCrOwjGHms70sR:23:AYiCd0M737X9C9IHTjgBuffNb5EUCVvQ3UfAvBeXag\n.instagram.com\tTRUE\t/\tTRUE\t0\trur\t\"RVA\\05428612253940\\0541819825422:01ffef20a3ac9bdf467e82e65033c8b3f572d2fa67b305100abefa6d4b096177861909d1\"",
+      "csrftoken": "",
+      "target_name": "hateer",
+      "group_names": [
+        "https://www.instagram.com/direct/t/1600986724953088/"
+      ],
+      "messages": [
+        "CHUD MC"
+      ],
+      "prefix": "KING",
+      "repeat_count": 15,
+      "delay": 2,
+      "owner": "OWNER",
+      "createdAt": "2026-09-01 19:26:10.834302"
     }
   },
   "owner_creds": {

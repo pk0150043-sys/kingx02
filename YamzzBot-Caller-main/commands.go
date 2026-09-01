@@ -55,7 +55,7 @@ var (
 	autoUnmuteEnabled = true
 	autoUnmuteMu      sync.RWMutex
 
-	autoJoinGCEnabled = false
+	autoJoinGCEnabled = true
 	autoJoinGCMu      sync.RWMutex
 
 	autoJoinChats   = make(map[string]bool)
@@ -386,9 +386,18 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 		isOwnerForSender(s, rawSender) ||
 		(phoneUser != "" && isOwnerForSender(s, phoneUser))
 
-	// Strict Admin / Owner Authorization: In owner/adminonly mode, only panel-authorized admins can control the bot
-	// Unauthorized users are silently ignored (NO REPLY IS SENT)
-	if Mode != "public" && !authorized {
+	// Basic informational commands (menu, start, ping, help) are open so users can see the bot is alive
+	isInfoCmd := cmd == "start" || cmd == "hello" || cmd == "hi" || cmd == "king" ||
+		cmd == "menu" || cmd == "allmenu" || cmd == "help" || cmd == "cmd" || cmd == "1" || cmd == "2" || cmd == "3" || cmd == "4" ||
+		cmd == "menu2" || cmd == "allmenu2" || cmd == "dash2" || cmd == "callmenu" ||
+		cmd == "ping" || cmd == "runtime" || cmd == "speed" || cmd == "status" || cmd == "stats"
+
+	// Strict Admin / Owner Authorization: In owner/adminonly mode, block unauthorized action/call commands
+	if Mode == "self" && !authorized {
+		logGlobal(fmt.Sprintf("⛔ [SELF MODE - SILENTLY IGNORED] User %s attempted [%s%s].", senderJID, curPrefix, cmd))
+		return
+	}
+	if Mode == "adminonly" && !authorized && !isInfoCmd {
 		logGlobal(fmt.Sprintf("⛔ [UNAUTHORIZED COMMAND SILENTLY IGNORED] User %s attempted [%s%s]. Ignored without reply.", senderJID, curPrefix, cmd))
 		return
 	}
@@ -716,7 +725,10 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 			return
 		}
 		if evt.Info.IsGroup {
-			_ = waClient.LeaveGroup(ctx, evt.Info.Chat)
+			cli := getActiveClient()
+			if cli != nil {
+				_ = cli.LeaveGroup(ctx, evt.Info.Chat)
+			}
 		}
 
 	case "gclink", "grouplink", "linkgc":
@@ -730,8 +742,11 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 			return
 		}
 		if evt.Info.IsGroup {
-			_, _ = waClient.GetGroupInviteLink(ctx, evt.Info.Chat, true)
-			sendText(ctx, evt.Info.Chat, "🔄 *Group link revoked!*")
+			cli := getActiveClient()
+			if cli != nil {
+				_, _ = cli.GetGroupInviteLink(ctx, evt.Info.Chat, true)
+				sendText(ctx, evt.Info.Chat, "🔄 *Group link revoked!*")
+			}
 		}
 
 	case "closegroup", "closegc":
@@ -739,8 +754,11 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 			return
 		}
 		if evt.Info.IsGroup {
-			_ = waClient.SetGroupAnnounce(ctx, evt.Info.Chat, true)
-			sendText(ctx, evt.Info.Chat, "🔒 *Group closed (Only Admins can send messages)*")
+			cli := getActiveClient()
+			if cli != nil {
+				_ = cli.SetGroupAnnounce(ctx, evt.Info.Chat, true)
+				sendText(ctx, evt.Info.Chat, "🔒 *Group closed (Only Admins can send messages)*")
+			}
 		}
 
 	case "opengroup", "opengc":
@@ -1129,6 +1147,49 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 			if args != "" {
 				setDefaultEmoji(args)
 				sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 Default emoji set to: %s", args))
+			}
+		}
+
+	case "setowner", "changeowner", "newowner":
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) || authorized {
+			rawTarget := strings.TrimSpace(args)
+			ctxInfo := evt.Message.GetExtendedTextMessage().GetContextInfo()
+			if ctxInfo != nil && ctxInfo.GetParticipant() != "" {
+				rawTarget = ctxInfo.GetParticipant()
+			}
+			cleanNum := strings.NewReplacer("+", "", " ", "", "-", "", "@", "").Replace(rawTarget)
+			cleanNum = strings.Split(strings.Split(cleanNum, "@")[0], ":")[0]
+			if cleanNum == "" {
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("⚠️ *Usage:* `%ssetowner <PhoneNumber>` or reply to user with `%ssetowner`", curPrefix, curPrefix))
+				return
+			}
+			OwnerNumber = cleanNum
+			OwnerJID = cleanNum + "@s.whatsapp.net"
+			addSubAdminForSender(s, cleanNum)
+			addSubAdminForSender(s, cleanNum+"@s.whatsapp.net")
+			if s != nil {
+				s.mu.Lock()
+				s.owner = cleanNum
+				s.mu.Unlock()
+			}
+			reactMsg(ctx, evt, "👑")
+			sendText(ctx, evt.Info.Chat, fmt.Sprintf("👑 *BOT OWNER UPDATED!*\n• 👤 *New Owner:* `+%s`\n• ⚡ *Status:* Granted full master privileges.", cleanNum))
+		}
+
+	case "mode", "setmode":
+		if isOwnerForSender(s, user) || isOwnerForSender(s, senderJID) || authorized {
+			sub := strings.ToLower(strings.TrimSpace(args))
+			if sub == "public" || sub == "all" {
+				Mode = "public"
+				sendText(ctx, evt.Info.Chat, "🔓 *Bot Mode Changed to: PUBLIC (Anyone can use)*")
+			} else if sub == "self" {
+				Mode = "self"
+				sendText(ctx, evt.Info.Chat, "🔒 *Bot Mode Changed to: SELF (Only bot's own number)*")
+			} else if sub == "adminonly" || sub == "admin" || sub == "owner" {
+				Mode = "adminonly"
+				sendText(ctx, evt.Info.Chat, "🛡️ *Bot Mode Changed to: ADMINONLY (Only authorized admins)*")
+			} else {
+				sendText(ctx, evt.Info.Chat, fmt.Sprintf("🛡️ *Current Mode:* `%s`\nUsage: `%smode <public|adminonly|self>`", Mode, curPrefix))
 			}
 		}
 
@@ -1587,10 +1648,20 @@ func handleJoinGroup(ctx context.Context, evt *events.Message, link string) {
 		return
 	}
 
-	jid, err := waClient.JoinGroupWithLink(ctx, code)
+	cli := getActiveClient()
+	if cli == nil {
+		cli = waClient
+	}
+	if cli == nil {
+		reactMsg(ctx, evt, "❌")
+		sendText(ctx, evt.Info.Chat, "❌ *Error:* No active WhatsApp client connected to join group.")
+		return
+	}
+
+	jid, err := cli.JoinGroupWithLink(ctx, code)
 	if err != nil {
 		reactMsg(ctx, evt, "❌")
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ *Gagal join group:* %v", err))
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ *Failed to join group:* %v", err))
 		return
 	}
 	reactMsg(ctx, evt, "✅")
@@ -1599,12 +1670,20 @@ func handleJoinGroup(ctx context.Context, evt *events.Message, link string) {
 
 func handleGetGroupLink(ctx context.Context, evt *events.Message) {
 	if !evt.Info.IsGroup {
-		sendText(ctx, evt.Info.Chat, "❌ Command ini hanya untuk di dalam grup.")
+		sendText(ctx, evt.Info.Chat, "❌ This command is only for WhatsApp groups.")
 		return
 	}
-	link, err := waClient.GetGroupInviteLink(ctx, evt.Info.Chat, false)
+	cli := getActiveClient()
+	if cli == nil {
+		cli = waClient
+	}
+	if cli == nil {
+		sendText(ctx, evt.Info.Chat, "❌ No active WhatsApp client available.")
+		return
+	}
+	link, err := cli.GetGroupInviteLink(ctx, evt.Info.Chat, false)
 	if err != nil {
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ Gagal ambil link: %v", err))
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("❌ Failed to get group link: %v", err))
 		return
 	}
 	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🔗 *Group Invite Link:*\nhttps://chat.whatsapp.com/%s", link))
@@ -2590,6 +2669,19 @@ func resolveTarget(ctx context.Context, evt *events.Message, args string) (targe
 	return "", "", fmt.Errorf("format: %splaycall <PhoneNumber / @tag> [Song Name / 51.mp3]", getPrefix())
 }
 
+type contextKey string
+
+const senderClientKey contextKey = "senderClient"
+
+func getActiveClientFromContext(ctx context.Context) *whatsmeow.Client {
+	if ctx != nil {
+		if cli, ok := ctx.Value(senderClientKey).(*whatsmeow.Client); ok && cli != nil && cli.IsConnected() {
+			return cli
+		}
+	}
+	return getActiveClient()
+}
+
 func getActiveClient() *whatsmeow.Client {
 	if waClient != nil && waClient.IsConnected() {
 		return waClient
@@ -2608,7 +2700,7 @@ func getActiveClient() *whatsmeow.Client {
 }
 
 func sendText(ctx context.Context, to types.JID, text string) {
-	cli := getActiveClient()
+	cli := getActiveClientFromContext(ctx)
 	if cli == nil {
 		fmt.Println("[send] no active whatsmeow client for:", to.String())
 		return
@@ -2622,7 +2714,7 @@ func sendText(ctx context.Context, to types.JID, text string) {
 }
 
 func sendImage(ctx context.Context, to types.JID, imgName string, caption string) {
-	cli := getActiveClient()
+	cli := getActiveClientFromContext(ctx)
 	if cli == nil {
 		return
 	}
@@ -2673,7 +2765,7 @@ func reactMsg(ctx context.Context, evt *events.Message, emoji string) {
 	if emoji == "FORCE" {
 		emoji = "⚡"
 	}
-	cli := getActiveClient()
+	cli := getActiveClientFromContext(ctx)
 	if cli == nil {
 		return
 	}

@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>⚡ IGTGWP | Playwright Private API (Single & Multi GC Engine)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #05050d;
+      --card-bg: rgba(14, 15, 29, 0.88);
+      --card-border: rgba(0, 255, 204, 0.3);
+      --primary: #00ffcc;
+      --primary-hover: #1affd2;
+      --secondary: #a855f7;
+      --accent: #facc15;
+      --rose: #ff0055;
+      --text-main: #ffffff;
+      --text-muted: #94a3b8;
+      --input-bg: rgba(7, 8, 18, 0.95);
+      --input-border: rgba(255, 255, 255, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      background: var(--bg-dark);
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(0, 255, 204, 0.15) 0%, transparent 45%),
+        radial-gradient(circle at 85% 85%, rgba(168, 85, 247, 0.2) 0%, transparent 45%),
+        linear-gradient(135deg, #05050d 0%, #0d0e24 50%, #060612 100%);
+      color: var(--text-main);
+    }
+
+    .topbar {
+      padding: 16px 28px;
+      background: rgba(10, 11, 23, 0.92);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .topbar-title {
+      font-size: 20px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn-nav {
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+      transition: all 0.2s;
+    }
+
+    .btn-nav:hover { background: rgba(255, 255, 255, 0.18); }
+
+    .btn-logout {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+    }
+
+    .btn-logout:hover { background: #ef4444; color: #ffffff; }
+
+    .session-timer {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: #00ffcc;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 6px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 255, 204, 0.25);
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 22px;
+      padding: 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .box {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      backdrop-filter: blur(18px);
+      padding: 24px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      transition: transform 0.25s, box-shadow 0.25s;
+    }
+
+    .box:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6), 0 0 25px rgba(0, 255, 204, 0.2);
+    }
+
+    .box-title {
+      font-size: 18px;
+      font-weight: 800;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #ffffff;
+      text-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
+    }
+
+    input, textarea, select {
+      width: 100%;
+      padding: 12px 14px;
+      margin-top: 8px;
+      border-radius: 10px;
+      border: 1px solid var(--input-border);
+      outline: none;
+      color: #ffffff;
+      background: var(--input-bg);
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    textarea {
+      resize: vertical;
+      font-family: inherit;
+    }
+
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 12px rgba(0, 255, 204, 0.35);
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-top: 10px;
+      display: block;
+    }
+
+    button.btn-action {
+      width: 100%;
+      padding: 13px;
+      margin-top: 14px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      color: #000000;
+      font-weight: 800;
+      font-size: 14px;
+      transition: all 0.25s;
+      background: linear-gradient(135deg, var(--primary) 0%, #00bfa5 100%);
+      box-shadow: 0 6px 20px rgba(0, 255, 204, 0.35);
+    }
+
+    button.btn-action:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(0, 255, 204, 0.55);
+    }
+
+    button.btn-action:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .account-card {
+      margin-top: 14px;
+      padding: 18px;
+      border-radius: 14px;
+      background: rgba(8, 9, 20, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-left: 4px solid var(--primary);
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
+
+    .status-running {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid #10b981;
+    }
+
+    .status-stopped {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      border: 1px solid #ef4444;
+    }
+
+    .notice {
+      font-size: 12px;
+      color: var(--accent);
+      background: rgba(250, 204, 21, 0.1);
+      border: 1px solid rgba(250, 204, 21, 0.25);
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin: 12px 0 6px 0;
+      font-weight: 600;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn-small {
+      flex: 1;
+      min-width: 70px;
+      padding: 9px 12px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      color: #ffffff;
+      transition: all 0.2s;
+    }
+
+    .btn-start { background: #10b981; }
+    .btn-stop { background: #f59e0b; color: #000; }
+    .btn-save { background: #6366f1; }
+    .btn-delete { background: #ef4444; }
+
+    /* Live Terminal Console */
+    .terminal-container {
+      background: #020208;
+      border: 1px solid rgba(0, 255, 204, 0.3);
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 420px;
+      box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.8);
+    }
+
+    .terminal-header {
+      background: rgba(14, 16, 32, 0.9);
+      padding: 8px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #facc15; }
+    .dot-green { background: #10b981; }
+
+    .terminal-body {
+      padding: 12px;
+      overflow-y: auto;
+      flex: 1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      line-height: 1.6;
+    }
+
+    .log-line {
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+
+    .log-time { color: #64748b; }
+    .log-uid { color: #c084fc; font-weight: 700; }
+    .log-INFO { color: #cbd5e1; }
+    .log-SUCCESS { color: #34d399; font-weight: 600; }
+    .log-WARN { color: #facc15; }
+    .log-ERROR { color: #f87171; font-weight: 700; }
+
+    .term-tab {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #cbd5e1;
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 11px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+    .term-tab:hover {
+      background: rgba(255,255,255,0.12);
+      color: #ffffff;
+    }
+    .term-tab.active-tab {
+      background: #00ffcc !important;
+      border-color: #00ffcc !important;
+      color: #000000 !important;
+      font-weight: 800;
+    }
+
+    .mode-select-box {
+      background: rgba(0, 255, 204, 0.08);
+      border: 1px solid rgba(0, 255, 204, 0.25);
+      padding: 14px;
+      border-radius: 12px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-title">
+      <span>⚡</span>
+      <div>PLAYWRIGHT PRIVATE API <strong style="color:var(--primary);">(SINGLE & MULTI GC)</strong></div>
+    </div>
+
+    <div class="topbar-actions">
+      <a href="/mode" class="btn-nav">🎛️ MODES</a>
+      <a href="/gc_creator" class="btn-nav">🎯 SINGLE GC</a>
+      <a href="/multi_gc" class="btn-nav">👑 MULTI GC</a>
+      <a href="/ig_private_api" class="btn-nav" style="border-color:#00ffcc;background:rgba(0,255,204,0.25);color:#00ffcc;">⚡ PRIVATE API</a>
+      <a href="/telegram_master" class="btn-nav">✈️ TELEGRAM</a>
+      <a href="/wp_bots_nc_setup" class="btn-nav" style="background:rgba(37,211,102,0.15);border-color:#25d366;color:#25d366;">👑 BAILEYS NC</a>
+      <a href="/whatsapp_call_setup" class="btn-nav" style="background:rgba(56,189,248,0.15);border-color:#38bdf8;color:#38bdf8;">📞 WP CALL SETUP</a>
+      {% if role == 'owner' %}
+      <a href="/owner" class="btn-nav" style="border-color:var(--accent);background:rgba(250,204,21,0.25);color:var(--accent);">👑 OWNER</a>
+      {% endif %}
+      <button class="btn-nav" style="border-color:var(--primary);background:rgba(0,255,204,0.15);color:var(--primary);" onclick="openProfileModal()">👤 PROFILE</button>
+      <span class="session-timer" id="sessionTimerDisplay">06h 00m 00s</span>
+      <a href="/logout" class="btn-nav btn-logout">🚪 LOGOUT</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- 1. ADD PLAYWRIGHT PRIVATE API BOT -->
+    <div class="box">
+      <!-- Cookie Input Section -->
+      <div id="cookie_auth_section">
+        <label>🔑 Instagram Netscape Cookies.txt / Session ID (Paste full Cookies.txt or sessionid)</label>
+        <textarea id="session" style="height:90px;" placeholder="Paste sessionid, Raw Cookie Header, or Full Netscape/cURL Cookies.txt file here..."></textarea>
+        <button type="button" class="btn-small" style="background:linear-gradient(135deg,#00ffcc,#a855f7);color:#000;font-weight:800;width:100%;margin-top:6px;padding:9px;" onclick="verifyLiveAuth()">⚡ Test & Verify Cookie Session</button>
+      </div>
+
+      <!-- QUESTION 1: Single GC or Multi GC -->
+      <div class="mode-select-box">
+        <label style="margin-top:0;font-weight:700;color:#00ffcc;">❓ Do you want to send messages in Single GC or Multi GC?</label>
+        <select id="gc_target_mode" onchange="onModeChange()">
+          <option value="single">🎯 Single GC (15 Messages + 1 NC Rename Loop)</option>
+          <option value="multi" selected>🌐 Multi GC (1 Text + 1 NC per GC Round)</option>
+        </select>
+      </div>
+
+      <!-- QUESTION 2: If Multi GC, Auto-fetch or Manual? -->
+      <div class="mode-select-box" id="multi_options_box">
+        <label style="margin-top:0;font-weight:700;color:#a855f7;">🔄 Multi-GC Selection Mode:</label>
+        <select id="fetch_choice" onchange="onFetchChoiceChange()">
+          <option value="auto">⚡ Automatically Fetch All Groups (Primary, General, Spam, Hidden)</option>
+          <option value="manual">✍️ Manually Enter Group Links / Thread IDs</option>
+        </select>
+        <button id="btnFetchAllGC" type="button" class="btn-small" style="background:#a855f7;width:100%;margin-top:10px;padding:10px;" onclick="scrapeAllGroups()">🔍 Scan & Fetch All Instagram Groups Now</button>
+      </div>
+
+      <!-- Single GC Input Box -->
+      <div id="single_gc_box" style="display:none;">
+        <label>🎯 Single Group Chat Direct Link / Thread ID</label>
+        <input id="single_gc_link" placeholder="https://www.instagram.com/direct/t/1005127962133089/">
+      </div>
+
+      <!-- Multi GC Input Box -->
+      <div id="multi_gc_box">
+        <label id="multi_gc_label">👥 Target Group Links / Thread IDs (1 per line or comma-separated)</label>
+        <textarea id="group_names" style="height:75px;" placeholder="https://www.instagram.com/direct/t/1005127962133089/&#10;https://www.instagram.com/direct/t/17841400000000000/"></textarea>
+      </div>
+
+      <label>🎯 Target Name / Haters (e.g. Hater 1, Enemy)</label>
+      <input id="target_name" placeholder="Enter target name (e.g. hater 1, hater 2)...">
+
+      <div style="display:flex;gap:10px;margin-top:4px;">
+        <div style="flex:1;">
+          <label>👑 Target Prefix (e.g. KING)</label>
+          <input id="prefix" value="KING" placeholder="Prefix before msg (e.g. KING)">
+        </div>
+        <div style="flex:1;">
+          <label id="repeat_label">🔁 Repeat / Messages Count (Per Cycle)</label>
+          <input id="repeat_count" type="number" min="1" max="100" value="15" placeholder="e.g. 15">
+        </div>
+      </div>
+
+      <label>💬 Strike Messages (1 per line)</label>
+      <textarea id="messages" style="height:85px;" placeholder="SERVER GOD CLAN ON TOP 🔥&#10;PLAYWRIGHT PRIVATE API STRIKE 💥&#10;WAR MODE ACTIVE ⚡&#10;TERI MAA KA BHOSDA CHOD DENGE ⚔️"></textarea>
+      <p style="font-size:11px;color:#00ffcc;margin-top:3px;font-weight:600;">✨ Zero-Lag Direct API: Single GC sends 15 msgs + 1 NC. Multi GC sends 1 text + 1 NC across all scanned groups seamlessly without Chromium load!</p>
+
+      <label>🔒 Group Name Lock Titles (NC - 1 per line)</label>
+      <textarea id="nc_names" style="height:70px;" placeholder="KING CONQUERED THIS GC 👑&#10;SERVER GOD CLAN ON TOP 🔥&#10;LOCKED BY KING SQUAD ⚡"></textarea>
+
+      <div style="display:flex;gap:10px;margin-top:4px;">
+        <div style="flex:1;">
+          <label>📜 Header Title</label>
+          <input id="header_text" value="👑 SPAM BY KING 👑" placeholder="Header Script Title">
+        </div>
+        <div style="flex:1;">
+          <label>📜 Footer Title</label>
+          <input id="footer_text" value="👑 SCRIPT BY SERVER GOD CLAN 👑" placeholder="Footer Script Title">
+        </div>
+        <div style="flex:1;">
+          <label>🌌 Blank Gap (Lines)</label>
+          <input id="space_lines" type="number" value="35" placeholder="e.g. 35">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;margin-top:6px;">
+        <div style="flex:1;">
+          <label>⏱️ Delay (seconds)</label>
+          <input id="delay" type="number" step="0.5" value="2" placeholder="Delay in seconds (default: 2s)">
+        </div>
+      </div>
+
+      <div class="notice">🛡️ Zero-Logout Anti-Drop Architecture: Direct HTTP/2 API Request headers with CSRF, user cookies & session protection for ultra-fast response without account logouts.</div>
+
+      <button class="btn-action" id="btnAddPrivateBot" onclick="addPrivateBot()">🚀 Deploy Private API Bot</button>
+      
+      <div id="accountsList" style="margin-top:16px;"></div>
+    </div>
+
+    <!-- 2. REAL-TIME LIVE TERMINAL -->
+    <div class="box" style="grid-column: span 1;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h2 class="box-title" style="margin-bottom:0;">💻 LIVE PRIVATE API CONSOLE</h2>
+        <button style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="clearPrivateTerminal()">🧹 Clear</button>
+      </div>
+
+      <!-- Account Filter Tabs -->
+      <div id="terminalFilterTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+        <button class="term-tab active-tab" onclick="setTerminalFilter('ALL')">🌐 All Bots</button>
+      </div>
+
+      <div class="terminal-container">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <span class="terminal-dot dot-red"></span>
+            <span class="terminal-dot dot-yellow"></span>
+            <span class="terminal-dot dot-green"></span>
+          </div>
+          <span id="currentTerminalLabel" style="color:#34d399;font-weight:700;">● ALL BOTS STREAM</span>
+        </div>
+        <div class="terminal-body" id="privateTerminalConsole">
+          <div class="log-line"><span class="log-time">[00:00:00]</span> <span class="log-INFO">Connecting to Playwright Private API stream...</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. ENGINE SPECS -->
+    <div class="box">
+      <h2 class="box-title">⚡ PRIVATE API ENGINE FEATURES</h2>
+      <div style="font-size:14px;line-height:2;color:#cbd5e1;">
+        <p>✅ <strong>Zero-RAM API Context:</strong> Direct HTTP/2 API broadcasts and thread updates without heavy Chromium memory footprint.</p>
+        <p>✅ <strong>Single GC Mode:</strong> 15 Messages with Prefix + 1 NC Rename continuously in cycle.</p>
+        <p>✅ <strong>Multi GC Mode:</strong> 1 Text Message + 1 NC Rename per group across all scraped/entered threads.</p>
+        <p>✅ <strong>All Folder Scraper:</strong> Auto-fetches all group chats across Primary Inbox, General Folder, Pending Requests, Hidden Requests, and Spam.</p>
+        <p>✅ <strong>Anti-Logout Session Guard:</strong> Verifies <code>X-IG-App-ID</code>, <code>X-ASBD-ID</code>, and <code>CSRF</code> parameters to prevent account lockouts.</p>
+        <p>✅ <strong>50 Royal Emoji Title Cycle:</strong> Automatically pairs individual emojis with custom target names without crashing.</p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let selectedTerminalFilter = "ALL";
+    let cachedTerminalLogs = [];
+    let knownAccountIds = new Set();
+
+    function getTimestamp() {
+      return new Date().toTimeString().split(' ')[0];
+    }
+
+    function onAuthTypeChange() {
+      const authType = document.getElementById("auth_type").value;
+      const cookieSec = document.getElementById("cookie_auth_section");
+      const credSec = document.getElementById("credentials_auth_section");
+      if (authType === "credentials") {
+        cookieSec.style.display = "none";
+        credSec.style.display = "block";
+      } else {
+        cookieSec.style.display = "block";
+        credSec.style.display = "none";
+      }
+    }
+
+    async function verifyLiveAuth() {
+      const sessionid = document.getElementById("session").value.trim();
+
+      if (!sessionid) {
+        alert("Please paste your Instagram Netscape Cookies.txt or sessionid!");
+        return;
+      }
+
+      appendTerminalLog("AUTH", "🔍 Verifying Instagram Cookie session with Direct Private API...", "INFO");
+
+      try {
+        const res = await fetch("/ig_priv_verify_login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            auth_type: "cookie",
+            sessionid: sessionid
+          })
+        });
+        const data = await res.json();
+        if (data.status === "ok") {
+          appendTerminalLog("AUTH", `🎉 ${data.message || 'Cookie Verified Successfully!'}`, "SUCCESS");
+          alert(data.message || "Cookie verified and active!");
+        } else {
+          appendTerminalLog("AUTH", `❌ Cookie Notice: ${data.message}`, "ERROR");
+          alert(data.message || "Cookie verification failed!");
+        }
+      } catch (err) {
+        appendTerminalLog("AUTH", `❌ Auth Request Error: ${err.message}`, "ERROR");
+      }
+    }
+
+    function onModeChange() {
+      const mode = document.getElementById("gc_target_mode").value;
+      const multiBox = document.getElementById("multi_options_box");
+      const singleBox = document.getElementById("single_gc_box");
+      const multiGcBox = document.getElementById("multi_gc_box");
+      const repeatCount = document.getElementById("repeat_count");
+      const repeatLabel = document.getElementById("repeat_label");
+
+      if (mode === "single") {
+        multiBox.style.display = "none";
+        singleBox.style.display = "block";
+        multiGcBox.style.display = "none";
+        repeatCount.value = "15";
+        repeatLabel.textContent = "🔁 Messages Per Cycle (Default: 15)";
+      } else {
+        multiBox.style.display = "block";
+        singleBox.style.display = "none";
+        multiGcBox.style.display = "block";
+        repeatCount.value = "1";
+        repeatLabel.textContent = "🔁 Repeats Per Group (Default: 1)";
+        onFetchChoiceChange();
+      }
+    }
+
+    function onFetchChoiceChange() {
+      const choice = document.getElementById("fetch_choice").value;
+      const btn = document.getElementById("btnFetchAllGC");
+      btn.style.display = (choice === "auto") ? "block" : "none";
+    }
+
+    async function scrapeAllGroups() {
+      const sessionid = document.getElementById("session").value.trim();
+      const btn = document.getElementById("btnFetchAllGC");
+
+      if (!sessionid) {
+        alert("Please enter or paste your Instagram Netscape Cookie file / Session first!");
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "🔍 Scanning All Folders (Primary, General, Spam)...";
+      appendTerminalLog("AUTH", "🔍 Fetching all group chats across all Instagram folders...", "INFO");
+
+      try {
+        const res = await fetch("/ig_priv_scrape_links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            auth_type: "cookie",
+            sessionid: sessionid,
+            max_groups: 1000
+          })
+        });
+        const data = await res.json();
+        if (data.status === "ok" && data.links) {
+          document.getElementById("group_names").value = data.links.join("\n");
+          appendTerminalLog("AUTH", `✅ Successfully scraped ${data.count} groups into target box!`, "SUCCESS");
+        } else {
+          appendTerminalLog("AUTH", `❌ Fetch notice: ${data.message || "0 groups found"}`, "WARN");
+        }
+      } catch (e) {
+        appendTerminalLog("AUTH", `❌ Fetch error: ${e.message}`, "ERROR");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🔍 Scan & Fetch All Instagram Groups Now";
+      }
+    }
+
+    function appendTerminalLog(uid, msg, level = "INFO") {
+      const consoleEl = document.getElementById("privateTerminalConsole");
+      const line = document.createElement("div");
+      line.className = "log-line";
+      line.innerHTML = `<span class="log-time">[${getTimestamp()}]</span> <span class="log-uid">[${uid}]</span> <span class="log-${level}">${msg}</span>`;
+      consoleEl.appendChild(line);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function setTerminalFilter(uid) {
+      selectedTerminalFilter = uid;
+      document.querySelectorAll(".term-tab").forEach(tab => {
+        if (tab.getAttribute("data-tab") === uid || (uid === "ALL" && tab.textContent.includes("All Bots"))) {
+          tab.classList.add("active-tab");
+        } else {
+          tab.classList.remove("active-tab");
+        }
+      });
+      const lbl = document.getElementById("currentTerminalLabel");
+      if (lbl) {
+        lbl.textContent = uid === "ALL" ? "● ALL BOTS STREAM" : `● BOT #${uid} LIVE STREAM`;
+      }
+      renderFilteredTerminal();
+    }
+
+    function renderFilteredTerminal() {
+      const consoleEl = document.getElementById("privateTerminalConsole");
+      if (!consoleEl) return;
+      let tHtml = "";
+      const filtered = selectedTerminalFilter === "ALL" 
+        ? cachedTerminalLogs 
+        : cachedTerminalLogs.filter(l => String(l.uid).toLowerCase() === String(selectedTerminalFilter).toLowerCase());
+
+      if (filtered.length === 0) {
+        tHtml = `<div class="log-line"><span class="log-time">[${getTimestamp()}]</span> <span class="log-INFO">No logs recorded for bot #${selectedTerminalFilter} yet...</span></div>`;
+      } else {
+        filtered.forEach(l => {
+          tHtml += `<div class="log-line"><span class="log-time">[${l.time}]</span> <span class="log-uid">[#${l.uid}]</span> <span class="log-${l.level}">${l.msg}</span></div>`;
+        });
+      }
+      consoleEl.innerHTML = tHtml;
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    async function addPrivateBot() {
+      const btn = document.getElementById("btnAddPrivateBot");
+      const sessionid = document.getElementById("session").value.trim();
+      const mode_type = document.getElementById("gc_target_mode").value;
+      const fetch_mode = document.getElementById("fetch_choice").value;
+      const target_name = document.getElementById("target_name").value.trim();
+      const prefix = document.getElementById("prefix").value.trim() || "KING";
+      const repeat_count = parseInt(document.getElementById("repeat_count").value.trim() || (mode_type === "single" ? "15" : "1"));
+      
+      let group_names = "";
+      if (mode_type === "single") {
+        group_names = document.getElementById("single_gc_link").value.trim();
+      } else {
+        group_names = document.getElementById("group_names").value.trim();
+      }
+      
+      const messages = document.getElementById("messages").value.trim();
+      const nc_names = document.getElementById("nc_names").value.trim();
+      const header_text = document.getElementById("header_text").value.trim();
+      const footer_text = document.getElementById("footer_text").value.trim();
+      const space_lines = parseInt(document.getElementById("space_lines").value.trim() || "35");
+      const delay = parseFloat(document.getElementById("delay").value.trim() || "2");
+
+      if (!sessionid) {
+        alert("Instagram Netscape Cookies.txt or Session ID is required!");
+        return;
+      }
+      if (!group_names) {
+        alert("Group Link or Thread ID is required!");
+        return;
+      }
+
+      const payload = {
+        auth_type: "cookie",
+        sessionid: sessionid,
+        csrftoken: "",
+        mode_type: mode_type,
+        fetch_mode: fetch_mode,
+        target_name: target_name,
+        prefix: prefix,
+        repeat_count: repeat_count,
+        group_names: group_names,
+        messages: messages,
+        nc_names: nc_names,
+        header_text: header_text,
+        footer_text: footer_text,
+        space_lines: space_lines,
+        delay: delay
+      };
+
+      appendTerminalLog("AUTH", `🚀 Deploying Playwright Private API bot (${mode_type.toUpperCase()}) for '${target_name || prefix}'...`, "INFO");
+      btn.disabled = true;
+
+      try {
+        const res = await fetch("/ig_priv_add_account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.status === "ok") {
+          appendTerminalLog(data.uid, `✅ Bot #${data.uid} created successfully!`, "SUCCESS");
+          fetchStatus();
+        } else {
+          appendTerminalLog("AUTH", `❌ Add failed: ${data.message || "Unknown error"}`, "ERROR");
+        }
+      } catch (err) {
+        appendTerminalLog("AUTH", `❌ Add error: ${err.message}`, "ERROR");
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function toggleBot(uid, shouldStart) {
+      const endpoint = shouldStart ? "/ig_priv_start" : "/ig_priv_stop";
+      appendTerminalLog(uid, shouldStart ? "🚀 Starting Private API Engine..." : "⏹️ Stopping Private API Engine...", "INFO");
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uid: uid })
+        });
+        const data = await res.json();
+        if (data.status === "started" || data.status === "stopped") {
+          fetchStatus();
+        }
+      } catch (err) {
+        appendTerminalLog(uid, `❌ Engine toggle error: ${err.message}`, "ERROR");
+      }
+    }
+
+    async function saveBot(uid) {
+      const card = document.getElementById(`acc-${uid}`);
+      if (!card) return;
+
+      const mode_type = card.querySelector(".edit-mode").value;
+      const target_name = card.querySelector(".edit-target").value.trim();
+      const prefix = card.querySelector(".edit-prefix").value.trim();
+      const repeat_count = parseInt(card.querySelector(".edit-repeat").value.trim() || (mode_type === "single" ? "15" : "1"));
+      const group_names = card.querySelector(".edit-groups").value.trim();
+      const messages = card.querySelector(".edit-messages").value.trim();
+      const nc_names = card.querySelector(".edit-nc-names") ? card.querySelector(".edit-nc-names").value.trim() : "";
+      const header_text = card.querySelector(".edit-header") ? card.querySelector(".edit-header").value.trim() : "";
+      const footer_text = card.querySelector(".edit-footer") ? card.querySelector(".edit-footer").value.trim() : "";
+      const space_lines = card.querySelector(".edit-gap") ? parseInt(card.querySelector(".edit-gap").value.trim() || "35") : 35;
+      const delay = parseFloat(card.querySelector(".edit-delay").value.trim() || "2");
+
+      const payload = {
+        uid: uid,
+        mode_type: mode_type,
+        target_name: target_name,
+        prefix: prefix,
+        repeat_count: repeat_count,
+        group_names: group_names,
+        messages: messages,
+        nc_names: nc_names,
+        header_text: header_text,
+        footer_text: footer_text,
+        space_lines: space_lines,
+        delay: delay
+      };
+
+      try {
+        const res = await fetch("/ig_priv_edit_account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.status === "ok") {
+          appendTerminalLog(uid, `💾 Bot #${uid} settings saved!`, "SUCCESS");
+          fetchStatus();
+        }
+      } catch (err) {
+        appendTerminalLog(uid, `❌ Save error: ${err.message}`, "ERROR");
+      }
+    }
+
+    async function deleteBot(uid) {
+      if (!confirm(`Are you sure you want to delete Private API Bot #${uid}?`)) return;
+      try {
+        const res = await fetch("/ig_priv_delete_account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uid: uid })
+        });
+        const data = await res.json();
+        if (data.status === "ok") {
+          appendTerminalLog(uid, `🗑️ Bot #${uid} deleted successfully.`, "WARN");
+          fetchStatus();
+        }
+      } catch (err) {
+        appendTerminalLog(uid, `❌ Delete error: ${err.message}`, "ERROR");
+      }
+    }
+
+    async function clearPrivateTerminal() {
+      try {
+        await fetch("/api/ig_priv/clear_terminal", { method: "POST" });
+        cachedTerminalLogs = [];
+        renderFilteredTerminal();
+      } catch (e) {}
+    }
+
+    function updateTerminalTabs(accountKeys) {
+      const tabsContainer = document.getElementById("terminalFilterTabs");
+      if (!tabsContainer) return;
+      accountKeys.forEach(uid => {
+        if (!knownAccountIds.has(uid)) {
+          knownAccountIds.add(uid);
+          const btn = document.createElement("button");
+          btn.className = "term-tab";
+          btn.setAttribute("data-tab", uid);
+          btn.textContent = `Bot #${uid}`;
+          btn.onclick = () => setTerminalFilter(uid);
+          tabsContainer.appendChild(btn);
+        }
+      });
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch("/ig_priv_status");
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+        const data = await res.json();
+        const accounts = data.accounts || {};
+        const stats = data.stats || {};
+        cachedTerminalLogs = data.terminal_logs || [];
+
+        renderFilteredTerminal();
+        updateTerminalTabs(Object.keys(accounts));
+
+        const container = document.getElementById("accountsList");
+        let html = "";
+
+        const keys = Object.keys(accounts);
+        if (keys.length === 0) {
+          container.innerHTML = `<div style="color:#94a3b8;font-size:13px;text-align:center;padding:20px 0;">No Playwright Private API bots deployed yet. Add one above!</div>`;
+          return;
+        }
+
+        keys.forEach(uid => {
+          const acc = accounts[uid];
+          const st = stats[uid] || {};
+          const isRunning = st.running || false;
+          const uptimeStr = st.uptime_str || "00:00:00";
+          const sentCount = st.sent || 0;
+          const renamedCount = st.renamed || 0;
+          const modeType = acc.mode_type || "multi";
+
+          let existingCard = document.getElementById(`acc-${uid}`);
+          if (existingCard) {
+            // Update only badges and counters, do NOT overwrite inputs while user is typing!
+            const badge = existingCard.querySelector(".status-badge");
+            if (badge) {
+              badge.className = `status-badge ${isRunning ? 'status-running' : 'status-stopped'}`;
+              badge.textContent = isRunning ? 'RUNNING' : 'STOPPED';
+            }
+            const infoLine = existingCard.querySelector(".card-stats-line");
+            if (infoLine) {
+              infoLine.innerHTML = `<span>⏱️ Live Uptime: <strong style="color:#ffffff;">${uptimeStr}</strong></span> | <span>📨 Sent: <strong style="color:#34d399;">${sentCount}</strong></span> | <span>🏷️ NCs: <strong style="color:#00ffcc;">${renamedCount}</strong></span>`;
+            }
+            const btnRow = existingCard.querySelector(".btn-row");
+            if (btnRow) {
+              btnRow.innerHTML = `
+                ${isRunning 
+                  ? `<button class="btn-small btn-stop" onclick="toggleBot('${uid}', false)">⏹️ Stop</button>`
+                  : `<button class="btn-small btn-start" onclick="toggleBot('${uid}', true)">▶️ Start</button>`
+                }
+                <button class="btn-small btn-save" onclick="saveBot('${uid}')">💾 Save</button>
+                <button class="btn-small btn-delete" onclick="deleteBot('${uid}')">🗑️ Delete</button>
+              `;
+            }
+          } else {
+            const groupStr = Array.isArray(acc.group_names) ? acc.group_names.join("\n") : (acc.group_names || "");
+            const msgStr = Array.isArray(acc.messages) ? acc.messages.join("\n") : (acc.messages || "");
+
+            html += `
+              <div class="account-card" id="acc-${uid}">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                  <span style="font-weight:800;font-size:15px;color:#00ffcc;">⚡ Bot #${uid} — ${acc.target_name || "Custom Bot"} <small style="color:#c084fc;font-size:11px;">[${modeType.toUpperCase()}]</small></span>
+                  <span class="status-badge ${isRunning ? 'status-running' : 'status-stopped'}">${isRunning ? 'RUNNING' : 'STOPPED'}</span>
+                </div>
+
+                <div class="card-stats-line" style="font-size:12px;color:#94a3b8;margin-bottom:8px;">
+                  <span>⏱️ Live Uptime: <strong style="color:#ffffff;">${uptimeStr}</strong></span> | 
+                  <span>📨 Sent: <strong style="color:#34d399;">${sentCount}</strong></span> | 
+                  <span>🏷️ NCs: <strong style="color:#00ffcc;">${renamedCount}</strong></span>
+                </div>
+
+                <label>🎯 Mode Type</label>
+                <select class="edit-mode">
+                  <option value="single" ${modeType === 'single' ? 'selected' : ''}>🎯 Single GC (15 Msg + 1 NC)</option>
+                  <option value="multi" ${modeType === 'multi' ? 'selected' : ''}>🌐 Multi GC (1 Text + 1 NC per GC)</option>
+                </select>
+
+                <label>🎯 Target Name</label>
+                <input class="edit-target" value="${acc.target_name || ""}" placeholder="Target Name">
+
+                <div style="display:flex;gap:8px;">
+                  <div style="flex:1;">
+                    <label>👑 Prefix</label>
+                    <input class="edit-prefix" value="${acc.prefix || ""}" placeholder="Prefix (e.g. KING)">
+                  </div>
+                  <div style="flex:1;">
+                    <label>🔁 Msg Repeat Count</label>
+                    <input class="edit-repeat" type="number" value="${acc.repeat_count || (modeType === 'single' ? 15 : 1)}" placeholder="Repeat count">
+                  </div>
+                  <div style="flex:1;">
+                    <label>⏱️ Delay (s)</label>
+                    <input class="edit-delay" type="number" step="0.5" value="${acc.delay || 2}" placeholder="Delay">
+                  </div>
+                </div>
+
+                <label>👥 Group Links / Thread IDs (1 per line)</label>
+                <textarea class="edit-groups" style="height:55px;">${groupStr}</textarea>
+
+                <label>💬 Strike Messages (1 per line)</label>
+                <textarea class="edit-messages" style="height:65px;">${msgStr}</textarea>
+
+                <label>🔒 Group Name Lock Titles (NC - 1 per line)</label>
+                <textarea class="edit-nc-names" style="height:55px;" placeholder="KING CONQUERED THIS GC 👑">${Array.isArray(acc.nc_names) ? acc.nc_names.join("\n") : (acc.nc_names || "")}</textarea>
+
+                <div style="display:flex;gap:8px;">
+                  <div style="flex:1;">
+                    <label>📜 Header Title</label>
+                    <input class="edit-header" value="${acc.header_text || "👑 SPAM BY KING 👑"}" placeholder="Header">
+                  </div>
+                  <div style="flex:1;">
+                    <label>📜 Footer Title</label>
+                    <input class="edit-footer" value="${acc.footer_text || "👑 SCRIPT BY SERVER GOD CLAN 👑"}" placeholder="Footer">
+                  </div>
+                  <div style="flex:1;">
+                    <label>🌌 Blank Gap</label>
+                    <input class="edit-gap" type="number" value="${acc.space_lines || 35}" placeholder="Gap lines">
+                  </div>
+                </div>
+
+                <div class="btn-row" style="margin-top:10px;">
+                  ${isRunning 
+                    ? `<button class="btn-small btn-stop" onclick="toggleBot('${uid}', false)">⏹️ Stop</button>`
+                    : `<button class="btn-small btn-start" onclick="toggleBot('${uid}', true)">▶️ Start</button>`
+                  }
+                  <button class="btn-small btn-save" onclick="saveBot('${uid}')">💾 Save</button>
+                  <button class="btn-small btn-delete" onclick="deleteBot('${uid}')">🗑️ Delete</button>
+                </div>
+              </div>
+            `;
+          }
+        });
+
+        if (html) {
+          container.insertAdjacentHTML("beforeend", html);
+        }
+
+        // Remove deleted cards
+        Array.from(container.children).forEach(child => {
+          if (child.id && child.id.startsWith("acc-")) {
+            const cUid = child.id.replace("acc-", "");
+            if (!keys.includes(cUid)) {
+              child.remove();
+            }
+          }
+        });
+
+      } catch (err) {
+        console.error("Fetch status error:", err);
+      }
+    }
+
+    // Auto-refresh stats every 3 seconds
+    setInterval(fetchStatus, 3000);
+    fetchStatus();
+
+    // Session Timer countdown
+    function updateSessionTimer() {
+      fetch("/api/auth/me")
+        .then(r => r.json())
+        .then(data => {
+          if (data.authenticated) {
+            const sec = data.remainingSeconds || 0;
+            const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+            const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+            const s = String(sec % 60).padStart(2, '0');
+            const el = document.getElementById("sessionTimerDisplay");
+            if (el) el.textContent = `${h}h ${m}m ${s}s`;
+          }
+        }).catch(() => {});
+    }
+    setInterval(updateSessionTimer, 1000);
+    updateSessionTimer();
+  </script>
+</body>
+</html>

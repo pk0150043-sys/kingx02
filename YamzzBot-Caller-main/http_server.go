@@ -137,11 +137,11 @@ func startHTTPServer(ctx context.Context, port string) {
 					s.uid = body.UID
 					s.owner = body.OwnerJID
 				}
-			}
-			if body.OwnerJID != "" {
-				OwnerJID = body.OwnerJID
-				clean := strings.Split(strings.Split(body.OwnerJID, "@")[0], ":")[0]
-				addSubAdmin(clean)
+				if body.OwnerJID != "" {
+					clean := strings.Split(strings.Split(body.OwnerJID, "@")[0], ":")[0]
+					addSubAdminForSender(s, clean)
+					addSubAdminForSender(s, body.OwnerJID)
+				}
 			}
 			logGlobal(fmt.Sprintf("👑 [SESSION ALLOCATE/INIT] Allocated node %s (Owner: %s)", body.UID, body.OwnerJID))
 			json.NewEncoder(w).Encode(map[string]any{"success": true, "uid": body.UID})

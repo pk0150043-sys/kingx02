@@ -12,7 +12,7 @@ var (
 	Prefix        = "-"
 	DefaultEmoji  = "👑"
 	FeaturesDelay = 5
-	Mode          = "adminonly" // "self", "public", "adminonly"
+	Mode          = "public" // "self", "public", "adminonly"
 
 	// System Owner (Master Admin)
 	OwnerNumber = "191525812211746"

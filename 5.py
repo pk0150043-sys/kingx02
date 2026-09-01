@@ -591,7 +591,9 @@ cache_db = {
     "accounts": {},
     "gc_accounts": {},
     "tg_accounts": {},
-    "wp_accounts": {}
+    "wp_accounts": {},
+    "wp_call_accounts": {},
+    "ig_private_accounts": {}
 }
 
 mongo_client = None
@@ -739,6 +741,26 @@ def sync_from_mongo():
                     "createdAt": acc.get("createdAt", str(datetime.utcnow()))
                 }
 
+        # Load Instagram Private API Accounts
+        db_ig_private = list(mongo_db["ig_private_accounts"].find({}))
+        cache_db["ig_private_accounts"] = {}
+        for acc in db_ig_private:
+            uid = str(acc.get("uid", acc.get("_id", "")))
+            if uid:
+                cache_db["ig_private_accounts"][uid] = {
+                    "uid": uid,
+                    "sessionid": acc.get("sessionid", ""),
+                    "csrftoken": acc.get("csrftoken", ""),
+                    "target_name": acc.get("target_name", ""),
+                    "group_names": acc.get("group_names", []),
+                    "messages": acc.get("messages", []),
+                    "prefix": acc.get("prefix", ""),
+                    "repeat_count": int(acc.get("repeat_count", 1)),
+                    "delay": float(acc.get("delay", 2.0)),
+                    "owner": acc.get("owner", "owner"),
+                    "createdAt": acc.get("createdAt", str(datetime.utcnow()))
+                }
+
         # Load Members
         mem_doc = mongo_db["members"].find_one({"_id": "clan_members"})
         if mem_doc and "list" in mem_doc:
@@ -772,6 +794,8 @@ def load_local_db():
                 cache_db["gc_accounts"] = data.get("gc_accounts", {})
                 cache_db["tg_accounts"] = data.get("tg_accounts", {})
                 cache_db["wp_accounts"] = data.get("wp_accounts", {})
+                cache_db["wp_call_accounts"] = data.get("wp_call_accounts", {})
+                cache_db["ig_private_accounts"] = data.get("ig_private_accounts", {})
         except Exception:
             save_local_db()
     else:
@@ -886,6 +910,9 @@ def delete_user_db(email_or_name):
     for k in list(cache_db["wp_accounts"].keys()):
         if cache_db["wp_accounts"][k].get("owner", "").lower() == clean_key:
             delete_wp_account_db(k)
+    for k in list(cache_db.get("ig_private_accounts", {}).keys()):
+        if cache_db["ig_private_accounts"][k].get("owner", "").lower() == clean_key:
+            delete_ig_private_account_db(k)
 
     save_local_db()
     if mongo_connected and mongo_db is not None:
@@ -893,6 +920,7 @@ def delete_user_db(email_or_name):
             mongo_db["users"].delete_one({"$or": [{"email": clean_key}, {"name": clean_key}]})
             mongo_db["ig_accounts"].delete_many({"owner": clean_key})
             mongo_db["ig_gc_accounts"].delete_many({"owner": clean_key})
+            mongo_db["ig_private_accounts"].delete_many({"owner": clean_key})
             mongo_db["tg_accounts"].delete_many({"owner": clean_key})
             mongo_db["wp_accounts"].delete_many({"owner": clean_key})
             print(f"[MONGODB DELETED]: {clean_key}")
@@ -1013,6 +1041,29 @@ def delete_wp_call_account_db(uid):
         except Exception:
             pass
 
+def save_ig_private_account_db(uid, data):
+    cache_db.setdefault("ig_private_accounts", {})
+    cache_db["ig_private_accounts"][str(uid)] = data
+    save_local_db()
+    if mongo_connected and mongo_db is not None:
+        try:
+            doc = dict(data)
+            doc["uid"] = str(uid)
+            mongo_db["ig_private_accounts"].update_one({"uid": str(uid)}, {"$set": doc}, upsert=True)
+        except Exception:
+            pass
+
+def delete_ig_private_account_db(uid):
+    uid_str = str(uid)
+    if "ig_private_accounts" in cache_db and uid_str in cache_db["ig_private_accounts"]:
+        del cache_db["ig_private_accounts"][uid_str]
+    save_local_db()
+    if mongo_connected and mongo_db is not None:
+        try:
+            mongo_db["ig_private_accounts"].delete_one({"uid": uid_str})
+        except Exception:
+            pass
+
 def save_members_db(members_list):
     cache_db["members"] = members_list
     save_local_db()
@@ -1057,6 +1108,94 @@ def next_wp_call_uid():
     nums = [int(k.replace("wp_call_", "")) for k in accs.keys() if k.replace("wp_call_", "").isdigit()]
     return "wp_call_" + str(max(nums) + 1) if nums else "wp_call_1"
 
+def next_ig_private_uid():
+    accs = cache_db.get("ig_private_accounts", {})
+    if not accs:
+        return "ig_priv_1"
+    nums = [int(k.replace("ig_priv_", "")) for k in accs.keys() if k.replace("ig_priv_", "").isdigit()]
+    return "ig_priv_" + str(max(nums) + 1) if nums else "ig_priv_1"
+
+# Universal Instagram Cookie Parser (Supports Netscape HTTP format, cURL cookies, JSON, Header strings & Key=Values)
+def parse_instagram_cookie_input(raw_input, extra_csrf=""):
+    cookies_dict = {}
+    clean_sess = ""
+    clean_csrf = ""
+    user_id = ""
+
+    if not raw_input:
+        return cookies_dict, clean_sess, clean_csrf, user_id
+
+    text = str(raw_input).strip()
+
+    # 1. Netscape HTTP Cookie File format parser
+    # Format: .instagram.com TRUE / TRUE <expiry> <name> <value>
+    lines = text.split("\n")
+    is_netscape = any("\t" in l or ("instagram.com" in l and len(l.split()) >= 6) for l in lines)
+
+    if is_netscape:
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = re.split(r'\t+|\s{2,}|\s+', line)
+            if len(parts) >= 7:
+                name = parts[5].strip()
+                val = parts[6].strip().strip('"').strip("'")
+                cookies_dict[name] = val
+            elif len(parts) >= 2 and "=" not in parts[0]:
+                name = parts[-2].strip()
+                val = parts[-1].strip().strip('"').strip("'")
+                cookies_dict[name] = val
+
+    # 2. JSON Cookie Array or Object format
+    elif text.startswith("[") or text.startswith("{"):
+        try:
+            parsed_json = json.loads(text)
+            if isinstance(parsed_json, list):
+                for item in parsed_json:
+                    if isinstance(item, dict) and "name" in item and "value" in item:
+                        cookies_dict[item["name"]] = str(item["value"]).strip().strip('"')
+            elif isinstance(parsed_json, dict):
+                for k, v in parsed_json.items():
+                    cookies_dict[k] = str(v).strip().strip('"')
+        except Exception:
+            pass
+
+    # 3. Standard Cookie Header / Semicolon / Comma / Newline Key-Value format
+    if not cookies_dict or "sessionid" not in cookies_dict:
+        # Split by ; or newlines
+        for part in re.split(r'[;\r\n]+', text):
+            part = part.strip()
+            if "=" in part:
+                k, v = part.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if k and v:
+                    cookies_dict[k] = v
+
+    # 4. Fallback if single raw token pasted
+    if not cookies_dict.get("sessionid"):
+        if "%3A" in text or "%3a" in text or re.match(r'^[0-9]+%3A', text):
+            clean_sess = text
+            cookies_dict["sessionid"] = clean_sess
+
+    clean_sess = cookies_dict.get("sessionid", clean_sess).strip()
+    if "%3A" in clean_sess or "%3a" in clean_sess:
+        clean_sess = urllib.parse.unquote(clean_sess).strip()
+    cookies_dict["sessionid"] = clean_sess
+
+    clean_csrf = cookies_dict.get("csrftoken", extra_csrf or "").strip()
+    if clean_csrf:
+        cookies_dict["csrftoken"] = clean_csrf
+
+    user_id = str(cookies_dict.get("ds_user_id") or "").strip()
+    if not user_id and (":" in clean_sess or "%3A" in clean_sess):
+        user_id = clean_sess.split("%3A")[0].split(":")[0]
+    if user_id:
+        cookies_dict["ds_user_id"] = user_id
+
+    return cookies_dict, clean_sess, clean_csrf, user_id
+
 # Initialize DB on Startup
 init_db()
 
@@ -1070,6 +1209,10 @@ gc_clients = {}
 gc_running = {}
 gc_stats = {}
 gc_live = {}
+
+ig_priv_running = {}
+ig_priv_stats = {}
+ig_priv_live = {}
 
 tg_running = {}
 tg_stats = {}
@@ -1213,6 +1356,19 @@ def single_gc():
         return redirect("/login")
     return render_template(
         "gc_dashboard.html",
+        role=session.get("role"),
+        name=session.get("name"),
+        user=session.get("user")
+    )
+
+@app.route("/ig_private_api")
+@app.route("/playwright_private_api")
+@app.route("/insta_private")
+def ig_private_page():
+    if not is_authenticated():
+        return redirect("/login")
+    return render_template(
+        "ig_private_dashboard.html",
         role=session.get("role"),
         name=session.get("name"),
         user=session.get("user")
@@ -1578,6 +1734,7 @@ def auth_me():
 # ================= REAL-TIME TERMINAL LOG BUFFERS =================
 ig_terminal_logs = []
 gc_terminal_logs = []
+ig_priv_terminal_logs = []
 MAX_TERMINAL_LOGS = 250
 
 def log_ig_terminal(uid, message, level="INFO"):
@@ -1606,6 +1763,19 @@ def log_gc_terminal(uid, message, level="INFO"):
         gc_terminal_logs.pop(0)
     print(f"[{timestamp}] [GC_CREATOR #{uid}] [{level}] {message}")
 
+def log_ig_priv_terminal(uid, message, level="INFO"):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    entry = {
+        "time": timestamp,
+        "uid": str(uid),
+        "level": level,
+        "msg": message
+    }
+    ig_priv_terminal_logs.append(entry)
+    if len(ig_priv_terminal_logs) > MAX_TERMINAL_LOGS:
+        ig_priv_terminal_logs.pop(0)
+    print(f"[{timestamp}] [IG_PRIVATE_API #{uid}] [{level}] {message}")
+
 @app.route("/api/ig/terminal_logs")
 def api_ig_terminal_logs():
     if not is_authenticated():
@@ -1632,6 +1802,19 @@ def api_gc_terminal_logs():
     user_logs = [l for l in gc_terminal_logs if str(l.get("uid")) in my_uids]
     return jsonify({"logs": user_logs})
 
+@app.route("/api/ig_priv/terminal_logs")
+def api_ig_priv_terminal_logs():
+    if not is_authenticated():
+        return jsonify({"logs": []}), 401
+    if is_owner():
+        return jsonify({"logs": ig_priv_terminal_logs})
+    full_db = get_full_db()
+    me = str(get_current_user()).strip().lower()
+    my_uids = {str(uid) for uid, acc in full_db.get("ig_private_accounts", {}).items() if str(acc.get("owner", "")).strip().lower() == me}
+    my_uids.add("AUTH")
+    user_logs = [l for l in ig_priv_terminal_logs if str(l.get("uid")) in my_uids]
+    return jsonify({"logs": user_logs})
+
 @app.route("/api/ig/clear_terminal", methods=["POST"])
 def api_ig_clear_terminal():
     global ig_terminal_logs
@@ -1642,6 +1825,12 @@ def api_ig_clear_terminal():
 def api_gc_clear_terminal():
     global gc_terminal_logs
     gc_terminal_logs = []
+    return jsonify({"status": "ok"})
+
+@app.route("/api/ig_priv/clear_terminal", methods=["POST"])
+def api_ig_priv_clear_terminal():
+    global ig_priv_terminal_logs
+    ig_priv_terminal_logs = []
     return jsonify({"status": "ok"})
 
 # ================= INSTAGRAM CLIENT INITIALIZER & AUTH HELPER =================
@@ -1669,9 +1858,103 @@ class InstaUnifiedClient:
 
     def setup(self):
         from instagrapi import Client
-        # 1. Username & Password Mobile Login
+        # 1. Username & Password Login via Real Headless Chromium Browser
         if self.username and self.password:
-            self._log(f"Attempting login for @{self.username}...", "INFO")
+            self._log(f"Attempting real browser login for @{self.username}...", "INFO")
+            
+            # Step A: Playwright Real Web Login to bypass mobile device blocks
+            try:
+                from playwright.sync_api import sync_playwright
+                user_data_dir = os.path.join(tempfile.gettempdir(), f"ig_auth_pw_{uuid.uuid4().hex[:6]}")
+                os.makedirs(user_data_dir, exist_ok=True)
+                
+                with sync_playwright() as p:
+                    browser = p.chromium.launch_persistent_context(
+                        user_data_dir,
+                        headless=True,
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                        viewport={"width": 1280, "height": 720},
+                        args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--disable-notifications"]
+                    )
+                    page = browser.new_page()
+                    page.goto("https://www.instagram.com/accounts/login/", wait_until="domcontentloaded", timeout=45000)
+                    time.sleep(2)
+                    dismiss_instagram_modals(page)
+
+                    # Fill Username & Password
+                    u_box = page.locator('input[name="username"], input[aria-label*="username"]').first
+                    p_box = page.locator('input[name="password"], input[aria-label*="password"]').first
+
+                    if u_box.count() > 0 and p_box.count() > 0:
+                        u_box.fill(self.username)
+                        time.sleep(0.3)
+                        p_box.fill(self.password)
+                        time.sleep(0.3)
+                        
+                        login_btn = page.locator('button[type="submit"], button:has-text("Log in"), button:has-text("Log In")').first
+                        if login_btn.count() > 0:
+                            login_btn.click()
+                            time.sleep(4)
+                            dismiss_instagram_modals(page)
+
+                        # Check if 2FA code is needed
+                        two_factor_input = page.locator('input[name="verificationCode"], input[aria-label*="Security Code"], input[placeholder*="Security Code"]').first
+                        if two_factor_input.count() > 0 and two_factor_input.is_visible():
+                            if self.verification_code:
+                                two_factor_input.fill(self.verification_code)
+                                time.sleep(0.5)
+                                page.keyboard.press("Enter")
+                                time.sleep(4)
+                                dismiss_instagram_modals(page)
+                            else:
+                                browser.close()
+                                raise Exception("2FA Verification Required! Enter the 6-digit code in the OTP box and click Verify again.")
+
+                        # Check for incorrect password notice on screen
+                        err_elem = page.locator('div[role="alert"], p#slfErrorAlert, div:has-text("Sorry, your password was incorrect"), div:has-text("incorrect password")')
+                        if err_elem.count() > 0 and err_elem.first.is_visible():
+                            browser.close()
+                            raise Exception("Incorrect Instagram password! Please check username & password.")
+
+                        # Extract authenticated cookies from browser
+                        cookies_list = browser.cookies("https://www.instagram.com")
+                        cookies_dict = {c["name"]: c["value"] for c in cookies_list}
+                        
+                        browser.close()
+
+                        if "sessionid" in cookies_dict:
+                            sid = cookies_dict.get("sessionid")
+                            csrf = cookies_dict.get("csrftoken") or "missing"
+                            uid_str = cookies_dict.get("ds_user_id") or ""
+                            self.user_id = uid_str
+                            self.resolved_username = self.username
+                            self.settings = {
+                                "cookies": cookies_dict,
+                                "user_id": uid_str,
+                                "username": self.username
+                            }
+                            self._log(f"🎉 Browser authentication successful for @{self.username}!", "SUCCESS")
+
+                            # Build persistent requests web session
+                            self.web_session = requests.Session()
+                            for k, v in cookies_dict.items():
+                                self.web_session.cookies.set(k, v, domain=".instagram.com")
+                            self.web_headers = {
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                                "X-IG-App-ID": "936619743392459",
+                                "X-Requested-With": "XMLHttpRequest",
+                                "Accept": "*/*",
+                                "Referer": "https://www.instagram.com/direct/inbox/",
+                                "Origin": "https://www.instagram.com"
+                            }
+                            self.web_session.headers.update(self.web_headers)
+                            return
+            except Exception as e_pw:
+                if "2FA" in str(e_pw) or "Incorrect" in str(e_pw):
+                    raise e_pw
+                self._log(f"Browser login attempt notice: {e_pw}. Trying mobile client companion...", "WARN")
+
+            # Fallback Step B: Instagrapi Mobile Login
             self.cl = Client()
             self.cl.request_timeout = 0
             try:
@@ -1958,7 +2241,7 @@ def block_media(route):
 def dismiss_instagram_modals(p_page):
     try:
         # Dismiss common popups, cookie consent, and notifications
-        for btn_text in ["Not Now", "Not now", "Cancel", "Decline", "Dismiss", "Accept", "Allow", "Close"]:
+        for btn_text in ["Not Now", "Not now", "Cancel", "Decline", "Dismiss", "Accept", "Allow", "Close", "Save Info"]:
             btn = p_page.locator(f'button:has-text("{btn_text}"), div[role="button"]:has-text("{btn_text}"), svg[aria-label="Close"]')
             if btn.count() > 0:
                 for i in range(min(btn.count(), 2)):
@@ -1968,6 +2251,16 @@ def dismiss_instagram_modals(p_page):
                             time.sleep(0.2)
                         except Exception:
                             pass
+        
+        # Handle "Continue" or "This was me" if Instagram prompts saved profile
+        for continue_txt in ["Continue as", "Continue", "This Was Me", "This was me"]:
+            c_btn = p_page.locator(f'button:has-text("{continue_txt}"), div[role="button"]:has-text("{continue_txt}")')
+            if c_btn.count() > 0 and c_btn.first.is_visible():
+                try:
+                    c_btn.first.click(timeout=1500, force=True)
+                    time.sleep(1)
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -2002,13 +2295,6 @@ def get_msg_box(p_page):
                     el = loc.nth(i)
                     if el.is_visible():
                         return el
-        except Exception:
-                        if btn.nth(i).is_visible():
-                            try:
-                                btn.nth(i).click(timeout=1000, force=True)
-                                time.sleep(0.2)
-                            except Exception:
-                                pass
         except Exception:
             pass
 
@@ -2111,14 +2397,27 @@ def single_gc_playwright_worker(uid):
                     headless=True,
                     args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--disable-notifications"]
                 )
-                browser.add_cookies([{
-                    "name": "sessionid",
-                    "value": sessionid,
-                    "domain": ".instagram.com",
-                    "path": "/",
-                    "secure": True,
-                    "httpOnly": True
-                }])
+
+                parsed_cookies, clean_sess, clean_csrf, user_id = parse_instagram_cookie_input(sessionid)
+                cookie_list = []
+                for ck_k, ck_v in parsed_cookies.items():
+                    cookie_list.append({
+                        "name": ck_k,
+                        "value": ck_v,
+                        "domain": ".instagram.com",
+                        "path": "/",
+                        "secure": True
+                    })
+                if clean_sess and not any(c["name"] == "sessionid" for c in cookie_list):
+                    cookie_list.append({
+                        "name": "sessionid",
+                        "value": clean_sess,
+                        "domain": ".instagram.com",
+                        "path": "/",
+                        "secure": True
+                    })
+
+                browser.add_cookies(cookie_list)
                 page = browser.new_page()
                 page.route("**/*", block_media)
 
@@ -2126,6 +2425,14 @@ def single_gc_playwright_worker(uid):
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 time.sleep(3)
                 dismiss_instagram_modals(page)
+
+                if "/direct/t/" not in page.url:
+                    # If stopped at homepage / one-tap screen, click continue and re-navigate
+                    dismiss_instagram_modals(page)
+                    time.sleep(1)
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    time.sleep(3)
+                    dismiss_instagram_modals(page)
 
                 msg_box = get_msg_box(page)
 
@@ -2356,14 +2663,20 @@ def single_gc_playwright_worker(uid):
                     browser = None
 
         except Exception as e_engine:
-            log_gc_terminal(uid, f"⚠️ Single GC Engine notice: {e_engine}. Auto-recovering in 3s...", "WARN")
-            time.sleep(3)
+            err_str = str(e_engine)
+            if "Resource temporarily unavailable" in err_str or "11" in err_str or "thread" in err_str.lower():
+                log_gc_terminal(uid, f"⚠️ System resource limit reached ({err_str}). Sleeping 10s before auto-recovering...", "WARN")
+                time.sleep(10)
+            else:
+                log_gc_terminal(uid, f"⚠️ Single GC Engine notice: {e_engine}. Auto-recovering in 5s...", "WARN")
+                time.sleep(5)
         finally:
             if browser:
                 try:
                     browser.close()
                 except Exception:
                     pass
+                browser = None
             if os.path.exists(user_data_dir):
                 try:
                     shutil.rmtree(user_data_dir, ignore_errors=True)
@@ -2642,83 +2955,142 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 ]
 
-def scrape_instagram_groups(sessionid, csrftoken=None, max_groups=150, log_fn=None):
-    clean_sessionid = sessionid.strip()
-    if "sessionid=" in clean_sessionid:
-        m = re.search(r'sessionid=([^;]+)', clean_sessionid)
-        if m:
-            clean_sessionid = m.group(1).strip()
-    if "%3A" in clean_sessionid or "%3a" in clean_sessionid:
-        clean_sessionid = urllib.parse.unquote(clean_sessionid).strip()
-
-    clean_csrf = (csrftoken or "").strip()
-    if not clean_csrf or clean_csrf == "missing":
-        if "csrftoken=" in sessionid:
-            m = re.search(r'csrftoken=([^;]+)', sessionid)
-            if m:
-                clean_csrf = m.group(1).strip()
-    if not clean_csrf:
-        clean_csrf = "missing"
+def scrape_instagram_groups(sessionid, csrftoken=None, max_groups=1000, log_fn=None):
+    parsed_cookies, clean_sessionid, clean_csrf, user_id = parse_instagram_cookie_input(sessionid, csrftoken or "")
 
     headers = {
         "User-Agent": random.choice(USER_AGENTS),
         "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
         "X-Requested-With": "XMLHttpRequest",
-        "X-CSRFToken": clean_csrf,
+        "X-CSRFToken": clean_csrf or parsed_cookies.get("csrftoken", "missing"),
         "X-IG-App-ID": "936619743392459",
         "X-ASBD-ID": "129477",
         "Referer": "https://www.instagram.com/direct/inbox/",
     }
-    cookies = {"sessionid": clean_sessionid}
+    cookies = dict(parsed_cookies)
+    if clean_sessionid:
+        cookies["sessionid"] = clean_sessionid
     if clean_csrf and clean_csrf != "missing":
         cookies["csrftoken"] = clean_csrf
+    if user_id.isdigit():
+        cookies["ds_user_id"] = user_id
 
     links = []
-    url = "https://www.instagram.com/api/v1/direct_v2/inbox/?limit=50"
-    cursor = None
+    seen_ids = set()
+
+    # Instagram distributes group chats across multiple folders:
+    # 1. Main Inbox (Primary)
+    # 2. General Folder
+    # 3. Pending Requests
+    # 4. Hidden / Filtered Requests
+    # 5. Spam Requests
+    endpoints = [
+        ("Main Inbox", "https://www.instagram.com/api/v1/direct_v2/inbox/"),
+        ("General Inbox", "https://www.instagram.com/api/v1/direct_v2/inbox/?folder=general"),
+        ("Pending Requests", "https://www.instagram.com/api/v1/direct_v2/inbox/?folder=pending"),
+        ("Hidden Requests", "https://www.instagram.com/api/v1/direct_v2/inbox/?folder=hidden"),
+        ("Spam Requests", "https://www.instagram.com/api/v1/direct_v2/inbox/?folder=spam"),
+    ]
+
     if log_fn:
-        log_fn(f"🔍 Scraping up to {max_groups} group chat links from Direct Inbox API...", "INFO")
+        log_fn(f"🔍 Scraping up to {max_groups} group chat links across all folders (Primary, General, Pending, Hidden, Spam)...", "INFO")
 
-    retries = 0
-    while len(links) < max_groups and retries < 4:
-        try:
-            req_url = f"https://www.instagram.com/api/v1/direct_v2/inbox/?limit=50&cursor={cursor}" if cursor else url
-            r = requests.get(req_url, headers=headers, cookies=cookies, timeout=20)
-            if r.status_code != 200:
+    for name, base_url in endpoints:
+        cursor = None
+        prev_cursor = None
+        page_num = 1
+        
+        while len(links) < max_groups:
+            params = {
+                "limit": 50,
+                "thread_message_limit": 1,
+                "persistentBadging": "true"
+            }
+            if cursor:
+                params["cursor"] = str(cursor)
+                params["direction"] = "older"
+                
+            try:
+                r = requests.get(
+                    base_url,
+                    headers=headers,
+                    cookies=cookies,
+                    params=params,
+                    timeout=15
+                )
+            except Exception as err:
                 if log_fn:
-                    log_fn(f"⚠️ Direct Inbox API HTTP {r.status_code}. Retrying...", "WARN")
-                retries += 1
-                time.sleep(2)
-                continue
-
-            data = r.json()
-            threads = data.get("inbox", {}).get("threads", [])
-            new_found = 0
-            for t in threads:
-                if t.get("is_group"):
-                    v2id = t.get("thread_v2_id")
-                    if v2id:
-                        g_url = f"https://www.instagram.com/direct/t/{v2id}/"
-                        if g_url not in links:
-                            links.append(g_url)
-                            new_found += 1
-                            if len(links) >= max_groups:
-                                break
-            cursor = data.get("inbox", {}).get("oldest_cursor")
-            if not cursor or not threads or new_found == 0:
+                    log_fn(f"⚠️ Network notice during {name} scan: {err}", "WARN")
                 break
+
+            if r.status_code != 200:
+                break
+
+            try:
+                data = r.json()
+            except Exception:
+                break
+
+            inbox = data.get("inbox", {}) if isinstance(data.get("inbox"), dict) else data.get("pending_requests", {}) or data
+            threads = inbox.get("threads", []) if isinstance(inbox, dict) else []
+            if not threads and isinstance(data.get("threads"), list):
+                threads = data.get("threads", [])
+
+            if not threads:
+                break
+
+            new_found_in_page = 0
+            for t in threads:
+                # Identification for all group chat variants
+                is_group = (
+                    t.get("is_group") is True
+                    or len(t.get("users", [])) > 1
+                    or t.get("thread_type") in ["group", "channel", "broadcast_channel"]
+                    or t.get("named", False) is True
+                )
+                
+                if is_group:
+                    thread_id = t.get("thread_v2_id") or t.get("thread_id") or t.get("id")
+                    if thread_id and str(thread_id) not in seen_ids:
+                        seen_ids.add(str(thread_id))
+                        link = f"https://www.instagram.com/direct/t/{thread_id}/"
+                        links.append(link)
+                        new_found_in_page += 1
+                        if len(links) >= max_groups:
+                            break
+
+            page_num += 1
+            if len(links) >= max_groups:
+                break
+
+            old_cursor = (
+                inbox.get("oldest_cursor")
+                or inbox.get("cursor")
+                or data.get("oldest_cursor")
+                or data.get("cursor")
+                or data.get("next_max_id")
+            )
+            
+            if not old_cursor and threads:
+                last_t = threads[-1]
+                old_cursor = (
+                    last_t.get("last_activity_at")
+                    or last_t.get("last_permanent_item", {}).get("timestamp")
+                )
+            
+            if not old_cursor or str(old_cursor) == str(prev_cursor):
+                break
+                
+            prev_cursor = old_cursor
+            cursor = old_cursor
             time.sleep(0.5)
-        except Exception as ex:
-            if log_fn:
-                log_fn(f"⚠️ Group link fetch notice: {ex}", "WARN")
-            retries += 1
-            time.sleep(1)
 
     if log_fn:
         if links:
-            log_fn(f"✅ Successfully scraped {len(links)} Instagram Group Chat Links!", "SUCCESS")
+            log_fn(f"✅ Successfully scraped {len(links)} total unique Instagram Group Chat Links across all folders!", "SUCCESS")
         else:
-            log_fn("⚠️ 0 group chats found via Direct Inbox API.", "WARN")
+            log_fn("⚠️ 0 group chats found in any folder.", "WARN")
     return links
 
 def multi_gc_playwright_worker(uid):
@@ -2734,21 +3106,7 @@ def multi_gc_playwright_worker(uid):
     sessionid = (acc.get("sessionid") or "").strip()
     csrftoken = (acc.get("csrftoken") or "").strip()
 
-    # Clean session & CSRF cookies
-    clean_sess = sessionid
-    if "sessionid=" in clean_sess:
-        m = re.search(r'sessionid=([^;]+)', clean_sess)
-        if m:
-            clean_sess = m.group(1).strip()
-    if "%3A" in clean_sess or "%3a" in clean_sess:
-        clean_sess = urllib.parse.unquote(clean_sess).strip()
-
-    clean_csrf = csrftoken
-    if not clean_csrf or clean_csrf == "missing":
-        if "csrftoken=" in sessionid:
-            m = re.search(r'csrftoken=([^;]+)', sessionid)
-            if m:
-                clean_csrf = m.group(1).strip()
+    parsed_cookies, clean_sess, clean_csrf, user_id = parse_instagram_cookie_input(sessionid, csrftoken or "")
 
     log_ig_terminal(uid, f"🚀 Multi-GC Playwright Engine deployed for Bot #{uid} (1-Text + 1-NC Mode)!", "SUCCESS")
 
@@ -2817,22 +3175,30 @@ def multi_gc_playwright_worker(uid):
                     args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--disable-notifications"]
                 )
 
-                cookie_list = [{
-                    "name": "sessionid",
-                    "value": clean_sess,
-                    "domain": ".instagram.com",
-                    "path": "/",
-                    "secure": True,
-                    "httpOnly": True
-                }]
-                if clean_csrf and clean_csrf != "missing":
+                cookie_list = []
+                for ck_k, ck_v in parsed_cookies.items():
+                    cookie_list.append({
+                        "name": ck_k,
+                        "value": ck_v,
+                        "domain": ".instagram.com",
+                        "path": "/",
+                        "secure": True
+                    })
+                if clean_sess and not any(c["name"] == "sessionid" for c in cookie_list):
+                    cookie_list.append({
+                        "name": "sessionid",
+                        "value": clean_sess,
+                        "domain": ".instagram.com",
+                        "path": "/",
+                        "secure": True
+                    })
+                if clean_csrf and not any(c["name"] == "csrftoken" for c in cookie_list):
                     cookie_list.append({
                         "name": "csrftoken",
                         "value": clean_csrf,
                         "domain": ".instagram.com",
                         "path": "/",
-                        "secure": True,
-                        "httpOnly": False
+                        "secure": True
                     })
                 browser.add_cookies(cookie_list)
 
@@ -2849,6 +3215,12 @@ def multi_gc_playwright_worker(uid):
                         page.goto(gc_url, wait_until="domcontentloaded", timeout=45000)
                         time.sleep(2)
                         dismiss_instagram_modals(page)
+                        if "/direct/t/" not in page.url:
+                            dismiss_instagram_modals(page)
+                            time.sleep(1)
+                            page.goto(gc_url, wait_until="domcontentloaded", timeout=45000)
+                            time.sleep(2)
+                            dismiss_instagram_modals(page)
                     except Exception as e_nav:
                         log_ig_terminal(uid, f"⚠️ Navigation notice for GC #{g_idx}: {e_nav}", "WARN")
                         time.sleep(1)
@@ -3010,6 +3382,839 @@ def multi_gc_playwright_worker(uid):
     if uid_str in ig_stats:
         ig_stats[uid_str]["running"] = False
     log_ig_terminal(uid, "⏹️ Multi-GC Playwright Engine stopped.", "INFO")
+
+# ================= INSTAGRAM PLAYWRIGHT PRIVATE API ENGINE =================
+# 50 Default Emojis for NC Loops
+IG_PRIVATE_EMOJI_LIST = [
+    '👑', '🔥', '⚡', '💥', '💀', '😈', '🦁', '🦅', '⚔️', '🔱',
+    '💎', '🚀', '🌟', '🌪️', '💣', '🩸', '🎯', '🐅', '🐺', '🐉',
+    '🏆', '🥇', '🎩', '🥋', '🥊', '🛡️', '🗡️', '⛓️', '🕷️', '🦂',
+    '🦇', '👹', '👺', '🥶', '🥵', '☠️', '🚩', '🪐', '☄️', '🔮',
+    '🧿', '🖤', '🤍', '🤎', '💜', '💙', '💚', '💛', '🧡', '❤️'
+]
+
+def ig_private_api_worker(uid):
+    uid_str = str(uid)
+    full_db = get_full_db()
+    acc = full_db.get("ig_private_accounts", {}).get(uid_str) or full_db.get("ig_private_accounts", {}).get(uid, {})
+    if not acc:
+        ig_priv_running[uid] = False
+        ig_priv_running[uid_str] = False
+        log_ig_priv_terminal(uid, "Account not found in database. Stopped.", "ERROR")
+        return
+
+    auth_type = str(acc.get("auth_type", "cookie")).lower().strip()
+    sessionid = (acc.get("sessionid") or "").strip()
+    csrftoken = (acc.get("csrftoken") or "").strip()
+    username = str(acc.get("username", "")).strip()
+    password = str(acc.get("password", "")).strip()
+    totp_key = str(acc.get("totp_key", "")).strip()
+
+    if auth_type == "credentials" or sessionid.startswith("CREDENTIALS:"):
+        if sessionid.startswith("CREDENTIALS:"):
+            parts = sessionid.split(":", 2)
+            if len(parts) >= 3:
+                username = username or parts[1]
+                password = password or parts[2]
+
+        v_code = ""
+        if totp_key:
+            try:
+                import pyotp
+                totp = pyotp.TOTP(totp_key.replace(" ", "").upper())
+                v_code = totp.now()
+                log_ig_priv_terminal(uid, f"🔑 Generated Live 2FA OTP Code: {v_code}", "INFO")
+            except Exception as e_totp:
+                log_ig_priv_terminal(uid, f"⚠️ 2FA Key Notice: {e_totp}", "WARN")
+
+        log_ig_priv_terminal(uid, f"🔐 Authenticating @{username} via Direct Credentials...", "INFO")
+        try:
+            client, settings, resolved_user = init_instagram_client(
+                username=username,
+                password=password,
+                verification_code=v_code,
+                log_fn=lambda m, l: log_ig_priv_terminal(uid, m, l)
+            )
+            cookies = settings.get("cookies", {})
+            parsed_cookies = cookies
+            clean_sess = cookies.get("sessionid", "")
+            clean_csrf = cookies.get("csrftoken", "")
+            user_id = str(settings.get("user_id") or "")
+            log_ig_priv_terminal(uid, f"✅ Successfully logged in as @{resolved_user}!", "SUCCESS")
+        except Exception as e_auth:
+            log_ig_priv_terminal(uid, f"❌ Login Failed: {e_auth}", "ERROR")
+            ig_priv_running[uid] = False
+            ig_priv_running[uid_str] = False
+            return
+    else:
+        parsed_cookies, clean_sess, clean_csrf, user_id = parse_instagram_cookie_input(sessionid, csrftoken or "")
+
+    log_ig_priv_terminal(uid, f"🚀 Playwright Private Engine started for Bot #{uid}!", "SUCCESS")
+
+    cycle_count = 0
+    msg_cycle_idx = 0
+    emoji_idx = 0
+
+    while ig_priv_running.get(uid, False) or ig_priv_running.get(uid_str, False):
+        user_data_dir = os.path.join(tempfile.gettempdir(), f"ig_priv_browser_{uid}_{uuid.uuid4().hex[:6]}")
+        os.makedirs(user_data_dir, exist_ok=True)
+        browser = None
+
+        try:
+            full_db = get_full_db()
+            acc = full_db.get("ig_private_accounts", {}).get(uid_str) or full_db.get("ig_private_accounts", {}).get(uid) or acc
+
+            mode_type = str(acc.get("mode_type", "multi")).lower().strip() # "single" or "multi"
+            prefix = (acc.get("prefix") or acc.get("target_name") or "").strip()
+            target_name = (acc.get("target_name") or "").strip()
+
+            raw_groups = acc.get("group_names", []) or acc.get("thread_ids", [])
+            if isinstance(raw_groups, str):
+                groups = [g.strip() for g in re.split(r"[,;\n\r]+", raw_groups) if g.strip()]
+            elif isinstance(raw_groups, list):
+                groups = [str(g).strip() for g in raw_groups if str(g).strip()]
+            else:
+                groups = []
+
+            # Format full group chat URLs
+            gc_urls = []
+            for g in groups:
+                if g.startswith("http"):
+                    gc_urls.append(g)
+                else:
+                    gc_urls.append(f"https://www.instagram.com/direct/t/{g}/")
+
+            if not gc_urls:
+                log_ig_priv_terminal(uid, "⚠️ No GC Link provided. Please add Group URL / Thread ID.", "WARN")
+                time.sleep(5)
+                continue
+
+            raw_messages = acc.get("messages", [])
+            if isinstance(raw_messages, str):
+                messages = [m.strip() for m in raw_messages.replace("\r", "").split("\n") if m.strip()]
+            elif isinstance(raw_messages, list):
+                messages = [str(m).strip() for m in raw_messages if str(m).strip()]
+            else:
+                messages = []
+            if not messages:
+                messages = ["SERVER GOD CLAN ON TOP 🔥", "PLAYWRIGHT PRIVATE API STRIKE 💥", "WAR MODE ACTIVE ⚡"]
+
+            # Load Custom NC titles
+            raw_nc = acc.get("nc_names") or acc.get("group_renames") or ""
+            if isinstance(raw_nc, str):
+                nc_list = [n.strip() for n in raw_nc.replace("\r", "").split("\n") if n.strip()]
+            elif isinstance(raw_nc, list):
+                nc_list = [str(n).strip() for n in raw_nc if str(n).strip()]
+            else:
+                nc_list = []
+            if not nc_list:
+                nc_list = ["KING CONQUERED THIS GC 👑", "SERVER GOD CLAN ON TOP 🔥", "LOCKED BY KING SQUAD ⚡"]
+
+            # Load Script Gap Formatting
+            header_text = str(acc.get("header_text") or "👑 SPAM BY KING 👑").strip()
+            footer_text = str(acc.get("footer_text") or "👑 SCRIPT BY SERVER GOD CLAN 👑").strip()
+            space_lines = int(acc.get("space_lines", 35))
+            blank_block = "\n".join(["⠀" for _ in range(space_lines)])
+            use_long_format = bool(acc.get("use_long_format", True))
+
+            delay = float(acc.get("delay", 2.0))
+            if delay < 0.3:
+                delay = 2.0
+
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch_persistent_context(
+                    user_data_dir,
+                    headless=True,
+                    viewport={"width": 1280, "height": 720},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                    args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--disable-notifications"]
+                )
+
+                # Inject parsed cookies
+                cookie_list = []
+                for ck_k, ck_v in parsed_cookies.items():
+                    cookie_list.append({
+                        "name": ck_k,
+                        "value": ck_v,
+                        "domain": ".instagram.com",
+                        "path": "/",
+                        "secure": True
+                    })
+                if clean_sess and not any(c["name"] == "sessionid" for c in cookie_list):
+                    cookie_list.append({
+                        "name": "sessionid",
+                        "value": clean_sess,
+                        "domain": ".instagram.com",
+                        "path": "/",
+                        "secure": True
+                    })
+                browser.add_cookies(cookie_list)
+                page = browser.new_page()
+                page.route("**/*", block_media)
+
+                if mode_type == "single" or len(gc_urls) == 1:
+                    target_url = gc_urls[0]
+                    cycle_count += 1
+                    repeat_msgs = int(acc.get("repeat_count") or 15)
+                    if repeat_msgs < 1:
+                        repeat_msgs = 15
+
+                    log_ig_priv_terminal(uid, f"🎯 [SINGLE GC CYCLE #{cycle_count}] Opening GC: {target_url}...", "INFO")
+                    page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+                    time.sleep(3)
+                    dismiss_instagram_modals(page)
+
+                    if "/direct/t/" not in page.url:
+                        dismiss_instagram_modals(page)
+                        page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+                        time.sleep(3)
+                        dismiss_instagram_modals(page)
+
+                    msg_box = get_msg_box(page)
+                    if not msg_box:
+                        time.sleep(3)
+                        dismiss_instagram_modals(page)
+                        msg_box = get_msg_box(page)
+
+                    # 1. Send Messages with 35-line Gap Format
+                    log_ig_priv_terminal(uid, f"📨 Firing {repeat_msgs} Messages in GC...", "INFO")
+                    for m_i in range(repeat_msgs):
+                        if not ig_priv_running.get(uid) and not ig_priv_running.get(uid_str):
+                            break
+
+                        raw_txt = messages[msg_cycle_idx % len(messages)]
+                        msg_cycle_idx += 1
+                        current_emoji = IG_PRIVATE_EMOJI_LIST[emoji_idx % len(IG_PRIVATE_EMOJI_LIST)]
+
+                        if prefix:
+                            core_msg = f"[{prefix}] {raw_txt} {current_emoji}"
+                        elif target_name:
+                            core_msg = f"[{target_name}] {raw_txt} {current_emoji}"
+                        else:
+                            core_msg = f"{raw_txt} {current_emoji}"
+
+                        if use_long_format:
+                            final_msg = f"{header_text}\n{blank_block}\n{core_msg}\n{blank_block}\n{footer_text}"
+                        else:
+                            final_msg = core_msg
+
+                        try:
+                            if not msg_box or not msg_box.is_visible():
+                                msg_box = get_msg_box(page)
+
+                            if msg_box:
+                                msg_box.click(timeout=3000, force=True)
+                                page.keyboard.press("Control+A")
+                                page.keyboard.press("Backspace")
+                                page.keyboard.insert_text(final_msg)
+                                time.sleep(0.2)
+                                
+                                # Trigger send
+                                sent = False
+                                send_btn = page.locator('button:has-text("Send"), div[role="button"]:has-text("Send"), div[aria-label="Send"], svg[aria-label="Send"]').first
+                                if send_btn.count() > 0 and send_btn.is_visible():
+                                    try:
+                                        send_btn.click(timeout=1500, force=True)
+                                        sent = True
+                                    except Exception:
+                                        pass
+                                if not sent:
+                                    page.keyboard.press("Enter")
+                                
+                                if uid in ig_priv_stats:
+                                    ig_priv_stats[uid]["sent"] = ig_priv_stats[uid].get("sent", 0) + 1
+                                elif uid_str in ig_priv_stats:
+                                    ig_priv_stats[uid_str]["sent"] = ig_priv_stats[uid_str].get("sent", 0) + 1
+                                log_ig_priv_terminal(uid, f"📨 [Msg {m_i+1}/{repeat_msgs}] Sent: '{core_msg}' ({space_lines} gap lines)", "SUCCESS")
+                            else:
+                                if uid in ig_priv_stats:
+                                    ig_priv_stats[uid]["failed"] = ig_priv_stats[uid].get("failed", 0) + 1
+                                elif uid_str in ig_priv_stats:
+                                    ig_priv_stats[uid_str]["failed"] = ig_priv_stats[uid_str].get("failed", 0) + 1
+                                log_ig_priv_terminal(uid, f"❌ Msg box lost on strike {m_i+1}", "WARN")
+                        except Exception as e_send:
+                            log_ig_priv_terminal(uid, f"❌ Send notice: {e_send}", "WARN")
+
+                        time.sleep(delay)
+
+                    # 2. Perform 1 NC Rename using Modal dialog + Save button
+                    if ig_priv_running.get(uid) or ig_priv_running.get(uid_str):
+                        nc_template = nc_list[emoji_idx % len(nc_list)]
+                        current_emoji = IG_PRIVATE_EMOJI_LIST[emoji_idx % len(IG_PRIVATE_EMOJI_LIST)]
+                        emoji_idx += 1
+                        
+                        if "{target}" in nc_template:
+                            new_title = nc_template.replace("{target}", target_name or prefix or "KING")
+                        else:
+                            new_title = f"{nc_template} {current_emoji}".strip()
+
+                        log_ig_priv_terminal(uid, f"🏷️ Renaming GC to '{new_title}'...", "INFO")
+                        try:
+                            # 1. Click Conversation Info gear/i icon
+                            info_btn = page.locator('svg[aria-label="Conversation information"], svg[aria-label="Thread Details"], svg[aria-label="Group Details"], div[role="button"]:has(svg[aria-label="Conversation information"])').first
+                            if info_btn.count() > 0 and info_btn.is_visible():
+                                info_btn.click(timeout=3000, force=True)
+                                time.sleep(1)
+
+                            # 2. Click "Change group name" button
+                            change_btn = page.locator('div[aria-label="Change group name"][role="button"], div[role="button"]:has-text("Change group name")').first
+                            if change_btn.count() > 0 and change_btn.is_visible():
+                                change_btn.click(timeout=3000, force=True)
+                                time.sleep(0.5)
+
+                            # 3. Fill Group Name
+                            title_input = page.locator('input[aria-label="Group name"][name="change-group-name"], input[placeholder="Group name"], input[placeholder*="group name"], input[aria-label*="Change Group Name"]').first
+                            if title_input.count() > 0 and title_input.is_visible():
+                                title_input.click(timeout=2000)
+                                page.keyboard.press("Control+A")
+                                page.keyboard.press("Backspace")
+                                title_input.fill(new_title)
+                                time.sleep(0.5)
+
+                                # 4. Click Save
+                                save_btn = page.locator('div[role="button"]:has-text("Save"), button:has-text("Save")').first
+                                if save_btn.count() > 0 and save_btn.is_visible():
+                                    save_btn.click(timeout=3000, force=True)
+                                else:
+                                    page.keyboard.press("Enter")
+                                
+                                time.sleep(1)
+                                if uid in ig_priv_stats:
+                                    ig_priv_stats[uid]["renamed"] = ig_priv_stats[uid].get("renamed", 0) + 1
+                                elif uid_str in ig_priv_stats:
+                                    ig_priv_stats[uid_str]["renamed"] = ig_priv_stats[uid_str].get("renamed", 0) + 1
+                                log_ig_priv_terminal(uid, f"🏷️ [1 NC] Renamed GC to '{new_title}'", "SUCCESS")
+                            
+                            # Close info panel if still open
+                            if info_btn.count() > 0 and info_btn.is_visible():
+                                info_btn.click(timeout=2000, force=True)
+
+                        except Exception as e_nc:
+                            log_ig_priv_terminal(uid, f"⚠️ NC rename notice: {e_nc}", "WARN")
+
+                else:
+                    # MULTI GC ROUND (1 Text with 35-line Gap + 1 NC per GC)
+                    cycle_count += 1
+                    log_ig_priv_terminal(uid, f"🌐 [MULTI-GC CYCLE #{cycle_count}] Striking across {len(gc_urls)} Group Chats (1 Msg + 1 NC each)...", "INFO")
+                    for t_idx, target_url in enumerate(gc_urls, 1):
+                        if not ig_priv_running.get(uid) and not ig_priv_running.get(uid_str):
+                            break
+
+                        log_ig_priv_terminal(uid, f"➡️ Entering GC #{t_idx}/{len(gc_urls)}...", "INFO")
+                        page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+                        time.sleep(2.5)
+                        dismiss_instagram_modals(page)
+
+                        msg_box = get_msg_box(page)
+                        raw_txt = messages[msg_cycle_idx % len(messages)]
+                        msg_cycle_idx += 1
+                        current_emoji = IG_PRIVATE_EMOJI_LIST[emoji_idx % len(IG_PRIVATE_EMOJI_LIST)]
+
+                        if prefix:
+                            core_msg = f"[{prefix}] {raw_txt} {current_emoji}"
+                        elif target_name:
+                            core_msg = f"[{target_name}] {raw_txt} {current_emoji}"
+                        else:
+                            core_msg = f"{raw_txt} {current_emoji}"
+
+                        if use_long_format:
+                            final_msg = f"{header_text}\n{blank_block}\n{core_msg}\n{blank_block}\n{footer_text}"
+                        else:
+                            final_msg = core_msg
+
+                        try:
+                            if msg_box and msg_box.is_visible():
+                                msg_box.click(timeout=3000, force=True)
+                                page.keyboard.press("Control+A")
+                                page.keyboard.press("Backspace")
+                                page.keyboard.insert_text(final_msg)
+                                time.sleep(0.2)
+                                
+                                sent = False
+                                send_btn = page.locator('button:has-text("Send"), div[role="button"]:has-text("Send"), div[aria-label="Send"], svg[aria-label="Send"]').first
+                                if send_btn.count() > 0 and send_btn.is_visible():
+                                    try:
+                                        send_btn.click(timeout=1500, force=True)
+                                        sent = True
+                                    except Exception:
+                                        pass
+                                if not sent:
+                                    page.keyboard.press("Enter")
+
+                                if uid in ig_priv_stats:
+                                    ig_priv_stats[uid]["sent"] = ig_priv_stats[uid].get("sent", 0) + 1
+                                elif uid_str in ig_priv_stats:
+                                    ig_priv_stats[uid_str]["sent"] = ig_priv_stats[uid_str].get("sent", 0) + 1
+                                log_ig_priv_terminal(uid, f"📨 [1 Text] GC #{t_idx}: '{core_msg}'", "SUCCESS")
+                            else:
+                                if uid in ig_priv_stats:
+                                    ig_priv_stats[uid]["failed"] = ig_priv_stats[uid].get("failed", 0) + 1
+                                elif uid_str in ig_priv_stats:
+                                    ig_priv_stats[uid_str]["failed"] = ig_priv_stats[uid_str].get("failed", 0) + 1
+                                log_ig_priv_terminal(uid, f"❌ Msg box not visible in GC #{t_idx}", "WARN")
+                        except Exception as e_send:
+                            log_ig_priv_terminal(uid, f"❌ Send notice GC #{t_idx}: {e_send}", "WARN")
+
+                        time.sleep(delay)
+
+                        # 1 NC rename with Modal Click + Save Button
+                        nc_template = nc_list[emoji_idx % len(nc_list)]
+                        current_emoji = IG_PRIVATE_EMOJI_LIST[emoji_idx % len(IG_PRIVATE_EMOJI_LIST)]
+                        emoji_idx += 1
+                        
+                        if "{target}" in nc_template:
+                            new_title = nc_template.replace("{target}", target_name or prefix or "KING")
+                        else:
+                            new_title = f"{nc_template} {current_emoji}".strip()
+
+                        try:
+                            info_btn = page.locator('svg[aria-label="Conversation information"], svg[aria-label="Thread Details"], svg[aria-label="Group Details"], div[role="button"]:has(svg[aria-label="Conversation information"])').first
+                            if info_btn.count() > 0 and info_btn.is_visible():
+                                info_btn.click(timeout=3000, force=True)
+                                time.sleep(1)
+
+                            change_btn = page.locator('div[aria-label="Change group name"][role="button"], div[role="button"]:has-text("Change group name")').first
+                            if change_btn.count() > 0 and change_btn.is_visible():
+                                change_btn.click(timeout=3000, force=True)
+                                time.sleep(0.5)
+
+                            title_input = page.locator('input[aria-label="Group name"][name="change-group-name"], input[placeholder="Group name"], input[placeholder*="group name"], input[aria-label*="Change Group Name"]').first
+                            if title_input.count() > 0 and title_input.is_visible():
+                                title_input.click(timeout=2000)
+                                page.keyboard.press("Control+A")
+                                page.keyboard.press("Backspace")
+                                title_input.fill(new_title)
+                                time.sleep(0.5)
+
+                                save_btn = page.locator('div[role="button"]:has-text("Save"), button:has-text("Save")').first
+                                if save_btn.count() > 0 and save_btn.is_visible():
+                                    save_btn.click(timeout=3000, force=True)
+                                else:
+                                    page.keyboard.press("Enter")
+                                
+                                time.sleep(1)
+                                if uid in ig_priv_stats:
+                                    ig_priv_stats[uid]["renamed"] = ig_priv_stats[uid].get("renamed", 0) + 1
+                                elif uid_str in ig_priv_stats:
+                                    ig_priv_stats[uid_str]["renamed"] = ig_priv_stats[uid_str].get("renamed", 0) + 1
+                                log_ig_priv_terminal(uid, f"🏷️ [1 NC] Renamed GC #{t_idx} to '{new_title}'", "SUCCESS")
+                        except Exception as e_nc:
+                            pass
+
+                        time.sleep(delay)
+
+                browser.close()
+                browser = None
+
+        except Exception as e_cycle:
+            log_ig_priv_terminal(uid, f"⚠️ Playwright Loop notice: {e_cycle}. Auto-recovering in 3s...", "WARN")
+            time.sleep(3)
+        finally:
+            if browser:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+            if os.path.exists(user_data_dir):
+                try:
+                    shutil.rmtree(user_data_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+    ig_priv_running[uid] = False
+    ig_priv_running[uid_str] = False
+    if uid in ig_priv_live:
+        ig_priv_live[uid]["running"] = False
+    if uid_str in ig_priv_live:
+        ig_priv_live[uid_str]["running"] = False
+    if uid in ig_priv_stats:
+        ig_priv_stats[uid]["running"] = False
+    if uid_str in ig_priv_stats:
+        ig_priv_stats[uid_str]["running"] = False
+    log_ig_priv_terminal(uid, "⏹️ Playwright Private Engine stopped.", "INFO")
+
+@app.route("/ig_priv_verify_login", methods=["POST"])
+def ig_priv_verify_login():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+
+    data = request.json or {}
+    auth_type = str(data.get("auth_type", "cookie")).lower().strip()
+    sessionid = data.get("sessionid", "").strip()
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    totp_key = data.get("totp_key", "").strip()
+    verification_code = data.get("verification_code", "").strip()
+
+    log_ig_priv_terminal("AUTH", f"🔍 Verifying login credentials for @{username or 'cookie_user'}...", "INFO")
+
+    if auth_type == "credentials":
+        if not username or not password:
+            return jsonify({"status": "error", "message": "Username and Password are required!"}), 400
+
+        v_code = verification_code
+        if not v_code and totp_key:
+            try:
+                import pyotp
+                totp = pyotp.TOTP(totp_key.replace(" ", "").upper())
+                v_code = totp.now()
+                log_ig_priv_terminal("AUTH", f"🔑 Generated 2FA Code from Secret Key: {v_code}", "INFO")
+            except Exception as e_totp:
+                log_ig_priv_terminal("AUTH", f"⚠️ 2FA Key calculation error: {e_totp}", "WARN")
+
+        try:
+            client, settings, resolved_user = init_instagram_client(
+                username=username,
+                password=password,
+                verification_code=v_code,
+                log_fn=lambda m, l: log_ig_priv_terminal("AUTH", m, l)
+            )
+            cookies = settings.get("cookies", {})
+            sid = cookies.get("sessionid", "")
+            csrf = cookies.get("csrftoken", "")
+            uid = str(settings.get("user_id") or "")
+            log_ig_priv_terminal("AUTH", f"🎉 Successfully verified login for @{resolved_user} (ID: {uid})!", "SUCCESS")
+            return jsonify({
+                "status": "ok",
+                "message": f"Successfully authenticated as @{resolved_user}!",
+                "sessionid": sid,
+                "csrftoken": csrf,
+                "user_id": uid,
+                "username": resolved_user
+            })
+        except Exception as e:
+            err_msg = str(e)
+            if "2FA Verification Required" in err_msg or "two_factor" in err_msg.lower():
+                log_ig_priv_terminal("AUTH", "🔐 2FA / Security Code required! Please enter the code sent to your phone/email/app.", "WARN")
+                return jsonify({"status": "2fa_required", "message": "Instagram 2FA OTP Code Required! Enter the code below."}), 200
+            elif "Checkpoint" in err_msg or "challenge" in err_msg.lower():
+                log_ig_priv_terminal("AUTH", "⚠️ Instagram Checkpoint! Approve device on Instagram app.", "WARN")
+                return jsonify({"status": "checkpoint_required", "message": "Please approve login from your Instagram app or email."}), 200
+            else:
+                log_ig_priv_terminal("AUTH", f"❌ Login Failed: {err_msg}", "ERROR")
+                return jsonify({"status": "error", "message": err_msg}), 400
+    else:
+        # Cookie verification
+        parsed_cookies, clean_sess, clean_csrf, user_id = parse_instagram_cookie_input(sessionid)
+        if not clean_sess:
+            return jsonify({"status": "error", "message": "Invalid cookie string or missing sessionid!"}), 400
+        
+        # Test request to Instagram Inbox
+        s = requests.Session()
+        for k, v in parsed_cookies.items():
+            s.cookies.set(k, v, domain=".instagram.com")
+        s.cookies.set("sessionid", clean_sess, domain=".instagram.com")
+        try:
+            r = s.get("https://www.instagram.com/api/v1/direct_v2/inbox/?limit=1", headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                "X-IG-App-ID": "936619743392459"
+            }, timeout=8)
+            if r.status_code == 200 and r.json().get("status") == "ok":
+                log_ig_priv_terminal("AUTH", f"🎉 Session cookie verified! User ID: {user_id or 'Active'}", "SUCCESS")
+                return jsonify({"status": "ok", "message": "Session cookie is 100% active and authenticated!", "sessionid": clean_sess})
+            else:
+                log_ig_priv_terminal("AUTH", "❌ Cookie session expired or login required.", "ERROR")
+                return jsonify({"status": "error", "message": "Cookie expired or checkpoint required."}), 400
+        except Exception as e_ck:
+            log_ig_priv_terminal("AUTH", f"⚠️ Verification check error: {e_ck}", "WARN")
+            return jsonify({"status": "ok", "message": "Cookie loaded.", "sessionid": clean_sess})
+
+@app.route("/ig_priv_scrape_links", methods=["POST"])
+def ig_priv_scrape_links():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+    
+    data = request.json or {}
+    sessionid = data.get("sessionid", "").strip()
+    csrftoken = data.get("csrftoken", "").strip()
+    max_groups = int(data.get("max_groups") or 1000)
+
+    if not sessionid:
+        return jsonify({"status": "error", "message": "Session ID is required to fetch groups!"}), 400
+
+    links = scrape_instagram_groups(sessionid, csrftoken, max_groups=max_groups, log_fn=lambda m, l: log_ig_priv_terminal("AUTH", m, l))
+    return jsonify({"status": "ok", "links": links, "count": len(links)})
+
+@app.route("/ig_priv_add_account", methods=["POST"])
+def ig_priv_add_account():
+    if not is_authenticated():
+        log_ig_priv_terminal("AUTH", "Login required to add account.", "ERROR")
+        return jsonify({"status": "login_required"}), 401
+
+    data = request.json or {}
+    auth_type = str(data.get("auth_type", "cookie")).lower().strip()
+    raw_session = data.get("sessionid", "").strip()
+    sessionid = raw_session
+    csrftoken = data.get("csrftoken", "").strip()
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    totp_key = data.get("totp_key", "").strip()
+
+    if auth_type == "credentials" and username and password:
+        sessionid = f"CREDENTIALS:{username}:{password}"
+    else:
+        if ";" in sessionid or "=" in sessionid:
+            for part in sessionid.split(";"):
+                part = part.strip()
+                if part.lower().startswith("sessionid="):
+                    sessionid = part.split("=", 1)[1].strip()
+                elif part.lower().startswith("csrftoken="):
+                    csrftoken = part.split("=", 1)[1].strip()
+
+        if "%3A" in sessionid or "%3a" in sessionid:
+            sessionid = urllib.parse.unquote(sessionid).strip()
+
+        if not sessionid:
+            log_ig_priv_terminal("AUTH", "Missing sessionid cookie string.", "ERROR")
+            return jsonify({"status": "error", "message": "Session ID or Credentials are required!"}), 400
+
+    mode_type = str(data.get("mode_type", "multi")).lower().strip()
+    fetch_mode = str(data.get("fetch_mode", "manual")).lower().strip()
+    target_name = str(data.get("target_name", "")).strip()
+    prefix = str(data.get("prefix", "")).strip() or target_name
+    repeat_count = int(data.get("repeat_count", 15 if mode_type == "single" else 1))
+    delay = float(data.get("delay", 2.0))
+
+    raw_groups = data.get("group_names", "")
+    if isinstance(raw_groups, str):
+        group_names = [g.strip() for g in re.split(r"[,;\n\r]+", raw_groups) if g.strip()]
+    elif isinstance(raw_groups, list):
+        group_names = [str(g).strip() for g in raw_groups if str(g).strip()]
+    else:
+        group_names = []
+
+    raw_messages = data.get("messages", "")
+    if isinstance(raw_messages, str):
+        messages = [m.strip() for m in raw_messages.replace("\r", "").split("\n") if m.strip()]
+    elif isinstance(raw_messages, list):
+        messages = [str(m).strip() for m in raw_messages if str(m).strip()]
+    else:
+        messages = []
+
+    raw_nc = data.get("nc_names", "")
+    if isinstance(raw_nc, str):
+        nc_names = [n.strip() for n in raw_nc.replace("\r", "").split("\n") if n.strip()]
+    elif isinstance(raw_nc, list):
+        nc_names = [str(n).strip() for n in raw_nc if str(n).strip()]
+    else:
+        nc_names = []
+
+    header_text = str(data.get("header_text", "👑 SPAM BY KING 👑")).strip()
+    footer_text = str(data.get("footer_text", "👑 SCRIPT BY SERVER GOD CLAN 👑")).strip()
+    space_lines = int(data.get("space_lines", 35))
+
+    uid = next_ig_private_uid()
+    current_user = get_current_user()
+
+    acc_data = {
+        "uid": uid,
+        "auth_type": auth_type,
+        "username": username,
+        "password": password,
+        "totp_key": totp_key,
+        "mode_type": mode_type,
+        "fetch_mode": fetch_mode,
+        "sessionid": sessionid,
+        "csrftoken": csrftoken,
+        "target_name": target_name,
+        "prefix": prefix,
+        "group_names": group_names,
+        "messages": messages,
+        "nc_names": nc_names,
+        "header_text": header_text,
+        "footer_text": footer_text,
+        "space_lines": space_lines,
+        "repeat_count": repeat_count,
+        "delay": delay,
+        "owner": current_user,
+        "admin_name": get_user_display_name(current_user),
+        "system_owner": "SERVER GOD CLAN KING",
+        "createdAt": str(datetime.utcnow())
+    }
+    save_ig_private_account_db(uid, acc_data)
+
+    start_time = time.time()
+    ig_priv_running[uid] = True
+    ig_priv_live[uid] = {"running": True, "started": start_time}
+    ig_priv_stats[uid] = {
+        "user": current_user,
+        "account": uid,
+        "sent": 0,
+        "failed": 0,
+        "renamed": 0,
+        "rename_failed": 0,
+        "running": True,
+        "uptime": 0,
+        "uptime_str": "00:00:00",
+        "started": start_time
+    }
+    threading.Thread(target=ig_private_api_worker, args=(uid,), daemon=True).start()
+    log_ig_priv_terminal(uid, f"✨ Private API Bot #{uid} ({mode_type.upper()}) deployed and live engine started!", "SUCCESS")
+    return jsonify({"status": "ok", "uid": uid, "target_name": target_name or f"PrivateBot_{uid}"})
+
+@app.route("/ig_priv_start", methods=["POST"])
+def ig_priv_start():
+    uid = str(request.json.get("uid"))
+    full_db = get_full_db()
+    acc = full_db.get("ig_private_accounts", {}).get(uid)
+    if not acc:
+        return jsonify({"status": "invalid", "message": "Account not found!"})
+
+    if ig_priv_running.get(uid):
+        return jsonify({"status": "already_running"})
+
+    ig_priv_running[uid] = True
+    start_time = time.time()
+    ig_priv_live[uid] = {"running": True, "started": start_time}
+    if uid not in ig_priv_stats:
+        ig_priv_stats[uid] = {"user": get_current_user(), "account": uid, "sent": 0, "failed": 0, "renamed": 0, "rename_failed": 0}
+    ig_priv_stats[uid]["running"] = True
+    ig_priv_stats[uid]["uptime"] = 0
+    ig_priv_stats[uid]["uptime_str"] = "00:00:00"
+    ig_priv_stats[uid]["started"] = start_time
+
+    threading.Thread(target=ig_private_api_worker, args=(uid,), daemon=True).start()
+    return jsonify({"status": "started"})
+
+@app.route("/ig_priv_stop", methods=["POST"])
+def ig_priv_stop():
+    uid = str(request.json.get("uid"))
+    ig_priv_running[uid] = False
+    if uid in ig_priv_live:
+        ig_priv_live[uid]["running"] = False
+    if uid in ig_priv_stats:
+        ig_priv_stats[uid]["running"] = False
+    log_ig_priv_terminal(uid, "Stop signal received.", "WARN")
+    return jsonify({"status": "stopped"})
+
+@app.route("/ig_priv_edit_account", methods=["POST"])
+def ig_priv_edit_account():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+
+    uid = str(request.json.get("uid"))
+    full_db = get_full_db()
+    acc = full_db.get("ig_private_accounts", {}).get(uid)
+    if not acc:
+        return jsonify({"status": "invalid"})
+
+    acc_owner = str(acc.get("owner", "")).strip().lower()
+    cur_user = str(get_current_user()).strip().lower()
+    if not is_owner() and acc_owner != cur_user:
+        return jsonify({"status": "denied"}), 403
+
+    acc["mode_type"] = str(request.json.get("mode_type", acc.get("mode_type", "multi"))).lower().strip()
+    acc["target_name"] = request.json.get("target_name", acc.get("target_name", "")).strip()
+    acc["prefix"] = request.json.get("prefix", acc.get("prefix", "")).strip()
+    acc["repeat_count"] = int(request.json.get("repeat_count", acc.get("repeat_count", 15 if acc["mode_type"] == "single" else 1)))
+    acc["delay"] = float(request.json.get("delay", acc.get("delay", 2.0)))
+
+    raw_groups = request.json.get("group_names", "")
+    if isinstance(raw_groups, str):
+        acc["group_names"] = [g.strip() for g in re.split(r"[,;\n\r]+", raw_groups) if g.strip()]
+    elif isinstance(raw_groups, list):
+        acc["group_names"] = [str(g).strip() for g in raw_groups if str(g).strip()]
+
+    raw_messages = request.json.get("messages", "")
+    if isinstance(raw_messages, str):
+        acc["messages"] = [m.strip() for m in raw_messages.replace("\r", "").split("\n") if m.strip()]
+    elif isinstance(raw_messages, list):
+        acc["messages"] = [str(m).strip() for m in raw_messages if str(m).strip()]
+
+    raw_nc = request.json.get("nc_names", "")
+    if isinstance(raw_nc, str):
+        acc["nc_names"] = [n.strip() for n in raw_nc.replace("\r", "").split("\n") if n.strip()]
+    elif isinstance(raw_nc, list):
+        acc["nc_names"] = [str(n).strip() for n in raw_nc if str(n).strip()]
+
+    acc["header_text"] = str(request.json.get("header_text", acc.get("header_text", "👑 SPAM BY KING 👑"))).strip()
+    acc["footer_text"] = str(request.json.get("footer_text", acc.get("footer_text", "👑 SCRIPT BY SERVER GOD CLAN 👑"))).strip()
+    acc["space_lines"] = int(request.json.get("space_lines", acc.get("space_lines", 35)))
+
+    save_ig_private_account_db(uid, acc)
+    log_ig_priv_terminal(uid, f"💾 Private API Bot #{uid} updated in database!", "INFO")
+    return jsonify({"status": "ok"})
+
+@app.route("/ig_priv_delete_account", methods=["POST"])
+def ig_priv_delete_account():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+
+    uid = str(request.json.get("uid"))
+    full_db = get_full_db()
+    acc = full_db.get("ig_private_accounts", {}).get(uid)
+    if not acc:
+        return jsonify({"status": "invalid"})
+
+    acc_owner = str(acc.get("owner", "")).strip().lower()
+    cur_user = str(get_current_user()).strip().lower()
+    if not is_owner() and acc_owner != cur_user:
+        return jsonify({"status": "denied"}), 403
+
+    ig_priv_running[uid] = False
+    delete_ig_private_account_db(uid)
+    if uid in ig_priv_live:
+        del ig_priv_live[uid]
+    if uid in ig_priv_stats:
+        del ig_priv_stats[uid]
+    log_ig_priv_terminal(uid, f"🗑️ Private API Bot #{uid} deleted.", "WARN")
+    return jsonify({"status": "ok"})
+
+@app.route("/ig_priv_status")
+def ig_priv_status():
+    if not is_authenticated():
+        return jsonify({"status": "login_required"}), 401
+
+    full_db = get_full_db()
+    priv_accounts = full_db.get("ig_private_accounts", {})
+    accounts = {}
+    visible = {}
+    me = str(get_current_user()).strip().lower()
+
+    if is_owner():
+        for uid, acc in priv_accounts.items():
+            acc_copy = dict(acc)
+            acc_copy["admin_name"] = get_user_display_name(acc.get("owner", ""))
+            acc_copy["system_owner"] = "SERVER GOD CLAN KING"
+            accounts[uid] = acc_copy
+            if uid not in ig_priv_stats:
+                ig_priv_stats[uid] = {"user": acc.get("owner", ""), "account": uid, "sent": 0, "failed": 0, "renamed": 0, "rename_failed": 0, "running": False, "uptime": 0, "uptime_str": "00:00:00"}
+            visible[uid] = ig_priv_stats[uid]
+    else:
+        for uid, acc in priv_accounts.items():
+            acc_owner = str(acc.get("owner", "")).strip().lower()
+            if acc_owner == me or me in acc_owner or acc_owner in me:
+                acc_copy = dict(acc)
+                acc_copy["admin_name"] = get_user_display_name(acc.get("owner", ""))
+                acc_copy["system_owner"] = "SERVER GOD CLAN KING"
+                accounts[uid] = acc_copy
+                if uid not in ig_priv_stats:
+                    ig_priv_stats[uid] = {"user": acc.get("owner", ""), "account": uid, "sent": 0, "failed": 0, "renamed": 0, "rename_failed": 0, "running": False, "uptime": 0, "uptime_str": "00:00:00"}
+                visible[uid] = ig_priv_stats[uid]
+
+    for uid, s in visible.items():
+        uid_str = str(uid)
+        live_info = ig_priv_live.get(uid) or ig_priv_live.get(uid_str)
+        if live_info and live_info.get("running") and live_info.get("started"):
+            s["running"] = True
+            elapsed = int(time.time() - live_info["started"])
+            s["uptime"] = elapsed
+            s["uptime_str"] = format_uptime(elapsed)
+            s["started"] = live_info["started"]
+        else:
+            s["running"] = False
+            s["uptime"] = 0
+            s["uptime_str"] = "00:00:00"
+
+    if is_owner():
+        ret_logs = ig_priv_terminal_logs
+    else:
+        user_uids = set(str(k) for k in accounts.keys())
+        user_uids.add("AUTH")
+        ret_logs = [l for l in ig_priv_terminal_logs if str(l.get("uid")) in user_uids]
+
+    return jsonify({"accounts": accounts, "stats": visible, "terminal_logs": ret_logs})
 
 @app.route("/add_account", methods=["POST"])
 def add_account():
@@ -4659,6 +5864,10 @@ if __name__ == "__main__":
         ensure_baileys_service()
     except Exception as _e:
         print(f"[BAILEYS STARTUP WARNING] {_e}")
+    try:
+        ensure_go_service()
+    except Exception as _e:
+        print(f"[GO WHATSAPP CALL STARTUP WARNING] {_e}")
     try:
         ensure_tg_service()
     except Exception as _e:

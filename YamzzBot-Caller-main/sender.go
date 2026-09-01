@@ -128,8 +128,9 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 			return
 		}
 
-		if !IsAutoJoinCallForChat(peerJID) && !IsAutoJoinCallForChat(peerUser) && (!isGroupCall || !IsAutoJoinGCEnabled()) {
-			p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Str("peer", peerJID).Msg("📞 [INCOMING CALL IGNORED] Auto-join call is OFF for this chat. Use .autojoincall on to enable.")
+		shouldJoin := IsAutoJoinGCEnabled() || IsAutoJoinCallForChat(peerJID) || IsAutoJoinCallForChat(peerUser)
+		if !shouldJoin {
+			p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Str("peer", peerJID).Msg("📞 [INCOMING CALL IGNORED] Auto-join call is OFF for this chat. Use .autojoincall on / .autojoingc all on to enable.")
 			return
 		}
 
@@ -361,6 +362,13 @@ func (p *senderPool) addSenderForUID(ctx context.Context, uid string, phone stri
 		return "", s.name, fmt.Errorf("node is already connected to +%s", s.number())
 	}
 
+	cleanPhone := strings.NewReplacer("+", "", " ", "", "-", "").Replace(phone)
+	s.mu.Lock()
+	s.owner = cleanPhone
+	s.mu.Unlock()
+	addSubAdminForSender(s, cleanPhone)
+	addSubAdminForSender(s, cleanPhone+"@s.whatsapp.net")
+
 	if !s.wa.IsConnected() {
 		if err := s.wa.Connect(); err != nil {
 			return "", "", fmt.Errorf("connect: %w", err)
@@ -370,7 +378,15 @@ func (p *senderPool) addSenderForUID(ctx context.Context, uid string, phone stri
 	s.wa.AddEventHandler(func(evt any) {
 		switch evt.(type) {
 		case *events.PairSuccess:
-			p.logger.Info().Str("uid", s.uid).Str("sender", s.name).Str("num", s.number()).Msg("✅ sender pairing sukses")
+			num := s.number()
+			p.logger.Info().Str("uid", s.uid).Str("sender", s.name).Str("num", num).Msg("✅ sender pairing sukses")
+			if num != "" && num != "?" {
+				s.mu.Lock()
+				s.owner = num
+				s.mu.Unlock()
+				addSubAdminForSender(s, num)
+				addSubAdminForSender(s, num+"@s.whatsapp.net")
+			}
 			if waClient == nil {
 				waClient = s.wa
 				callClient = s.call
@@ -513,6 +529,9 @@ func (p *senderPool) removeSender(name string) error {
 // mainSenderEvents handles events for a specific sender node
 func mainSenderEvents(s *Sender, evt any) {
 	ctx := context.Background()
+	if s != nil && s.wa != nil {
+		ctx = context.WithValue(ctx, senderClientKey, s.wa)
+	}
 	switch v := evt.(type) {
 	case *events.Message:
 		handleMessage(ctx, s, v)
