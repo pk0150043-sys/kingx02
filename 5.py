@@ -234,7 +234,7 @@ def send_raw_email(to_email, subject, html_content, text_content=""):
     # -------------------------------------------------------------
     if brevo_key:
         try:
-            sender_email = clean_user if clean_user else "spamkingxl400@gmail.com"
+            sender_email = clean_user if clean_user else "kingoffical505@gmail.com"
             res = requests.post(
                 "https://api.brevo.com/v3/smtp/email",
                 headers={
@@ -242,7 +242,7 @@ def send_raw_email(to_email, subject, html_content, text_content=""):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "sender": {"name": "SERVER GOD CLAN", "email": sender_email},
+                    "sender": {"name": "PRINCE CLOUD SELLAR", "email": sender_email},
                     "to": [{"email": to_email}],
                     "subject": subject,
                     "htmlContent": html_content,
