@@ -120,7 +120,7 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 		peerUser := inCall.Peer().User
 		isGroupCall := inCall.Peer().Server == types.GroupServer || strings.HasSuffix(peerJID, "@g.us")
 
-		p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Str("peer", peerJID).Msg("📞 [CALL EVENT] Incoming call received")
+		p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Str("peer", peerJID).Bool("is_group", isGroupCall).Msg("📞 [CALL EVENT] Incoming call received")
 
 		if IsAutoRejectEnabled() {
 			p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Msg("🚫 [AUTO-REJECT] Auto-rejecting incoming call...")
@@ -128,7 +128,7 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 			return
 		}
 
-		shouldJoin := IsAutoJoinGCEnabled() || IsAutoJoinCallForChat(peerJID) || IsAutoJoinCallForChat(peerUser)
+		shouldJoin := (isGroupCall && IsAutoJoinGCEnabled()) || IsAutoJoinCallForChat(peerJID) || IsAutoJoinCallForChat(peerUser)
 		if !shouldJoin {
 			p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Str("peer", peerJID).Msg("📞 [INCOMING CALL IGNORED] Auto-join call is OFF for this chat. Use .autojoincall on / .autojoingc all on to enable.")
 			return
