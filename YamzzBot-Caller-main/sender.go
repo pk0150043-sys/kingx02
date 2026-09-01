@@ -115,7 +115,25 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 	s := &Sender{name: name, wa: wa, call: call, device: dev}
 
 	call.OnIncomingCall(func(inCall *meowcaller.Call) {
-		p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Msg("📞 [INCOMING CALL] Answering & auto-accepting call...")
+		SetLastIncomingCall(inCall)
+		peerJID := inCall.Peer().String()
+		peerUser := inCall.Peer().User
+		isGroupCall := inCall.Peer().Server == types.GroupServer || strings.HasSuffix(peerJID, "@g.us")
+
+		p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Str("peer", peerJID).Msg("📞 [CALL EVENT] Incoming call received")
+
+		if IsAutoRejectEnabled() {
+			p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Msg("🚫 [AUTO-REJECT] Auto-rejecting incoming call...")
+			_ = inCall.Reject()
+			return
+		}
+
+		if !IsAutoJoinCallForChat(peerJID) && !IsAutoJoinCallForChat(peerUser) && (!isGroupCall || !IsAutoJoinGCEnabled()) {
+			p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Str("peer", peerJID).Msg("📞 [INCOMING CALL IGNORED] Auto-join call is OFF for this chat. Use .autojoincall on to enable.")
+			return
+		}
+
+		p.logger.Info().Str("sender", name).Str("call_id", inCall.ID()).Msg("📞 [AUTO-JOIN CALL] Answering & auto-accepting call...")
 		if err := inCall.Answer(); err != nil {
 			p.logger.Warn().Err(err).Msg("failed to answer incoming call")
 			return

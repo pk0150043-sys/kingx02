@@ -1765,7 +1765,8 @@ function getCallingEngineMenu(prefix = '+') {
 │ 🔔 ${prefix}noti <Chat_ID>
 │ 📞 ${prefix}acceptcall [Song/Track]
 │ 🛑 ${prefix}rejectcall / ${prefix}declinecall
-│ 🚫 ${prefix}anticall on/off
+│ 👥 ${prefix}autojoincall on/off (or ${prefix}autojoingc on/off)
+│ 🚫 ${prefix}autorejectcall on/off (or ${prefix}anticall on/off)
 │ 🔓 ${prefix}autounmute
 │ 📊 ${prefix}callstatus
 ╰──────────────────────
@@ -2278,6 +2279,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         workMode: savedCfg.workMode || 'self',
         executionMode: 'solo',
         autoRejectCall: !!savedCfg.autoRejectCall,
+        autoJoinCall: !!savedCfg.autoJoinCall,
+        autoJoinChats: new Set(Array.isArray(savedCfg.autoJoinChats) ? savedCfg.autoJoinChats : []),
         lastIncomingCall: null,
         chatLoops: {},
         delays: {
@@ -2358,11 +2361,14 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
       syncFullHistory: false,
       markOnlineOnConnect: true,
       generateHighQualityLinkPreview: false,
-      defaultQueryTimeoutMs: 90000,
-      connectTimeoutMs: 90000,
-      keepAliveIntervalMs: 15000,
-      retryRequestDelayMs: 1500,
-      maxRetries: 8
+      defaultQueryTimeoutMs: 60000,
+      connectTimeoutMs: 60000,
+      keepAliveIntervalMs: 25000,
+      retryRequestDelayMs: 1000,
+      maxRetries: 10,
+      getMessage: async (key) => {
+        return { conversation: '' };
+      }
     });
 
     sess.sock = sock;
@@ -2446,8 +2452,9 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
         } catch (e) {}
         sess.sock = null;
 
-        // Strictly verify true logout before wiping auth credentials
-        if (isExplicitLoggedOut) {
+        // Strictly verify true logout before wiping auth credentials (never delete on transient 24h stream drops or 401 token refresh)
+        const isTrueLogout = isExplicitLoggedOut && !isPairingActive && (lastDisconnect?.error?.message?.includes('Logged Out') || lastDisconnect?.error?.output?.payload?.message === 'Logged Out');
+        if (isTrueLogout) {
           sess.status = 'LOGGED_OUT';
           sess.connectedNumber = '';
           sess.userJid = '';
@@ -2523,6 +2530,7 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
           logMsg(uid, `📞 Incoming Call Event: id=${callId}, from=${from}, creator=${creator}, isGroup=${isGroup}, status=${status}, isVideo=${isVideo}`);
 
           if (status === 'offer') {
+            const isChatAllowed = sess.autoJoinCall || (sess.autoJoinChats && (sess.autoJoinChats.has(from) || sess.autoJoinChats.has(creator)));
             if (sess.autoRejectCall) {
               try {
                 await sock.rejectCall(callId, from);
@@ -2530,8 +2538,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
               } catch (rejErr) {
                 logMsg(uid, `Auto-reject error: ${rejErr.message}`);
               }
-            } else {
-              logMsg(uid, `📞 [AUTO-ACCEPT] Answering incoming call ${callId} from ${from}...`);
+            } else if (isChatAllowed) {
+              logMsg(uid, `📞 [AUTO-JOIN CALL] Answering incoming call ${callId} from ${from}...`);
               if (!sess.voipManager) {
                 sess.voipManager = new SessionVoipManager(sess, uid);
               }
@@ -2558,6 +2566,8 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
                   }]
                 }).catch(() => {});
               }
+            } else {
+              logMsg(uid, `📞 [INCOMING CALL IGNORED] Call ${callId} from ${from} (Auto-join is disabled for this chat). Use +autojoincall on to enable.`);
             }
           } else if (status === 'terminate' || status === 'timeout' || status === 'reject') {
             const wasActive = sess.activeCalls && sess.activeCalls.has(from);
@@ -3868,7 +3878,35 @@ async function initSessionSocket(uid, ownerJid = '', options = {}) {
             continue;
           }
 
-          // +anticall on/off or +autorejectcall on/off
+                    // +autojoincall on/off or +autojoingc on/off
+          if (cmd === 'autojoincall' || cmd === 'autojoingc' || cmd === 'autocalljoin') {
+            const subArg = (parts[1] || '').toLowerCase();
+            if (!sess.autoJoinChats) sess.autoJoinChats = new Set();
+            if (subArg === 'on' || subArg === 'enable' || subArg === '1') {
+              sess.autoJoinChats.add(jid);
+              saveSessionConfig(uid, { autoJoinChats: Array.from(sess.autoJoinChats) });
+            } else if (subArg === 'off' || subArg === 'disable' || subArg === '0') {
+              sess.autoJoinChats.delete(jid);
+              saveSessionConfig(uid, { autoJoinChats: Array.from(sess.autoJoinChats) });
+            } else if (subArg === 'all') {
+              sess.autoJoinCall = !sess.autoJoinCall;
+              saveSessionConfig(uid, { autoJoinCall: sess.autoJoinCall });
+            } else {
+              if (sess.autoJoinChats.has(jid)) {
+                sess.autoJoinChats.delete(jid);
+              } else {
+                sess.autoJoinChats.add(jid);
+              }
+              saveSessionConfig(uid, { autoJoinChats: Array.from(sess.autoJoinChats) });
+            }
+            const isEnabled = sess.autoJoinCall || sess.autoJoinChats.has(jid);
+            await sock.sendMessage(jid, {
+              text: `╔══〔 📞 *AUTO-JOIN CALL SENTINEL* 〕══╗\n┃ Chat: *${jid.split('@')[0]}*\n┃ Status: *${isEnabled ? 'ENABLED (AUTO JOIN ACTIVE IN THIS CHAT) 🟢' : 'DISABLED 🔴'}*\n┃ Global Mode: *${sess.autoJoinCall ? 'ALL CHATS 🟢' : 'THIS CHAT ONLY 🔒'}*\n┃ Command: *${sess.prefix}autojoincall on/off*\n╚════════════════════════════════╝`
+            }, { quoted: msg });
+            continue;
+          }
+
+// +anticall on/off or +autorejectcall on/off
           if (cmd === 'anticall' || cmd === 'autorejectcall' || cmd === 'autocallreject') {
             const subArg = (parts[1] || '').toLowerCase();
             if (subArg === 'on' || subArg === 'enable' || subArg === '1') {

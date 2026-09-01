@@ -132,8 +132,8 @@ MASTER_ADMIN_DEFAULT = int(os.getenv("MASTER_ADMIN_ID", "5214825153"))
 SERVICE_PORT = 20826
 
 PREFIX = '+'
-BOT_PREFIX = '?'
-CMD_PREFIXES = ["+", "!", ".", "/", "-", "?", "*", "$", "#", "&", "_"]
+BOT_PREFIX = '+'
+CMD_PREFIXES = ["+"]
 
 TOKEN_FILE = "tokens.txt"
 DB_FILE = "server_god_clan.db"
@@ -3102,7 +3102,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                 except Exception: pass
                 await asyncio.sleep(tasks["fucktarget_delay"])
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}promote(?:\s+(.+))?'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+promote(?:\s+(.+))?'))
     async def ub_promote_user(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         args = event.pattern_match.group(1)
@@ -3134,7 +3134,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         except Exception as e:
             await event.reply(f"❌ <b>Promotion Error:</b> {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}addbot(?:\s+(.+))?'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+addbot(?:\s+(.+))?'))
     async def ub_add_bot_token(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         args = event.pattern_match.group(1)
@@ -3182,7 +3182,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         except Exception as e:
             await status_msg.edit(f"❌ <b>Error Activating Bot:</b> {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}ban(?:\s+(.+))?'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+ban(?:\s+(.+))?'))
     async def ub_ban_user(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3193,7 +3193,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             await event.reply(f"🚫 Banned user <code>{target}</code>.", parse_mode="html")
         except Exception as e: await event.reply(f"❌ Error: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}kick(?:\s+(.+))?'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+kick(?:\s+(.+))?'))
     async def ub_kick_user(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3204,7 +3204,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             await event.reply(f"exe Kicked user <code>{target}</code>.", parse_mode="html")
         except Exception as e: await event.reply(f"❌ Error: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(removeuserbot|deleteuserbot|logoutuserbot)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(removeuserbot|deleteuserbot|logoutuserbot)'))
     async def ub_remove_userbot(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         me = await event.client.get_me()
@@ -3226,7 +3226,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             await event.client.disconnect()
         except Exception: pass
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(addupallist|adduplist)(?:\s+(.+))?'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(addupallist|adduplist)(?:\s+(.+))?'))
     async def ub_add_uplist_bots(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         args = event.pattern_match.group(2)
@@ -3248,7 +3248,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         else:
             await event.reply("⚠️ No valid bot usernames or IDs provided.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(removeupallist|delupallist|removeuplist|deluplist)(?:\s+(.+))?'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(removeupallist|delupallist|removeuplist|deluplist)(?:\s+(.+))?'))
     async def ub_remove_uplist_bots(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         args = event.pattern_match.group(2)
@@ -3263,7 +3263,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             removed_count += 1
         await event.reply(f"🗑️ <b>Removed {removed_count} Bots from UpList.</b>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(viewuplist|showuplist|uplist|upallist)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(viewuplist|showuplist|uplist|upallist)'))
     async def ub_view_uplist_bots(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         rows = await execute_db_query("SELECT bot_identifier, added_at FROM uplist_bots", fetchall=True)
@@ -3275,13 +3275,13 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         txt += "╚══════════════════════════════════════╝\n⚡ <i>Commands: <code>+upall</code> (Add all to chat) • <code>+promoteallbots</code> (Promote all)</i>"
         await event.reply(txt, parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}clearuplist'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+clearuplist'))
     async def ub_clear_uplist_bots(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         await execute_db_query("DELETE FROM uplist_bots", commit=True)
         await event.reply("🧹 <b>UpList completely cleared!</b>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(upall|addupall|inviteallbots)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(upall|addupall|inviteallbots)'))
     async def ub_upall_bots_to_chat(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         rows = await execute_db_query("SELECT bot_identifier FROM uplist_bots", fetchall=True)
@@ -3308,7 +3308,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                 logger.warning(f"UpAll failed for {bot_id_str}: {e}")
         await status_msg.edit(f"✅ <b>UpAll Process Complete:</b>\n• Successfully Added: <code>{joined_count}</code> Bots\n• Failed / Already in Chat: <code>{failed_count}</code>\n👉 <i>Run <code>+promoteallbots</code> to grant admin rights!</i>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(promoteallbots|promotebots|upallpromote)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(promoteallbots|promotebots|upallpromote)'))
     async def ub_promote_all_bots(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         status_msg = await event.reply("👑 <b>Promoting all UpList & linked Bots in this group to Admin...</b>", parse_mode="html")
@@ -3361,7 +3361,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
 
         await status_msg.edit(f"👑 <b>Multi-Bot Admin Promotion Finished:</b>\n• Successfully Promoted: <code>{promoted_count}</code> Admin Bots\n• <i>Permissions: Change Info, Add Admin, Pin, Invite, Messages</i>\n• <i>Restricted: Delete Messages / Ban NOT granted.</i>\n• Failed / Not in Chat: <code>{failed_count}</code>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}addmembers(?:\s+(\S+))?(?:\s+(\S+))?'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+addmembers(?:\s+(\S+))?(?:\s+(\S+))?'))
     async def ub_add_members_mass(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         args1 = event.pattern_match.group(1)
@@ -3401,7 +3401,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         except Exception as e:
             await status_msg.edit(f"❌ Error adding members: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(setpfp|setprofilepic|changepfp)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(setpfp|setprofilepic|changepfp)'))
     async def ub_set_pfp(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3425,7 +3425,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                 try: os.remove(temp_photo_path)
                 except Exception: pass
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(changegroupphoto|setgroupphoto|setgrouppic)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(changegroupphoto|setgroupphoto|setgrouppic)'))
     async def ub_change_group_photo(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3457,7 +3457,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                 try: os.remove(temp_photo_path)
                 except Exception: pass
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}addmember (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+addmember (.+)'))
     async def ub_addmember(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         targets_raw = event.pattern_match.group(1).split()
@@ -3471,7 +3471,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             except Exception: failed += 1
         await msg.edit(f"✅ Added: {added} | Failed: {failed}")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}invite (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+invite (.+)'))
     async def ub_invite(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         user = event.pattern_match.group(1).strip()
@@ -3480,7 +3480,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             await event.reply(f"✅ Invited <code>{user}</code>.", parse_mode="html")
         except Exception as e: await event.reply(f"❌ Error: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}warn'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+warn'))
     async def ub_warn(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3496,14 +3496,14 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             except Exception as e: await event.reply(f"⚠️ Failed to ban: {e}")
         else: await event.reply(f"⚠️ User Warned ({count}/3).")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}purge (\d+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+purge (\d+)'))
     async def ub_purge(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         count = int(event.pattern_match.group(1))
         msgs = [m async for m in event.client.iter_messages(event.chat_id, limit=count+1)]
         await event.client.delete_messages(event.chat_id, msgs)
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}del'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+del'))
     async def ub_del(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3511,7 +3511,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             await reply.delete()
             await event.delete()
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}tagall(?:\s+(.+))?'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+tagall(?:\s+(.+))?'))
     async def ub_tagall(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg_text = event.pattern_match.group(1) or "Attention Everyone!"
@@ -3521,7 +3521,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                 mentions += f"<a href='tg://user?id={user.id}'>\u200b</a>"
         await event.reply(f"📢 <b>{msg_text}</b>{mentions}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}mute'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+mute'))
     async def ub_mute_user(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3529,7 +3529,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         await execute_db_query("INSERT OR REPLACE INTO muted_users VALUES (?)", (reply.sender_id,), commit=True)
         await event.reply(f"🤐 User <code>{reply.sender_id}</code> muted.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}unmute'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+unmute'))
     async def ub_unmute_user(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3537,7 +3537,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         await execute_db_query("DELETE FROM muted_users WHERE user_id=?", (reply.sender_id,), commit=True)
         await event.reply(f"🔊 User <code>{reply.sender_id}</code> unmuted.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}lock (media|links|stickers)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+lock (media|links|stickers)'))
     async def ub_lock_cmd(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         l_type = event.pattern_match.group(1)
@@ -3550,14 +3550,14 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             await event.reply(f"🔒 Locked <code>{l_type}</code> permissions.", parse_mode="html")
         except Exception as e: await event.reply(f"❌ Error: {e}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}creategcqty (\d+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+creategcqty (\d+)'))
     async def ub_creategcqty(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         qty = int(event.pattern_match.group(1))
         await execute_db_query("INSERT OR REPLACE INTO gc_creation_settings VALUES (?, ?)", (event.sender_id, qty), commit=True)
         await event.reply(f"✅ Group Quantity set to <code>{qty}</code>.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}creategc (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+creategc (.+)'))
     async def ub_creategc(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         users_raw = event.pattern_match.group(1).split()
@@ -3575,27 +3575,27 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                 break
         await msg.edit(f"🎉 Created {created}/{qty} groups!")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}fetchallgc'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+fetchallgc'))
     async def ub_fetchallgc(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg = await event.reply("🔍 Scanning connected groups...")
         count = sum(1 async for dialog in event.client.iter_dialogs() if dialog.is_group)
         await msg.edit(f"📡 Connected Groups Scanned: <code>{count}</code> Groups.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}targetgc (\d+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+targetgc (\d+)'))
     async def ub_targetgc(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         cid = int(event.pattern_match.group(1))
         await execute_db_query("INSERT OR REPLACE INTO target_groups VALUES (?)", (cid,), commit=True)
         await event.reply(f"🎯 Group <code>{cid}</code> targeted.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}cleartargets'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+cleartargets'))
     async def ub_cleartargets(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         await execute_db_query("DELETE FROM target_groups", commit=True)
         await event.reply("🧹 All Target Group IDs cleared.")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}sendmessage (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+sendmessage (.+)'))
     async def ub_sendmessage(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         text = event.pattern_match.group(1).strip()
@@ -3611,35 +3611,35 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             except Exception: pass
         await event.reply(f"📢 Mass Blast Complete: {sent}/{len(chats)} groups.")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}welcome (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+welcome (.+)'))
     async def ub_welcome(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         text = event.pattern_match.group(1).strip()
         await execute_db_query("INSERT OR REPLACE INTO welcome_settings (chat_id, welcome_text) VALUES (?, ?)", (event.chat_id, text), commit=True)
         await event.reply("✅ Welcome message set.")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}setgoodbye (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+setgoodbye (.+)'))
     async def ub_setgoodbye(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         text = event.pattern_match.group(1).strip()
         await execute_db_query("INSERT OR REPLACE INTO welcome_settings (chat_id, goodbye_text) VALUES (?, ?)", (event.chat_id, text), commit=True)
         await event.reply("✅ Goodbye message set.")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}filter (\S+) (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+filter (\S+) (.+)'))
     async def ub_filter(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         trig, resp = event.pattern_match.group(1).lower(), event.pattern_match.group(2)
         await execute_db_query("INSERT OR REPLACE INTO filters VALUES (?, ?, ?)", (event.chat_id, trig, resp), commit=True)
         await event.reply(f"✅ Filter added for <code>{trig}</code>.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}stopfilter (\S+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+stopfilter (\S+)'))
     async def ub_stopfilter(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         trig = event.pattern_match.group(1).lower()
         await execute_db_query("DELETE FROM filters WHERE chat_id=? AND trigger=?", (event.chat_id, trig), commit=True)
         await event.reply(f"🧹 Filter <code>{trig}</code> removed.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(song|music) (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(song|music) (.+)'))
     async def ub_song_handler(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2).strip()
@@ -3676,7 +3676,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                     try: os.remove(fpath)
                     except Exception: pass
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(video|playvideo|ytvideo|ytv)(?:\s+(.+))?'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(video|playvideo|ytvideo|ytv)(?:\s+(.+))?'))
     async def ub_video_handler(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         query = event.pattern_match.group(2)
@@ -3739,7 +3739,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
                     try: os.remove(fpath)
                     except Exception: pass
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}ai (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+ai (.+)'))
     async def ub_ai_handler(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         prompt = event.pattern_match.group(1).strip()
@@ -3747,7 +3747,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         ans = await asyncio.to_thread(query_unlimited_ai, prompt)
         await msg.edit(f"🤖 <b>[ Server God AI ]</b>\n\n{ans}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}q'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+q'))
     async def ub_quote_handler(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3779,7 +3779,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         img_io.name = "quote_card.png"
         await event.client.send_file(event.chat_id, img_io, reply_to=reply.id)
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}font (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+font (.+)'))
     async def ub_font_handler(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         text = event.pattern_match.group(1).strip()[:35]
@@ -3808,7 +3808,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         img_io.name = "banner.png"
         await event.client.send_file(event.chat_id, img_io, caption=f"✨ <b>Banner Generated:</b> <code>{text}</code>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}pdf'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+pdf'))
     async def ub_pdf(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3821,7 +3821,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         pdf_io.name = "converted.pdf"
         await event.client.send_file(event.chat_id, pdf_io)
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}3dpic (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+3dpic (.+)'))
     async def ub_3dpic(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         prompt = event.pattern_match.group(1).strip()
@@ -3831,7 +3831,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         img_io.name = "3d_render.png"
         await event.client.send_file(event.chat_id, img_io, caption=f"✨ <code>{prompt}</code>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}tts (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+tts (.+)'))
     async def ub_tts(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         text = event.pattern_match.group(1).strip()
@@ -3842,7 +3842,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         finally:
             if os.path.exists(fname): os.remove(fname)
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}tr (\w+) (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+tr (\w+) (.+)'))
     async def ub_tr(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         lang, text = event.pattern_match.group(1), event.pattern_match.group(2)
@@ -3850,7 +3850,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         res = (await asyncio.to_thread(requests.get, url, timeout=10)).json()
         await event.reply(f"🌐 <b>Translation ({lang}):</b>\n<code>{res[0][0][0]}</code>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}remind (\d+)([smh]) (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+remind (\d+)([smh]) (.+)'))
     async def ub_remind(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         val, unit, text = int(event.pattern_match.group(1)), event.pattern_match.group(2), event.pattern_match.group(3)
@@ -3861,7 +3861,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             await event.reply(f"🔔 <b>REMINDER</b>: {text}")
         asyncio.create_task(rem_task())
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}calc (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+calc (.+)'))
     async def ub_calc(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         try:
@@ -3869,14 +3869,14 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             await event.reply(f"🧮 <b>Result:</b> <code>{res}</code>", parse_mode="html")
         except Exception as e: await event.reply(f"❌ Error: {e}")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}weather (.+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+weather (.+)'))
     async def ub_weather(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         city = event.pattern_match.group(1)
         res = await asyncio.to_thread(requests.get, f"https://wttr.in/{city}?format=3", timeout=10)
         await event.reply(f"🌤 <b>Weather</b>: <code>{res.text.strip()}</code>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(info|whois)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(info|whois)'))
     async def ub_info(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reply = await event.get_reply_message()
@@ -3884,7 +3884,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         photos = await event.client.get_profile_photos(user.id)
         await event.reply(f"👤 <b>User Info</b>:\n• Name: {user.first_name}\n• ID: <code>{user.id}</code>\n• Username: @{user.username if user.username else 'None'}\n• Photos: {photos.total}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}chatstats'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+chatstats'))
     async def ub_chatstats(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         msg = await event.reply("📊 Gathering chat metrics...")
@@ -3894,7 +3894,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
             if m.media: media += 1
         await msg.edit(f"📈 <b>Stats</b>: Total <code>{total}</code>, Media <code>{media}</code>, Text <code>{total-media}</code>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}sysinfo'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+sysinfo'))
     async def ub_sysinfo(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         uptime = get_readable_time(time.time() - START_TIME)
@@ -3909,33 +3909,33 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         )
         await event.reply(info_text, parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}afk (.*)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+afk (.*)'))
     async def ub_afk(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         reason = event.pattern_match.group(1).strip() or "Away from keyboard"
         await execute_db_query("INSERT OR REPLACE INTO afk_state VALUES (1, 1, ?, ?)", (reason, time.time()), commit=True)
         await event.reply(f"🌙 <b>AFK Mode Activated:</b> {reason}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}status'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+status'))
     async def ub_status(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         uptime = get_readable_time(time.time() - START_TIME)
         await event.reply(f"🌟 <b>System Status:</b> Active\n⏱ <b>Uptime:</b> <code>{uptime}</code>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}ping'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+ping'))
     async def ub_ping(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         start_t = time.time()
         msg = await event.reply("🏓 Pinging...")
         await msg.edit(f"🏓 <b>Pong!</b> Latency: <code>{round((time.time() - start_t) * 1000, 2)} ms</code>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}dbstats'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+dbstats'))
     async def ub_dbstats(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         size = os.path.getsize(DB_FILE) / (1024 * 1024) if os.path.exists(DB_FILE) else 0.0
         await event.reply(f"💾 Database Size: <code>{size:.2f} MB</code> (Atlas Cloud Connected)", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}dynamicstop'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+dynamicstop'))
     async def ub_dynamicstop(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         tasks = get_client_tasks(event.client)
@@ -3960,27 +3960,27 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         except Exception: pass
         await event.reply("🚨 <b>EMERGENCY KILL-SWITCH TRIGGERED! All Userbot & Bot tasks stopped!</b>", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}restart'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+restart'))
     async def ub_restart(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         await event.reply("🔄 Rebooting process...")
         os.execl(sys.executable, sys.executable, *sys.argv)
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}addadmin (\d+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+addadmin (\d+)'))
     async def ub_add_admin(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         uid = int(event.pattern_match.group(1))
         await execute_db_query("INSERT OR REPLACE INTO userbot_admins VALUES (?, ?)", (uid, phone_key), commit=True)
         await event.reply(f"✅ Userbot Admin <code>{uid}</code> added.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}removeadmin (\d+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+removeadmin (\d+)'))
     async def ub_remove_admin(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         uid = int(event.pattern_match.group(1))
         await execute_db_query("DELETE FROM userbot_admins WHERE user_id=? AND (node_uid=? OR node_uid IS NULL OR node_uid='')", (uid, phone_key), commit=True)
         await event.reply(f"❌ Userbot Admin <code>{uid}</code> removed.", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}showadmins'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+showadmins'))
     async def ub_show_admins(event):
         if not await is_ub_admin(event, me_id, admin_id_val, phone_key): return
         rows = await execute_db_query("SELECT user_id FROM userbot_admins WHERE node_uid=? OR node_uid IS NULL OR node_uid=''", (phone_key,), fetchall=True)
@@ -3988,7 +3988,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         admins_list = "\n".join([f"• <code>{r[0]}</code>" for r in rows]) if rows else "None"
         await event.reply(f"👑 <b>Userbot Node ({phone_key}) Admins:</b>\n• Primary Admin: <code>{cur_admin or 'Not Set'}</code>\n• Subadmins:\n{admins_list}", parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}(viewbots|bots)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+(viewbots|bots)'))
     async def ub_view_bots(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         rows = await execute_db_query("SELECT bot_id, added_at FROM managed_bots", fetchall=True)
@@ -3996,7 +3996,7 @@ Please select a Dashboard by replying with number (1, 2, 3, or 4):
         msg = "🤖 <b>Active Managed Bots:</b>\n" + "\n".join([f"• {r[0]} (Added: {r[1]})" for r in rows])
         await event.reply(msg, parse_mode="html")
 
-    @client.on(events.NewMessage(pattern=rf'\{PREFIX}removebot (@\w+)'))
+    @client.on(events.NewMessage(pattern=rf'(?i)^\+removebot (@\w+)'))
     async def ub_remove_bot_username(event):
         if not await is_ub_admin(event, me_id, admin_id_val): return
         bot_name = event.pattern_match.group(1).strip()
@@ -4108,7 +4108,7 @@ BOT_MENU_TEXT = """
 """
 
 def setup_telebot_handlers(bot, token):
-    @bot.message_handler(func=lambda msg: msg.text and any(msg.text.startswith(p) for p in ["!", "?", "+", "/", "."]))
+    @bot.message_handler(func=lambda msg: bool(msg.text and msg.text.startswith('+')))
     def handle_commands(msg):
         text = msg.text
         prefix_used = text[0]
@@ -4118,6 +4118,9 @@ def setup_telebot_handlers(bot, token):
         args = parts[1].strip() if len(parts) > 1 else ""
         user_id = msg.from_user.id
         chat_id = msg.chat.id
+
+        if not is_bot_admin_sync(user_id, token):
+            return
 
         if '@' in raw_cmd:
             cmd, target_username = raw_cmd.split('@', 1)
@@ -4760,21 +4763,12 @@ class BotSwarmManager:
                         await msg.reply_text(f"{swp_prefix}{raid_line}")
                     except: pass
 
-            # --- COMMAND DISPATCHER ---
-            is_cmd = False
-            clean_cmd = ""
-            active_prefixes = CMD_PREFIXES.copy()
-            if mgr.prefix and mgr.prefix not in active_prefixes:
-                active_prefixes.insert(0, mgr.prefix)
-
-            for p in active_prefixes:
-                if txt.startswith(p):
-                    is_cmd = True
-                    clean_cmd = txt[len(p):].split()[0].lower()
-                    break
-
-            if not is_cmd: return
-            if not mgr.is_sudo(uid): return
+            # --- COMMAND DISPATCHER (+ PREFIX ONLY & ADMIN CHECK) ---
+            if not txt.startswith("+"):
+                return
+            if not mgr.is_sudo(uid):
+                return
+            clean_cmd = txt[1:].split()[0].lower()
 
             parts = txt.split()
             args = parts[1:]

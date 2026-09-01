@@ -57,6 +57,15 @@ var (
 
 	autoJoinGCEnabled = false
 	autoJoinGCMu      sync.RWMutex
+
+	autoJoinChats   = make(map[string]bool)
+	autoJoinChatsMu sync.RWMutex
+
+	autoRejectEnabled = false
+	autoRejectMu      sync.RWMutex
+
+	lastIncomingCallMu sync.RWMutex
+	lastIncomingCall   *meowcaller.Call
 )
 
 func IsAutoUnmuteEnabled() bool {
@@ -81,6 +90,50 @@ func SetAutoJoinGC(enabled bool) {
 	autoJoinGCMu.Lock()
 	defer autoJoinGCMu.Unlock()
 	autoJoinGCEnabled = enabled
+}
+
+func IsAutoJoinCallForChat(chatJID string) bool {
+	autoJoinChatsMu.RLock()
+	defer autoJoinChatsMu.RUnlock()
+	clean := strings.Split(chatJID, "@")[0]
+	return autoJoinChats[chatJID] || autoJoinChats[clean] || autoJoinGCEnabled
+}
+
+func SetAutoJoinCallForChat(chatJID string, enabled bool) {
+	autoJoinChatsMu.Lock()
+	defer autoJoinChatsMu.Unlock()
+	clean := strings.Split(chatJID, "@")[0]
+	if enabled {
+		autoJoinChats[chatJID] = true
+		autoJoinChats[clean] = true
+	} else {
+		delete(autoJoinChats, chatJID)
+		delete(autoJoinChats, clean)
+	}
+}
+
+func IsAutoRejectEnabled() bool {
+	autoRejectMu.RLock()
+	defer autoRejectMu.RUnlock()
+	return autoRejectEnabled
+}
+
+func SetAutoReject(enabled bool) {
+	autoRejectMu.Lock()
+	defer autoRejectMu.Unlock()
+	autoRejectEnabled = enabled
+}
+
+func SetLastIncomingCall(c *meowcaller.Call) {
+	lastIncomingCallMu.Lock()
+	defer lastIncomingCallMu.Unlock()
+	lastIncomingCall = c
+}
+
+func GetLastIncomingCall() *meowcaller.Call {
+	lastIncomingCallMu.RLock()
+	defer lastIncomingCallMu.RUnlock()
+	return lastIncomingCall
 }
 
 func SendUnmuteSignal(cli *whatsmeow.Client, callID string, toJID, creatorJID types.JID) error {
@@ -524,17 +577,25 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 		if !requireAdmin() {
 			return
 		}
+		lastCall := GetLastIncomingCall()
+		if lastCall != nil {
+			_ = lastCall.Answer()
+		}
 		reactMsg(ctx, evt, "📞")
-		sendText(ctx, evt.Info.Chat, `╔══〔 📞 *INCOMING CALL ACCEPTED* 〕══╗
-┃ 🎯 Action: *Auto-Accept & Stream Connected*
-┃ 📡 Output: *Live WebRTC Opus Audio Stream*
-┃ ⚡ Status: *ANSWERED & STREAMING AUDIO LIVE* 🟢
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf(`╔══〔 📞 *INCOMING CALL ACCEPTED* 〕══╗
+┃ 🎯 Action: *Accept & Stream Connected*
+┃ 📡 Output: *Live WebRTC Audio Stream*
+┃ ⚡ Status: *ANSWERED & CONNECTED* 🟢
 ╚═════════════════════════════════════╝
-_Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
+_Use `%sendcall` or `%scutcall` to hang up._`, curPrefix, curPrefix))
 
 	case "rejectcall", "declinecall":
 		if !requireAdmin() {
 			return
+		}
+		lastCall := GetLastIncomingCall()
+		if lastCall != nil {
+			_ = lastCall.Reject()
 		}
 		reactMsg(ctx, evt, "🚫")
 		sendText(ctx, evt.Info.Chat, `╔══〔 🚫 *CALL REJECTED* 〕══╗
@@ -542,16 +603,11 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 ┃ ⚡ Status: *CALL DECLINED BY BOT* 🛑
 ╚══════════════════════════╝`)
 
-	case "anticall":
+	case "anticall", "autorejectcall", "autoreject", "autocallreject":
 		if !requireAdmin() {
 			return
 		}
-		reactMsg(ctx, evt, "🚫")
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf(`╔══〔 🚫 *ANTI-CALL SENTINEL* 〕══╗
-┃ Status: *AUTO-REJECT CALLS %s*
-┃ Engine: *SERVER GOD CLAN VOIP ENGINE*
-┃ Action: *Auto-Decline Incoming Calls*
-╚════════════════════════════════╝`, strings.ToUpper(args)))
+		handleToggleAutoReject(ctx, evt, args)
 
 	case "autounmute", "autounmutes", "auto-unmute":
 		if !requireAdmin() {
@@ -559,7 +615,7 @@ _Use `+curPrefix+`endcall or `+curPrefix+`cutcall to hang up._`)
 		}
 		handleToggleAutoUnmute(ctx, evt, args)
 
-	case "autojoingc", "autojoin", "autocalljoin":
+	case "autojoincall", "autojoingc", "autojoin", "autocalljoin":
 		if !requireAdmin() {
 			return
 		}
@@ -2202,19 +2258,53 @@ func handleToggleAutoUnmute(ctx context.Context, evt *events.Message, args strin
 
 func handleToggleAutoJoinGC(ctx context.Context, evt *events.Message, args string) {
 	sub := strings.ToLower(strings.TrimSpace(args))
-	if sub == "on" || sub == "enable" || sub == "1" || sub == "true" {
+	chatStr := evt.Info.Chat.String()
+
+	if sub == "all on" || sub == "global on" {
 		SetAutoJoinGC(true)
-	} else if sub == "off" || sub == "disable" || sub == "0" || sub == "false" {
+		reactMsg(ctx, evt, "🟢")
+		sendText(ctx, evt.Info.Chat, "╔══〔 📞 *AUTO-JOIN CALL GLOBAL SENTINEL* 〕══╗\n┃ Mode: *GLOBAL ALL CHATS 🟢*\n┃ Status: *AUTO-JOIN ALL GROUP CALLS ENABLED*\n╚════════════════════════════════════════╝")
+		return
+	} else if sub == "all off" || sub == "global off" {
 		SetAutoJoinGC(false)
-	} else {
-		SetAutoJoinGC(!IsAutoJoinGCEnabled())
+		reactMsg(ctx, evt, "🔴")
+		sendText(ctx, evt.Info.Chat, "╔══〔 📞 *AUTO-JOIN CALL GLOBAL SENTINEL* 〕══╗\n┃ Mode: *GLOBAL ALL CHATS 🔴*\n┃ Status: *GLOBAL AUTO-JOIN DISABLED*\n╚════════════════════════════════════════╝")
+		return
 	}
 
-	reactMsg(ctx, evt, "👥")
-	if IsAutoJoinGCEnabled() {
-		sendText(ctx, evt.Info.Chat, "👥 *Auto-Join Group Calls: ENABLED (ON)* 🟢\n_Bot will auto-join active group calls whenever a link is detected._")
+	if sub == "on" || sub == "enable" || sub == "1" || sub == "true" {
+		SetAutoJoinCallForChat(chatStr, true)
+	} else if sub == "off" || sub == "disable" || sub == "0" || sub == "false" {
+		SetAutoJoinCallForChat(chatStr, false)
 	} else {
-		sendText(ctx, evt.Info.Chat, "👥 *Auto-Join Group Calls: DISABLED (OFF)* ⚪")
+		isCurrentlyOn := IsAutoJoinCallForChat(chatStr)
+		SetAutoJoinCallForChat(chatStr, !isCurrentlyOn)
+	}
+
+	isNowOn := IsAutoJoinCallForChat(chatStr)
+	reactMsg(ctx, evt, "👥")
+	if isNowOn {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("╔══〔 📞 *AUTO-JOIN CALL SENTINEL* 〕══╗\n┃ Chat: *%s*\n┃ Status: *ENABLED (AUTO JOIN ACTIVE IN THIS CHAT ONLY) 🟢*\n┃ Action: *Will auto-join calls in this chat*\n┃ Command: `%sautojoincall off` to disable\n╚═════════════════════════════════════╝", evt.Info.Chat.User, getPrefix()))
+	} else {
+		sendText(ctx, evt.Info.Chat, fmt.Sprintf("╔══〔 📞 *AUTO-JOIN CALL SENTINEL* 〕══╗\n┃ Chat: *%s*\n┃ Status: *DISABLED (NO AUTO JOIN) 🔴*\n┃ Command: `%sautojoincall on` to enable\n╚═════════════════════════════════════╝", evt.Info.Chat.User, getPrefix()))
+	}
+}
+
+func handleToggleAutoReject(ctx context.Context, evt *events.Message, args string) {
+	sub := strings.ToLower(strings.TrimSpace(args))
+	if sub == "on" || sub == "enable" || sub == "1" || sub == "true" {
+		SetAutoReject(true)
+	} else if sub == "off" || sub == "disable" || sub == "0" || sub == "false" {
+		SetAutoReject(false)
+	} else {
+		SetAutoReject(!IsAutoRejectEnabled())
+	}
+
+	reactMsg(ctx, evt, "🚫")
+	if IsAutoRejectEnabled() {
+		sendText(ctx, evt.Info.Chat, "╔══〔 🚫 *AUTO-REJECT SENTINEL* 〕══╗\n┃ Status: *ENABLED (AUTO REJECT ALL CALLS) 🟢*\n┃ Action: *All incoming calls will be declined immediately*\n╚══════════════════════════════════╝")
+	} else {
+		sendText(ctx, evt.Info.Chat, "╔══〔 🚫 *AUTO-REJECT SENTINEL* 〕══╗\n┃ Status: *DISABLED 🔴*\n┃ Action: *Calls will not be automatically rejected*\n╚══════════════════════════════════╝")
 	}
 }
 
@@ -2829,8 +2919,10 @@ func getCallingEngineMenu(prefix string) string {
 │    ▸ Answer incoming call with live audio/speech stream
 │ 🛑 {P}rejectcall / {P}declinecall
 │    ▸ Instantly decline incoming call
-│ 🚫 {P}anticall on/off
-│    ▸ Auto-reject incoming calls sentinel
+│ 👥 {P}autojoincall on/off (or {P}autojoingc on/off)
+│    ▸ Auto-join incoming calls in this chat ONLY
+│ 🚫 {P}autorejectcall on/off (or {P}anticall on/off)
+│    ▸ Auto-reject all incoming calls sentinel
 │ 🔓 {P}autounmute on/off
 │    ▸ WhatsApp anti-mute bypass (Auto-unmute mic)
 │ 📊 {P}callstatus
@@ -3252,8 +3344,14 @@ func handleNameChange(ctx context.Context, evt *events.Message, baseName string)
 	activeLoops[chatKey] = stopChan
 	raidMu.Unlock()
 
+	senders := pool.list()
+	activeCount := len(senders)
+	if activeCount == 0 && waClient != nil {
+		activeCount = 1
+	}
+
 	reactMsg(ctx, evt, "🌀")
-	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🌀 *[50-EMOJI TURBO NC STARTED]*\n• Base: *%s*\n• Status: *Active*\n_Use `+stopnc` to stop._", baseName))
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("🌀 *[50-EMOJI TURBO MULTI-SESSION NC STARTED]* ⚡\n• Base: *%s*\n• Active Sender Nodes: *%d*\n• Status: *Maximum Turbo Speed Active*\n_Use `%sstopnc` to stop._", baseName, activeCount, getPrefix()))
 
 	go func() {
 		idx := 0
@@ -3267,9 +3365,26 @@ func handleNameChange(ctx context.Context, evt *events.Message, baseName string)
 				if len(title) > 25 {
 					title = title[:25]
 				}
-				_ = waClient.SetGroupName(ctx, evt.Info.Chat, title)
+				
+				// Multi-Session Round Robin across all connected sender nodes
+				curSenders := pool.list()
+				if len(curSenders) > 0 {
+					targetSender := curSenders[idx%len(curSenders)]
+					if targetSender.connected() && targetSender.wa != nil {
+						_ = targetSender.wa.SetGroupName(ctx, evt.Info.Chat, title)
+					} else if waClient != nil {
+						_ = waClient.SetGroupName(ctx, evt.Info.Chat, title)
+					}
+				} else if waClient != nil {
+					_ = waClient.SetGroupName(ctx, evt.Info.Chat, title)
+				}
+
 				idx++
-				time.Sleep(time.Duration(ncDelayMs) * time.Millisecond)
+				delay := ncDelayMs
+				if delay <= 0 {
+					delay = 25
+				}
+				time.Sleep(time.Duration(delay) * time.Millisecond)
 			}
 		}
 	}()
@@ -3289,6 +3404,7 @@ func handleStopNC(ctx context.Context, evt *events.Message) {
 
 func handleGDC(ctx context.Context, evt *events.Message, desc string) {
 	if !evt.Info.IsGroup {
+		sendText(ctx, evt.Info.Chat, "❌ DC/GDC only works in Groups!")
 		return
 	}
 	if desc == "" {
@@ -3303,7 +3419,13 @@ func handleGDC(ctx context.Context, evt *events.Message, desc string) {
 	activeLoops[chatKey] = stopChan
 	raidMu.Unlock()
 
-	sendText(ctx, evt.Info.Chat, "📝 *[GDC STARTED]* Continuous group description raid running...")
+	senders := pool.list()
+	activeCount := len(senders)
+	if activeCount == 0 && waClient != nil {
+		activeCount = 1
+	}
+
+	sendText(ctx, evt.Info.Chat, fmt.Sprintf("📝 *[TURBO MULTI-SESSION GDC STARTED]* ⚡\n• Description: *%s*\n• Active Sender Nodes: *%d*\n_Use `%sstopdc` to stop._", desc, activeCount, getPrefix()))
 	go func() {
 		idx := 0
 		for {
@@ -3312,9 +3434,23 @@ func handleGDC(ctx context.Context, evt *events.Message, desc string) {
 				return
 			default:
 				em := emoji50Pool[idx%len(emoji50Pool)]
-				_ = waClient.SetGroupTopic(ctx, evt.Info.Chat, "", "", fmt.Sprintf("%s %s %s", em, desc, em))
+				topic := fmt.Sprintf("%s %s %s", em, desc, em)
+
+				// Multi-Session Round Robin across all connected sender nodes
+				curSenders := pool.list()
+				if len(curSenders) > 0 {
+					targetSender := curSenders[idx%len(curSenders)]
+					if targetSender.connected() && targetSender.wa != nil {
+						_ = targetSender.wa.SetGroupTopic(ctx, evt.Info.Chat, "", "", topic)
+					} else if waClient != nil {
+						_ = waClient.SetGroupTopic(ctx, evt.Info.Chat, "", "", topic)
+					}
+				} else if waClient != nil {
+					_ = waClient.SetGroupTopic(ctx, evt.Info.Chat, "", "", topic)
+				}
+
 				idx++
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 			}
 		}
 	}()
