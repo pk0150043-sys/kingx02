@@ -205,8 +205,8 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=6)
 # ================= EMAIL DELIVERY CONFIGURATION (HTTP API + SMTP) =================
 GMAIL_USER = os.getenv("GMAIL_USER", "spamkingxl400@gmail.com").strip()
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASS", "rwps ctyc ifdk dnmc").replace(" ", "").strip()
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", os.getenv("SENDINBLUE_API_KEY", "")).strip()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "").strip()
 RESEND_FROM = os.getenv("RESEND_FROM", "SERVER GOD CLAN <onboarding@resend.dev>").strip()
 
@@ -219,8 +219,8 @@ def generate_otp():
 def send_raw_email(to_email, subject, html_content, text_content=""):
     clean_user = os.getenv("GMAIL_USER", GMAIL_USER).strip()
     clean_pass = os.getenv("GMAIL_APP_PASS", GMAIL_APP_PASS).replace(" ", "").strip()
+    brevo_key = os.getenv("BREVO_API_KEY", BREVO_API_KEY).strip()
     resend_key = os.getenv("RESEND_API_KEY", RESEND_API_KEY).strip()
-    brevo_key = os.getenv("BREVO_API_KEY", os.getenv("SENDINBLUE_API_KEY", BREVO_API_KEY)).strip()
     sendgrid_key = os.getenv("SENDGRID_API_KEY", SENDGRID_API_KEY).strip()
     to_email = str(to_email).strip().lower()
 
@@ -230,7 +230,36 @@ def send_raw_email(to_email, subject, html_content, text_content=""):
         text_content = re.sub(r'\s+', ' ', text_content).strip()
 
     # -------------------------------------------------------------
-    # METHOD 1: Resend HTTP REST API (Works 100% on Railway / HTTPS)
+    # METHOD 1: Brevo / Sendinblue HTTP REST API (100% Guaranteed on Railway HTTPS)
+    # -------------------------------------------------------------
+    if brevo_key:
+        try:
+            sender_email = clean_user if clean_user else "spamkingxl400@gmail.com"
+            res = requests.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": brevo_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "sender": {"name": "SERVER GOD CLAN", "email": sender_email},
+                    "to": [{"email": to_email}],
+                    "subject": subject,
+                    "htmlContent": html_content,
+                    "textContent": text_content
+                },
+                timeout=10
+            )
+            if res.status_code in [200, 201]:
+                print(f"📧 [EMAIL SUCCESS - BREVO HTTP] Sent to {to_email} | Subject: {subject}", flush=True)
+                return True
+            else:
+                print(f"⚠️ [EMAIL NOTICE - BREVO HTTP] HTTP {res.status_code}: {res.text}", flush=True)
+        except Exception as e_brevo:
+            print(f"⚠️ [EMAIL NOTICE - BREVO HTTP ERROR] {e_brevo}", flush=True)
+
+    # -------------------------------------------------------------
+    # METHOD 2: Resend HTTP REST API (HTTPS Port 443)
     # -------------------------------------------------------------
     if resend_key:
         try:
@@ -257,35 +286,6 @@ def send_raw_email(to_email, subject, html_content, text_content=""):
                 print(f"⚠️ [EMAIL NOTICE - RESEND HTTP] HTTP {res.status_code}: {res.text}", flush=True)
         except Exception as e_resend:
             print(f"⚠️ [EMAIL NOTICE - RESEND HTTP ERROR] {e_resend}", flush=True)
-
-    # -------------------------------------------------------------
-    # METHOD 2: Brevo / Sendinblue HTTP REST API (HTTPS Port 443)
-    # -------------------------------------------------------------
-    if brevo_key:
-        try:
-            sender_email = clean_user if clean_user else "admin@servergodclan.com"
-            res = requests.post(
-                "https://api.brevo.com/v3/smtp/email",
-                headers={
-                    "api-key": brevo_key,
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "sender": {"name": "SERVER GOD CLAN", "email": sender_email},
-                    "to": [{"email": to_email}],
-                    "subject": subject,
-                    "htmlContent": html_content,
-                    "textContent": text_content
-                },
-                timeout=10
-            )
-            if res.status_code in [200, 201]:
-                print(f"📧 [EMAIL SUCCESS - BREVO HTTP] Sent to {to_email} | Subject: {subject}", flush=True)
-                return True
-            else:
-                print(f"⚠️ [EMAIL NOTICE - BREVO HTTP] HTTP {res.status_code}: {res.text}", flush=True)
-        except Exception as e_brevo:
-            print(f"⚠️ [EMAIL NOTICE - BREVO HTTP ERROR] {e_brevo}", flush=True)
 
     # -------------------------------------------------------------
     # METHOD 3: SendGrid HTTP REST API (HTTPS Port 443)
@@ -1245,9 +1245,7 @@ def send_register_otp():
 
     return jsonify({
         "success": True,
-        "message": f"OTP verification code: {otp} (Also sent to Gmail / Master Code: 950732)",
-        "master_bypass": "950732",
-        "otp": otp
+        "message": f"Verification OTP sent to {email}. Please check your Gmail Inbox or Spam folder!"
     })
 
 @app.route("/api/auth/verify-register-otp", methods=["POST"])
@@ -1282,13 +1280,14 @@ def register():
     if find_user_by_email(email):
         return jsonify({"success": False, "message": "This email is already registered! Please Sign In."}), 400
 
+    # Strict Owner Approval Flow: Default status is 'pending_approval'
     user_data = {
         "name": name,
         "email": email,
         "phone": phone,
         "password": password,
         "role": "user",
-        "status": "active",
+        "status": "pending_approval",
         "lastOtpVerifiedAt": str(datetime.now()),
         "createdAt": str(datetime.now())
     }
@@ -1297,16 +1296,10 @@ def register():
     clear_otp("reg_" + email)
     send_welcome_email(email, name, phone)
 
-    session.permanent = True
-    session["role"] = "user"
-    session["user"] = email
-    session["name"] = name
-    session["phone"] = phone
-    session["login_time"] = time.time()
-
     return jsonify({
         "success": True,
-        "message": f"Welcome {name}! Your account has been registered.",
+        "pendingApproval": True,
+        "message": f"🎉 Registration request submitted for {name}! Your account is currently PENDING OWNER APPROVAL. You will be able to Sign In once the Platform Owner approves your account.",
         "redirect": "/mode"
     })
 
@@ -1352,13 +1345,27 @@ def user_login():
     if user.get("password") != password:
         return jsonify({"success": False, "message": "❌ Incorrect Password! Please try again or use Forgot Password."}), 400
 
-    if user.get("status") == "blocked":
-        return jsonify({"success": False, "message": "❌ Your account has been SUSPENDED / BLOCKED by Platform Owner!"}), 403
+    user_status = str(user.get("status", "active")).strip().lower()
+    if user_status == "pending_approval":
+        return jsonify({
+            "success": False,
+            "message": "⏳ Account Under Review: Your registration is pending approval by the Platform Owner. Please contact the Owner or wait for activation!"
+        }), 403
 
-    # Check 6-Hour Smart OTP Window
+    if user_status in ["blocked", "suspended", "rejected"]:
+        return jsonify({
+            "success": False,
+            "message": "❌ Access Denied: Your account has been SUSPENDED or REJECTED by Platform Owner!"
+        }), 403
+
+    # Check User Custom 2FA & 6-Hour Smart OTP Window
+    two_factor_enabled = user.get("two_factor", True) # Default True for high security
     last_verified = user.get("lastOtpVerifiedAt")
-    needs_otp = True
-    if last_verified:
+    needs_otp = bool(two_factor_enabled)
+    
+    if not two_factor_enabled:
+        needs_otp = False
+    elif last_verified:
         try:
             if isinstance(last_verified, str):
                 last_dt = datetime.fromisoformat(last_verified)
@@ -1379,7 +1386,7 @@ def user_login():
         return jsonify({
             "success": True,
             "requireOtp": False,
-            "message": f"Welcome back, {user.get('name')}! (6-Hour Session Active)",
+            "message": f"Welcome back, {user.get('name')}!",
             "redirect": "/mode"
         })
 
@@ -1393,9 +1400,7 @@ def user_login():
         "requireOtp": True,
         "email": email.lower(),
         "maskedEmail": masked,
-        "message": f"Security OTP: {otp} (Also sent to {masked} / Master Code: 950732)",
-        "master_bypass": "950732",
-        "otp": otp
+        "message": f"Security OTP sent to {masked}. Please check your Gmail (Inbox / Spam)."
     })
 
 @app.route("/api/auth/verify-login-otp", methods=["POST"])
@@ -1453,9 +1458,7 @@ def forgot_password_otp():
         "success": True,
         "email": email,
         "maskedEmail": masked,
-        "message": f"Password reset OTP: {otp} (Also sent to {masked} / Master Code: 950732)",
-        "master_bypass": "950732",
-        "otp": otp
+        "message": f"Password reset OTP sent to {masked}. Please check your Gmail (Inbox / Spam)."
     })
 
 @app.route("/api/auth/reset-password", methods=["POST"])
@@ -4292,6 +4295,51 @@ def owner_delete_user():
     delete_user_db(email_or_name)
     return jsonify({"status": "ok", "message": f"User '{email_or_name}' deleted permanently!"})
 
+@app.route("/api/owner/users/approve", methods=["POST"])
+def owner_approve_user():
+    if not is_authenticated() or not is_owner():
+        return jsonify({"status": "denied"}), 403
+
+    email = request.json.get("email", "").lower().strip()
+    user = find_user_by_email(email)
+    if not user:
+        return jsonify({"status": "error", "message": f"User '{email}' not found!"}), 404
+
+    user["status"] = "active"
+    save_or_update_user(user)
+
+    # Send Approval notification to user
+    try:
+        subject = "🎉 Account Approved! Welcome to SERVER GOD CLAN"
+        html = f"""
+        <div style="background:#0f172a;color:#ffffff;padding:25px;border-radius:12px;font-family:Arial,sans-serif;text-align:center;">
+            <h2 style="color:#22c55e;">👑 ACCOUNT APPROVED!</h2>
+            <p>Hello <b>{user.get('name', 'User')}</b>, your registration request has been approved by the Platform Owner.</p>
+            <p>You can now sign in to your dashboard and access all tools.</p>
+            <a href="https://servergodclan.com/mode" style="background:#3b82f6;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:15px;">Login to Dashboard</a>
+        </div>
+        """
+        send_email_async(email, subject, html)
+    except Exception:
+        pass
+
+    return jsonify({"status": "ok", "message": f"✅ User '{email}' APPROVED successfully! Account is now ACTIVE."})
+
+@app.route("/api/owner/users/reject", methods=["POST"])
+def owner_reject_user():
+    if not is_authenticated() or not is_owner():
+        return jsonify({"status": "denied"}), 403
+
+    email = request.json.get("email", "").lower().strip()
+    user = find_user_by_email(email)
+    if not user:
+        return jsonify({"status": "error", "message": f"User '{email}' not found!"}), 404
+
+    user["status"] = "rejected"
+    save_or_update_user(user)
+
+    return jsonify({"status": "ok", "message": f"❌ User '{email}' REJECTED and blocked from accessing the system."})
+
 @app.route("/api/owner/users/toggle_status", methods=["POST"])
 def owner_toggle_user_status():
     if not is_authenticated() or not is_owner():
@@ -4448,6 +4496,8 @@ def user_profile_update():
     new_email = str(data.get("email", "")).lower().strip()
     new_phone = str(data.get("phone", "")).strip()
     new_password = str(data.get("password", "")).strip()
+    if "two_factor" in data:
+        user["two_factor"] = bool(data["two_factor"])
 
     if new_name:
         user["name"] = new_name
@@ -4500,7 +4550,7 @@ def user_profile_update():
     else:
         save_or_update_user(user)
 
-    return jsonify({"status": "ok", "message": "Profile and credentials updated successfully!"})
+    return jsonify({"status": "ok", "message": "Profile, security and 2FA settings updated successfully!"})
 
 @app.route("/api/user/profile", methods=["GET"])
 def get_user_profile():
@@ -4515,7 +4565,8 @@ def get_user_profile():
             "name": creds.get("name", session.get("name", "PLATFORM OWNER")),
             "username": creds.get("username", "OWNER"),
             "email": creds.get("email", "spamkingxl400@gmail.com"),
-            "phone": "+91 9507325677"
+            "phone": "+91 9507325677",
+            "two_factor": True
         })
 
     user = find_user_by_email(get_current_user())
@@ -4525,7 +4576,8 @@ def get_user_profile():
             "role": "user",
             "name": session.get("name", "User"),
             "email": session.get("user", ""),
-            "phone": ""
+            "phone": "",
+            "two_factor": True
         })
 
     return jsonify({
@@ -4534,7 +4586,8 @@ def get_user_profile():
         "name": user.get("name", session.get("name")),
         "email": user.get("email", session.get("user")),
         "phone": user.get("phone", ""),
-        "status": user.get("status", "active")
+        "status": user.get("status", "active"),
+        "two_factor": user.get("two_factor", True)
     })
 
 @app.route("/api/owner/members/update", methods=["POST"])
