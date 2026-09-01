@@ -130,8 +130,12 @@ func (p *senderPool) buildSender(index int, dev *store.Device) *Sender {
 
 		if IsCallNotiEnabled() {
 			go func() {
-				notiMsg := fmt.Sprintf("╔══〔 📞 *INCOMING CALL ALERT* 〕══╗\n┃ Caller: *%s*\n┃ Type: *%s*\n┃ Call ID: `%s`\n┃ ⚡ Action: Reply `%sacceptcall` to join\n┃ ⚡ Action: Reply `%srejectcall` to decline\n╚════════════════════════════════╝", peerJID, map[bool]string{true: "Group Call 👥", false: "Private Call 👤"}[isGroupCall], inCall.ID(), GetPrefix(), GetPrefix())
-				_ = s.sendTextMessage(context.Background(), inCall.Peer(), notiMsg)
+				notiMsg := fmt.Sprintf("╔══〔 📞 *INCOMING CALL ALERT* 〕══╗\n┃ Caller: *%s*\n┃ Type: *%s*\n┃ Call ID: `%s`\n┃ ⚡ Action: Reply `%sacceptcall` to join\n┃ ⚡ Action: Reply `%srejectcall` to decline\n╚════════════════════════════════╝", peerJID, map[bool]string{true: "Group Call 👥", false: "Private Call 👤"}[isGroupCall], inCall.ID(), getPrefix(), getPrefix())
+				if s.wa != nil {
+					_, _ = s.wa.SendMessage(context.Background(), inCall.Peer(), &waE2E.Message{
+						Conversation: proto.String(notiMsg),
+					})
+				}
 			}()
 		}
 

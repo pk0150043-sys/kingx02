@@ -665,13 +665,6 @@ func handleMessage(ctx context.Context, s *Sender, evt *events.Message) {
 ┃ 👥 Auto-Join GC: *%v*
 ╚════════════════════════════════╝`, len(pool.list()), IsAutoUnmuteEnabled(), IsAutoJoinGCEnabled()))
 
-	case "noti":
-		if !requireAdmin() {
-			return
-		}
-		reactMsg(ctx, evt, "🔔")
-		sendText(ctx, evt.Info.Chat, fmt.Sprintf("🔔 *Incoming call notifications routed to:* `%s`", evt.Info.Chat.String()))
-
 	case "cvn":
 		if !requireAdmin() {
 			return
