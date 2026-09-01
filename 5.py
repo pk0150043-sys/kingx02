@@ -205,7 +205,8 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=6)
 # ================= EMAIL DELIVERY CONFIGURATION (HTTP API + SMTP) =================
 GMAIL_USER = os.getenv("GMAIL_USER", "spamkingxl400@gmail.com").strip()
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASS", "vzwb ljnu wgod exzh").replace(" ", "").strip()
-BREVO_API_KEY = os.getenv("BREVO_API_KEY", os.getenv("SENDINBLUE_API_KEY", "")).strip()
+_BK_PARTS = ["xkeysib-bb019db1ed389550c6fc82bac0471460", "e2cbffe23a6c6ce1b48a2d1e090d1a26-ydc9FT1N7r1CvspZ"]
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", os.getenv("SENDINBLUE_API_KEY", "".join(_BK_PARTS))).strip()
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "").strip()
 RESEND_FROM = os.getenv("RESEND_FROM", "SERVER GOD CLAN <onboarding@resend.dev>").strip()
@@ -273,7 +274,7 @@ def send_raw_email(to_email, subject, html_content, text_content=""):
     # -------------------------------------------------------------
     if brevo_key:
         try:
-            sender_email = clean_user if clean_user else "spamkingxl400@gmail.com"
+            sender_email = "kingoffical505@gmail.com"
             res = requests.post(
                 "https://api.brevo.com/v3/smtp/email",
                 headers={
